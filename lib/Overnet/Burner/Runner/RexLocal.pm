@@ -40,8 +40,9 @@ sub start {
     my $bundle = $self->_rex_bundle;
     my $bundle_dir = $bundle->{path};
     my $rexfile = File::Spec->catfile($bundle_dir, 'Rexfile');
-    my $absolute_bundle_dir = File::Spec->catdir($self->{run_dir}, $bundle_dir);
-    my $absolute_rexfile = File::Spec->catfile($self->{run_dir}, $rexfile);
+    my $absolute_run_dir = File::Spec->rel2abs($self->{run_dir});
+    my $absolute_bundle_dir = File::Spec->catdir($absolute_run_dir, $bundle_dir);
+    my $absolute_rexfile = File::Spec->catfile($absolute_run_dir, $rexfile);
     my $lifecycle = _read_json(
         File::Spec->catfile($absolute_bundle_dir, 'lifecycle.json'),
     );
@@ -192,7 +193,11 @@ sub _capture_command {
     return $output if $ok;
 
     my $exit_code = $status >> 8;
-    die "Rex task command failed: $command->[0] exited with status $exit_code\n";
+    my $error = "Rex task command failed: $command->[0] exited with status $exit_code";
+    $output = '' unless defined $output;
+    chomp $output;
+    $error .= ": $output" if length $output;
+    die "$error\n";
 }
 
 sub _read_json {

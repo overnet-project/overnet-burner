@@ -256,6 +256,20 @@ is_deeply $topology_provider->{relays}[0]{lifecycle},
 is scalar _read_lines($fake_rex_log), 3 * @rex_tasks,
     'external-command rex-local run still only invokes Rex tasks';
 
+my $relative_tmp = tempdir(CLEANUP => 1);
+my $relative_fake_rex = _write_fake_rex($relative_tmp);
+my $relative_rex_log = File::Spec->catfile($relative_tmp, 'fake-rex.log');
+my $relative_runs = "relative-rex-local-$$";
+{
+    local $ENV{OVERNET_BURNER_REX} = $relative_fake_rex;
+    local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $relative_rex_log;
+    my $relative_run = `$^X $bin run --scenario $scenario_path --runs-dir $relative_runs --run-id relative --runner rex-local 2>&1`;
+    is $?, 0, 'CLI rex-local works with a relative runs-dir';
+    like $relative_run, qr{^completed run: \Q$relative_runs/relative\E$}m,
+        'relative runs-dir run reports completed run directory';
+}
+_remove_tree($relative_runs);
+
 my $failure_tmp = tempdir(CLEANUP => 1);
 local $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK} = 'warmup';
 my $failed_run_id = 'cli-rex-local-failed';
@@ -310,6 +324,11 @@ my $log = $ENV{OVERNET_BURNER_TEST_REX_LOG}
 open my $fh, '>>', $log or die "open $log: $!";
 print {$fh} join("\0", @ARGV), "\n";
 close $fh or die "close $log: $!";
+for my $index (0 .. $#ARGV - 1) {
+    next unless $ARGV[$index] eq '-f';
+    die "Rexfile does not exist: $ARGV[$index + 1]\n"
+        unless -f $ARGV[$index + 1];
+}
 my $fail_task = $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK};
 if (defined $fail_task && @ARGV && $ARGV[-1] eq $fail_task) {
     print STDERR "fake rex failed task: $fail_task\n";
@@ -393,4 +412,21 @@ sub _read_file {
     open my $fh, '<', $path or die "open $path: $!";
     local $/;
     return <$fh>;
+}
+
+sub _remove_tree {
+    my ($path) = @_;
+
+    return unless -e $path;
+
+    if (-d $path) {
+        opendir my $dh, $path or die "opendir $path: $!";
+        my @entries = grep { $_ ne '.' && $_ ne '..' } readdir $dh;
+        closedir $dh or die "closedir $path: $!";
+        _remove_tree(File::Spec->catfile($path, $_)) for @entries;
+        rmdir $path or die "rmdir $path: $!";
+        return;
+    }
+
+    unlink $path or die "unlink $path: $!";
 }
