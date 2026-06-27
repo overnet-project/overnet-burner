@@ -8,8 +8,8 @@ use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Config;
 use Overnet::Burner::Plan;
-use Overnet::Burner::Provider;
 use Overnet::Burner::RunLedger;
+use Overnet::Burner::Runner;
 
 exit main(@ARGV) unless caller;
 
@@ -116,14 +116,14 @@ sub _run {
     my $scenario_path;
     my $runs_dir = 'runs';
     my $run_id;
-    my $provider_name = 'noop';
+    my $runner_name = 'noop';
 
     GetOptionsFromArray(
         \@args,
         'scenario=s' => \$scenario_path,
         'runs-dir=s' => \$runs_dir,
         'run-id=s'   => \$run_id,
-        'provider=s' => \$provider_name,
+        'runner=s'   => \$runner_name,
     ) or return _usage();
 
     die "--scenario is required\n" unless $scenario_path;
@@ -137,33 +137,33 @@ sub _run {
         defined $run_id ? (run_id => $run_id) : (),
     );
 
-    $ledger->mark_started(execution_provider => $provider_name);
+    $ledger->mark_started(runner => $runner_name);
 
     my $summary = eval {
         my $plan = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
-        my $provider = Overnet::Burner::Provider->load(
-            name    => $provider_name,
+        my $runner = Overnet::Burner::Runner->load(
+            name    => $runner_name,
             ledger  => $ledger,
             plan    => $plan,
             run_dir => $ledger->{run_dir},
         );
-        $provider->run_lifecycle;
+        $runner->run_lifecycle;
     };
     if ($@) {
         my $error = $@ || 'run failed';
         chomp $error;
         $ledger->finish(
-            status             => 'failed',
-            execution_provider => $provider_name,
-            error              => $error,
+            status => 'failed',
+            runner => $runner_name,
+            error  => $error,
         );
         die "$error\n";
     }
 
     $ledger->finish(
-        status             => 'completed',
-        execution_provider => $provider_name,
-        lifecycle          => $summary,
+        status    => 'completed',
+        runner    => $runner_name,
+        lifecycle => $summary,
     );
 
     print "completed run: $ledger->{run_dir}\n";
@@ -177,7 +177,7 @@ usage:
   overnet-burner validate --scenario scenarios/single-relay-baseline.yml
   overnet-burner plan --scenario scenarios/single-relay-baseline.yml
   overnet-burner init-run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
-  overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--provider noop]
+  overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop]
 USAGE
     return 2;
 }

@@ -1,9 +1,9 @@
-package Overnet::Burner::Provider::Noop;
+package Overnet::Burner::Runner::Noop;
 
 use strict;
 use warnings;
 
-use parent 'Overnet::Burner::Provider';
+use parent 'Overnet::Burner::Runner';
 
 sub prepare { return 1 }
 sub start   { return 1 }

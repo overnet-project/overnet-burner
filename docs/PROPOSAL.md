@@ -101,7 +101,9 @@ The correct split is:
 
 - The system must be general and configurable.
 - The system must not be tied to IRC, relay-perl, or a specific deployment.
-- Relay-perl may be the first provider, not the architecture.
+- Relay-perl may be the first topology provider, not the architecture.
+- Rex is the core execution substrate for orchestration; burner runners should
+  use Rex wherever orchestration is required.
 - Scenario definitions must be portable across environments.
 - Every run must be reproducible from its recorded manifest.
 - Every run must produce machine-readable artifacts.
@@ -181,7 +183,7 @@ Initial module boundaries:
 - `Overnet::Burner::Config`
 - `Overnet::Burner::Topology`
 - `Overnet::Burner::Scenario`
-- `Overnet::Burner::Provider`
+- `Overnet::Burner::Runner`
 - `Overnet::Burner::Worker`
 - `Overnet::Burner::Metrics`
 - `Overnet::Burner::Chaos`
@@ -277,7 +279,7 @@ Each run directory should include:
 - git SHAs for involved repositories when available
 - relevant tool and Perl versions
 - Rex version
-- provider versions
+- topology provider and runner versions
 - worker logs
 - raw JSONL metrics
 - summarized metrics
@@ -537,8 +539,8 @@ measurements.
 
 ## Open Design Questions
 
-- Should the first provider interface target relay command lines, service
-  managers, or containers?
+- Should the first topology provider interface target relay command lines,
+  service managers, or containers?
 - What is the minimum common relay control API needed across implementations?
 - How should large raw metric files be compacted for long runs?
 - Should comparison reports enforce hard regression budgets in CI?

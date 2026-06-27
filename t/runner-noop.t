@@ -10,7 +10,7 @@ use Test::More;
 use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Config;
-use Overnet::Burner::Provider;
+use Overnet::Burner::Runner;
 use Overnet::Burner::RunLedger;
 
 my $repo = "$FindBin::Bin/..";
@@ -35,7 +35,7 @@ my $ledger = Overnet::Burner::RunLedger->create(
     scenario      => $scenario,
     scenario_path => $scenario_path,
     runs_dir      => "$tmp/runs",
-    run_id        => 'noop-provider-001',
+    run_id        => 'noop-runner-001',
     now           => sub { shift @times },
     host_facts    => {
         hostname => 'builder-host',
@@ -47,18 +47,18 @@ my $ledger = Overnet::Burner::RunLedger->create(
 );
 my $plan = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
 
-my $provider = Overnet::Burner::Provider->load(
+my $runner = Overnet::Burner::Runner->load(
     name    => 'noop',
     ledger  => $ledger,
     plan    => $plan,
     run_dir => $ledger->{run_dir},
 );
 
-is $provider->name, 'noop', 'loads noop provider by name';
+is $runner->name, 'noop', 'loads noop runner by name';
 
-my $summary = $provider->run_lifecycle;
+my $summary = $runner->run_lifecycle;
 
-is $summary->{provider}, 'noop', 'summary records provider name';
+is $summary->{runner}, 'noop', 'summary records runner name';
 is_deeply $summary->{phases},
     {
     prepare => 'completed',
@@ -79,8 +79,8 @@ is_deeply $summary->{actor_counts},
     },
     'summary records deterministic actor counts';
 
-my $provider_log_path = File::Spec->catfile($ledger->{run_dir}, 'logs', 'provider.jsonl');
-open my $log_fh, '<', $provider_log_path or die "open $provider_log_path: $!";
+my $runner_log_path = File::Spec->catfile($ledger->{run_dir}, 'logs', 'runner.jsonl');
+open my $log_fh, '<', $runner_log_path or die "open $runner_log_path: $!";
 my @events = map { decode_json($_) } <$log_fh>;
 
 is_deeply [map { "$_->{phase}:$_->{status}" } @events],
@@ -96,9 +96,9 @@ is_deeply [map { "$_->{phase}:$_->{status}" } @events],
     'collect:started',
     'collect:completed',
     ],
-    'provider log records lifecycle event order';
+    'runner log records lifecycle event order';
 
-is $events[0]{provider}, 'noop', 'event records provider name';
+is $events[0]{runner}, 'noop', 'event records runner name';
 is $events[0]{timestamp}, '2026-06-27T14:00:01Z',
     'event timestamp comes from injected clock';
 is_deeply $events[0]{actor_counts}, $summary->{actor_counts},
@@ -107,16 +107,16 @@ is_deeply $events[0]{actor_counts}, $summary->{actor_counts},
 my $artifact_path = File::Spec->catfile(
     $ledger->{run_dir},
     'artifacts',
-    'noop-provider.json',
+    'noop-runner.json',
 );
 open my $artifact_fh, '<', $artifact_path or die "open $artifact_path: $!";
 local $/;
 my $artifact = decode_json(<$artifact_fh>);
 
-is_deeply $artifact, $summary, 'noop provider writes deterministic summary artifact';
+is_deeply $artifact, $summary, 'noop runner writes deterministic summary artifact';
 
 my $unknown = eval {
-    Overnet::Burner::Provider->load(
+    Overnet::Burner::Runner->load(
         name    => 'missing',
         ledger  => $ledger,
         plan    => $plan,
@@ -124,7 +124,7 @@ my $unknown = eval {
     );
     1;
 };
-ok !$unknown, 'rejects unknown provider';
-like $@, qr/unknown provider: missing/, 'reports unknown provider name';
+ok !$unknown, 'rejects unknown runner';
+like $@, qr/unknown runner: missing/, 'reports unknown runner name';
 
 done_testing;

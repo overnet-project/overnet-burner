@@ -1,4 +1,4 @@
-package Overnet::Burner::Provider;
+package Overnet::Burner::Runner;
 
 use strict;
 use warnings;
@@ -6,16 +6,16 @@ use warnings;
 use File::Spec;
 use JSON::PP;
 
-my %PROVIDER_MODULE = (
-    noop => 'Overnet::Burner::Provider::Noop',
+my %RUNNER_MODULE = (
+    noop => 'Overnet::Burner::Runner::Noop',
 );
 
 sub load {
     my ($class, %args) = @_;
 
-    my $name = $args{name} || die "provider name is required\n";
-    my $module = $PROVIDER_MODULE{$name}
-        or die "unknown provider: $name\n";
+    my $name = $args{name} || die "runner name is required\n";
+    my $module = $RUNNER_MODULE{$name}
+        or die "unknown runner: $name\n";
 
     eval "require $module; 1" or die $@;
 
@@ -25,7 +25,7 @@ sub load {
 sub new {
     my ($class, %args) = @_;
 
-    my $name = $args{name} || die "provider name is required\n";
+    my $name = $args{name} || die "runner name is required\n";
     my $ledger = $args{ledger} || die "ledger is required\n";
     my $plan = $args{plan} || die "plan is required\n";
     my $run_dir = $args{run_dir} || die "run_dir is required\n";
@@ -52,8 +52,8 @@ sub run_lifecycle {
     my $actor_counts = $self->actor_counts;
 
     for my $phase ($self->lifecycle_phases) {
-        $self->{ledger}->append_provider_event({
-            provider     => $self->name,
+        $self->{ledger}->append_runner_event({
+            runner       => $self->name,
             phase        => $phase,
             status       => 'started',
             actor_counts => $actor_counts,
@@ -64,11 +64,11 @@ sub run_lifecycle {
             1;
         };
         if (!$ok) {
-            my $error = $@ || 'provider phase failed';
+            my $error = $@ || 'runner phase failed';
             chomp $error;
             $phases{$phase} = 'failed';
-            $self->{ledger}->append_provider_event({
-                provider     => $self->name,
+            $self->{ledger}->append_runner_event({
+                runner       => $self->name,
                 phase        => $phase,
                 status       => 'failed',
                 actor_counts => $actor_counts,
@@ -78,8 +78,8 @@ sub run_lifecycle {
         }
 
         $phases{$phase} = 'completed';
-        $self->{ledger}->append_provider_event({
-            provider     => $self->name,
+        $self->{ledger}->append_runner_event({
+            runner       => $self->name,
             phase        => $phase,
             status       => 'completed',
             actor_counts => $actor_counts,
@@ -87,7 +87,7 @@ sub run_lifecycle {
     }
 
     my $summary = {
-        provider     => $self->name,
+        runner       => $self->name,
         phases       => \%phases,
         actor_counts => $actor_counts,
     };
@@ -120,7 +120,7 @@ sub write_summary_artifact {
     my $path = File::Spec->catfile(
         $self->{run_dir},
         'artifacts',
-        "$self->{name}-provider.json",
+        "$self->{name}-runner.json",
     );
 
     open my $fh, '>', $path or die "open $path: $!";

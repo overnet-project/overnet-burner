@@ -64,11 +64,12 @@ is $manifest->{scenario}{name}, 'single-relay-baseline',
     'manifest records scenario name';
 is $manifest->{topology_provider}{name}, 'generic-relay',
     'manifest records topology provider';
-ok exists $manifest->{execution_provider},
-    'manifest has execution provider field';
-ok !defined $manifest->{execution_provider}{name},
-    'manifest leaves execution provider unset before run starts';
+ok exists $manifest->{runner}, 'manifest has runner field';
+ok !defined $manifest->{runner}{name},
+    'manifest leaves runner unset before run starts';
 ok !exists $manifest->{provider}, 'manifest does not use ambiguous provider field';
+ok !exists $manifest->{execution_provider},
+    'manifest does not use execution provider field';
 is $manifest->{host_facts}{hostname}, 'builder-host', 'manifest records host facts';
 is $manifest->{repo_sha}, 'abc123', 'manifest records repo SHA';
 like $manifest->{perl_version}, qr/^5\./, 'manifest records Perl version';

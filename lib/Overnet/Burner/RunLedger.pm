@@ -56,8 +56,8 @@ sub create {
     _write_file(File::Spec->catfile($run_dir, 'metrics.jsonl'), '');
 
     my $topology_provider_name = $scenario->{topology}{relays}{provider};
-    my $execution_provider_name = exists $args{execution_provider_name}
-        ? $args{execution_provider_name}
+    my $runner_name = exists $args{runner_name}
+        ? $args{runner_name}
         : undef;
     my $manifest = {
         run_id     => $run_id,
@@ -71,8 +71,8 @@ sub create {
         topology_provider => {
             name => $topology_provider_name,
         },
-        execution_provider => {
-            name => $execution_provider_name,
+        runner => {
+            name => $runner_name,
         },
         host_facts   => $args{host_facts}   || _host_facts(),
         repo_sha     => exists $args{repo_sha} ? $args{repo_sha} : _repo_sha($scenario_path),
@@ -106,8 +106,7 @@ sub mark_started {
     my $manifest = $self->_read_manifest;
     $manifest->{status} = 'running';
     $manifest->{timestamps}{started_at} = $self->{now}->();
-    _set_execution_provider($manifest, $args{execution_provider})
-        if exists $args{execution_provider};
+    _set_runner($manifest, $args{runner}) if exists $args{runner};
     $self->_write_manifest($manifest);
 
     return 1;
@@ -121,8 +120,7 @@ sub finish {
 
     $manifest->{status} = $status;
     $manifest->{timestamps}{finished_at} = $self->{now}->();
-    _set_execution_provider($manifest, $args{execution_provider})
-        if exists $args{execution_provider};
+    _set_runner($manifest, $args{runner}) if exists $args{runner};
 
     if (exists $args{lifecycle}) {
         $manifest->{lifecycle} = $args{lifecycle};
@@ -139,7 +137,7 @@ sub finish {
     return 1;
 }
 
-sub append_provider_event {
+sub append_runner_event {
     my ($self, $event) = @_;
 
     die "event is required\n" unless ref $event eq 'HASH';
@@ -150,7 +148,7 @@ sub append_provider_event {
             ? $event->{timestamp}
             : $self->{now}->(),
     );
-    my $path = File::Spec->catfile($self->{run_dir}, 'logs', 'provider.jsonl');
+    my $path = File::Spec->catfile($self->{run_dir}, 'logs', 'runner.jsonl');
 
     open my $fh, '>>', $path or die "open $path: $!";
     print {$fh} JSON::PP->new->canonical(1)->encode(\%record), "\n";
@@ -159,11 +157,11 @@ sub append_provider_event {
     return 1;
 }
 
-sub _set_execution_provider {
+sub _set_runner {
     my ($manifest, $name) = @_;
 
-    $manifest->{execution_provider} ||= {};
-    $manifest->{execution_provider}{name} = $name;
+    $manifest->{runner} ||= {};
+    $manifest->{runner}{name} = $name;
 }
 
 sub _write_file {
