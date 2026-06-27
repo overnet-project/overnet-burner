@@ -55,6 +55,10 @@ sub create {
 
     _write_file(File::Spec->catfile($run_dir, 'metrics.jsonl'), '');
 
+    my $topology_provider_name = $scenario->{topology}{relays}{provider};
+    my $execution_provider_name = exists $args{execution_provider_name}
+        ? $args{execution_provider_name}
+        : undef;
     my $manifest = {
         run_id     => $run_id,
         timestamps => {
@@ -64,8 +68,11 @@ sub create {
         scenario => {
             name => $scenario->{run}{name},
         },
-        provider => {
-            name => $scenario->{topology}{relays}{provider},
+        topology_provider => {
+            name => $topology_provider_name,
+        },
+        execution_provider => {
+            name => $execution_provider_name,
         },
         host_facts   => $args{host_facts}   || _host_facts(),
         repo_sha     => exists $args{repo_sha} ? $args{repo_sha} : _repo_sha($scenario_path),
@@ -80,10 +87,83 @@ sub create {
         JSON::PP->new->canonical(1)->pretty(1)->space_before(0)->encode($manifest),
     );
 
-    return {
+    return bless {
         run_id  => $run_id,
         run_dir => $run_dir,
-    };
+        now     => $now,
+    }, $class;
+}
+
+sub load_plan {
+    my ($class, $run_dir) = @_;
+
+    return _read_json_file(File::Spec->catfile($run_dir, 'plan.json'));
+}
+
+sub mark_started {
+    my ($self, %args) = @_;
+
+    my $manifest = $self->_read_manifest;
+    $manifest->{status} = 'running';
+    $manifest->{timestamps}{started_at} = $self->{now}->();
+    _set_execution_provider($manifest, $args{execution_provider})
+        if exists $args{execution_provider};
+    $self->_write_manifest($manifest);
+
+    return 1;
+}
+
+sub finish {
+    my ($self, %args) = @_;
+
+    my $status = $args{status} || die "status is required\n";
+    my $manifest = $self->_read_manifest;
+
+    $manifest->{status} = $status;
+    $manifest->{timestamps}{finished_at} = $self->{now}->();
+    _set_execution_provider($manifest, $args{execution_provider})
+        if exists $args{execution_provider};
+
+    if (exists $args{lifecycle}) {
+        $manifest->{lifecycle} = $args{lifecycle};
+    }
+    if (exists $args{error}) {
+        $manifest->{error} = $args{error};
+    }
+    else {
+        delete $manifest->{error};
+    }
+
+    $self->_write_manifest($manifest);
+
+    return 1;
+}
+
+sub append_provider_event {
+    my ($self, $event) = @_;
+
+    die "event is required\n" unless ref $event eq 'HASH';
+
+    my %record = (
+        %{$event},
+        timestamp => exists $event->{timestamp}
+            ? $event->{timestamp}
+            : $self->{now}->(),
+    );
+    my $path = File::Spec->catfile($self->{run_dir}, 'logs', 'provider.jsonl');
+
+    open my $fh, '>>', $path or die "open $path: $!";
+    print {$fh} JSON::PP->new->canonical(1)->encode(\%record), "\n";
+    close $fh or die "close $path: $!";
+
+    return 1;
+}
+
+sub _set_execution_provider {
+    my ($manifest, $name) = @_;
+
+    $manifest->{execution_provider} ||= {};
+    $manifest->{execution_provider}{name} = $name;
 }
 
 sub _write_file {
@@ -92,6 +172,30 @@ sub _write_file {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} $content;
     close $fh or die "close $path: $!";
+}
+
+sub _read_manifest {
+    my ($self) = @_;
+
+    return _read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
+}
+
+sub _write_manifest {
+    my ($self, $manifest) = @_;
+
+    _write_file(
+        File::Spec->catfile($self->{run_dir}, 'manifest.json'),
+        JSON::PP->new->canonical(1)->pretty(1)->space_before(0)
+            ->encode($manifest),
+    );
+}
+
+sub _read_json_file {
+    my ($path) = @_;
+
+    open my $fh, '<', $path or die "open $path: $!";
+    local $/;
+    return JSON::PP->new->decode(<$fh>);
 }
 
 sub _default_run_id {
