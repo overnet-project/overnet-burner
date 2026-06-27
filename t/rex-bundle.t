@@ -56,6 +56,7 @@ is_deeply $bundle_a->{files},
     'chaos-hooks.json',
     'inventory/hosts.json',
     'lifecycle.json',
+    'topology-provider.json',
     ],
     'renderer reports stable bundle file list';
 
@@ -143,6 +144,22 @@ is_deeply [map { $_->{phase} } @{ $lifecycle->{commands} }],
 is_deeply [map { $_->{execution} } @{ $lifecycle->{commands} }],
     [('planned') x 8],
     'lifecycle plan is render-only';
+
+my $topology_provider = _read_json(
+    File::Spec->catfile($bundle_dir, 'topology-provider.json'),
+);
+is_deeply $topology_provider,
+    {
+    topology_provider => {
+        name => 'generic-relay',
+    },
+    relays => [
+        {
+            actor_id => 'relay-001',
+        },
+    ],
+    },
+    'topology provider artifact keeps generic-relay descriptor simple';
 
 my $chaos_hooks = _read_json(File::Spec->catfile($bundle_dir, 'chaos-hooks.json'));
 is_deeply $chaos_hooks, { hooks => [] }, 'chaos schedule is rendered';

@@ -27,6 +27,7 @@ sub render {
         'chaos-hooks.json'         => _json({ hooks => _clone($plan->{chaos_hooks} || []) }),
         'inventory/hosts.json'     => _json(_inventory(\@actors)),
         'lifecycle.json'           => _json(_lifecycle()),
+        'topology-provider.json'   => _json(_topology_provider($plan)),
     );
 
     for my $actor (@actors) {
@@ -177,6 +178,45 @@ sub _lifecycle {
     }
 
     return { commands => \@commands };
+}
+
+sub _topology_provider {
+    my ($plan) = @_;
+
+    return {
+        topology_provider => _clone($plan->{topology_provider} || {}),
+        relays            => [
+            map { _topology_provider_relay($_) } @{ $plan->{relays} || [] },
+        ],
+    };
+}
+
+sub _topology_provider_relay {
+    my ($relay) = @_;
+
+    my $record = {
+        actor_id => $relay->{id},
+    };
+    my $descriptor = $relay->{topology_provider_descriptor} || {};
+    my $command = $descriptor->{command};
+    if ($command) {
+        $record->{lifecycle} = {
+            health => {
+                command   => $command->{health},
+                execution => 'planned',
+            },
+            start => {
+                command   => $command->{start},
+                execution => 'planned',
+            },
+            stop => {
+                command   => $command->{stop},
+                execution => 'planned',
+            },
+        };
+    }
+
+    return $record;
 }
 
 sub _artifact_collection {

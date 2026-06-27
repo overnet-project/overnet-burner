@@ -6,6 +6,8 @@ use warnings;
 use JSON::PP;
 use YAML::PP;
 
+use Overnet::Burner::TopologyProvider;
+
 sub load_file {
     my ($class, $path) = @_;
 
@@ -69,6 +71,9 @@ sub validate {
     _require_integer($config, 'run.seed');
     _require_positive_integer($config, 'topology.relays.count');
     _require_string($config, 'topology.relays.provider');
+    Overnet::Burner::TopologyProvider->from_relay_config(
+        $config->{topology}{relays},
+    );
     _require_nonnegative_number($config, 'workload.publish_rate_per_second');
 
     for my $path (

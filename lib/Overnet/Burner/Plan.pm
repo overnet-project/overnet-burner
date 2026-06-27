@@ -6,16 +6,28 @@ use warnings;
 use Digest::SHA qw(sha256_hex);
 use JSON::PP qw(decode_json);
 
+use Overnet::Burner::TopologyProvider;
+
 sub build {
     my ($class, $scenario) = @_;
 
+    my $topology_provider = Overnet::Burner::TopologyProvider->from_relay_config(
+        $scenario->{topology}{relays},
+    );
+    my $relay_descriptor = Overnet::Burner::TopologyProvider
+        ->relay_actor_descriptor($topology_provider);
     my @relays = _actors(
         scenario => $scenario,
         field    => 'relays',
         role     => 'relay',
         prefix   => 'relay',
         extra    => {
-            topology_provider => $scenario->{topology}{relays}{provider},
+            topology_provider => $topology_provider->{name},
+            (
+                keys %{$relay_descriptor}
+                ? (topology_provider_descriptor => $relay_descriptor)
+                : ()
+            ),
         },
     );
     my @publishers = _actors(
@@ -61,9 +73,7 @@ sub build {
             duration_seconds => 0 + $scenario->{run}{duration},
             seed             => 0 + $scenario->{run}{seed},
         },
-        topology_provider => {
-            name => $scenario->{topology}{relays}{provider},
-        },
+        topology_provider => $topology_provider,
         relays         => \@relays,
         publishers     => \@publishers,
         subscribers    => \@subscribers,

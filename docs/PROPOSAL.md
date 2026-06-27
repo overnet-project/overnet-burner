@@ -101,7 +101,7 @@ The correct split is:
 
 - The system must be general and configurable.
 - The system must not be tied to IRC, relay-perl, or a specific deployment.
-- Relay-perl may be the first topology provider, not the architecture.
+- The Perl reference relay may be an early topology target, not the architecture.
 - Rex is the core execution substrate for orchestration; burner runners should
   use Rex wherever orchestration is required.
 - Scenario definitions must be portable across environments.
@@ -154,6 +154,9 @@ Rex execution bundle:
 Rex remains the execution substrate. Topology providers describe what should be
 run and observed; Rex-based burner runners decide how to orchestrate that work
 across machines.
+
+The initial provider descriptor contracts are documented in
+[`topology-providers.md`](topology-providers.md).
 
 ## Architecture
 
@@ -254,7 +257,7 @@ run:
 topology:
   relays:
     count: 3
-    provider: relay-perl
+    provider: generic-relay
   publishers:
     count: 100
   subscribers:

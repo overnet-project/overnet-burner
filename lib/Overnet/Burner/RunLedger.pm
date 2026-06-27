@@ -252,11 +252,14 @@ sub _repo_sha {
     my ($scenario_path) = @_;
     my $git_dir = dirname($scenario_path || getcwd());
 
-    open my $err, '>', File::Spec->devnull or return undef;
-    local *STDERR = $err;
+    my $pid = open my $fh, '-|';
+    return undef unless defined $pid;
+    if ($pid == 0) {
+        open STDERR, '>', File::Spec->devnull;
+        exec 'git', '-C', $git_dir, 'rev-parse', '--verify', 'HEAD';
+        exit 127;
+    }
 
-    open my $fh, '-|', 'git', '-C', $git_dir, 'rev-parse', '--verify', 'HEAD'
-        or return undef;
     my $sha = <$fh>;
     close $fh or return undef;
     return undef unless defined $sha;
