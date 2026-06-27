@@ -10,6 +10,7 @@ use Test::More;
 use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Config;
+use Overnet::Burner::Plan;
 use Overnet::Burner::RunLedger;
 
 my $repo = "$FindBin::Bin/..";
@@ -38,6 +39,7 @@ ok -d $run_dir, 'creates run directory';
 for my $path (
     'scenario.yml',
     'config.normalized.json',
+    'plan.json',
     'manifest.json',
     'metrics.jsonl',
 ) {
@@ -75,6 +77,39 @@ my $normalized = do {
 
 is $normalized, Overnet::Burner::Config->normalized_json($scenario),
     'ledger writes deterministic normalized config';
+
+my $plan_json = do {
+    open my $fh, '<', File::Spec->catfile($run_dir, 'plan.json')
+        or die "open plan.json: $!";
+    local $/;
+    <$fh>;
+};
+
+is $plan_json,
+    Overnet::Burner::Plan->canonical_json(
+        Overnet::Burner::Plan->build($scenario),
+    ),
+    'ledger writes deterministic plan';
+
+my $bad_plan_tmp = tempdir(CLEANUP => 1);
+my $bad_plan_scenario = decode_json(Overnet::Burner::Config->normalized_json($scenario));
+$bad_plan_scenario->{chaos} = [5];
+my $bad_plan_created = eval {
+    Overnet::Burner::RunLedger->create(
+        scenario      => $bad_plan_scenario,
+        scenario_path => $scenario_path,
+        runs_dir      => File::Spec->catdir($bad_plan_tmp, 'runs'),
+        run_id        => 'bad-plan',
+    );
+    1;
+};
+my $bad_plan_error = $@;
+
+ok !$bad_plan_created, 'rejects scenario that cannot produce a plan';
+like $bad_plan_error, qr/chaos\[0\] must be a mapping/,
+    'reports plan generation error before writing ledger';
+ok !-e File::Spec->catdir($bad_plan_tmp, 'runs', 'bad-plan'),
+    'does not leave a partial run directory when plan generation fails';
 
 for my $case (
     ['',             'empty run id'],

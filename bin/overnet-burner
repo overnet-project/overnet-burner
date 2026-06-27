@@ -7,6 +7,7 @@ use Getopt::Long qw(GetOptionsFromArray);
 use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Config;
+use Overnet::Burner::Plan;
 use Overnet::Burner::RunLedger;
 
 exit main(@ARGV) unless caller;
@@ -18,6 +19,9 @@ sub main {
     my $status = eval {
         if ($command eq 'validate') {
             return _validate(@args);
+        }
+        if ($command eq 'plan') {
+            return _plan(@args);
         }
         if ($command eq 'init-run') {
             return _init_run(@args);
@@ -50,6 +54,26 @@ sub _validate {
 
     my $scenario = Overnet::Burner::Config->load_file($scenario_path);
     print "valid scenario: $scenario->{run}{name}\n";
+
+    return 0;
+}
+
+sub _plan {
+    my @args = @_;
+    my $scenario_path;
+
+    GetOptionsFromArray(
+        \@args,
+        'scenario=s' => \$scenario_path,
+    ) or return _usage();
+
+    die "--scenario is required\n" unless $scenario_path;
+    die "unexpected arguments: @args\n" if @args;
+
+    my $scenario = Overnet::Burner::Config->load_file($scenario_path);
+    print Overnet::Burner::Plan->canonical_json(
+        Overnet::Burner::Plan->build($scenario),
+    );
 
     return 0;
 }
@@ -87,6 +111,7 @@ sub _usage {
     print STDERR <<'USAGE';
 usage:
   overnet-burner validate --scenario scenarios/single-relay-baseline.yml
+  overnet-burner plan --scenario scenarios/single-relay-baseline.yml
   overnet-burner init-run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
 USAGE
     return 2;

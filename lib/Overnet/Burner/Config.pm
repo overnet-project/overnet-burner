@@ -85,7 +85,7 @@ sub validate {
     _require_array($config, 'workload.subscription_filters');
     _require_array($config, 'workload.query_filters');
     _require_hash($config, 'workload.object_reads');
-    _require_array($config, 'chaos');
+    _require_array_of_mappings($config, 'chaos');
     _require_hash($config, 'thresholds');
 
     return 1;
@@ -126,6 +126,19 @@ sub _require_array {
     my ($config, $path) = @_;
     my $value = _required_value($config, $path);
     die "invalid field: $path must be an array\n" unless ref $value eq 'ARRAY';
+    return $value;
+}
+
+sub _require_array_of_mappings {
+    my ($config, $path) = @_;
+    my $value = _require_array($config, $path);
+    my $index = 0;
+
+    for my $item (@{$value}) {
+        _require_mapping_ref($item, "$path\[$index\]");
+        $index++;
+    }
+
     return $value;
 }
 

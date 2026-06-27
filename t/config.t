@@ -159,6 +159,24 @@ workload:
 YAML
         qr/workload\.object_reads must be a mapping/,
     ],
+    [
+        'chaos scalar entry',
+        <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+chaos:
+  - 5
+YAML
+        qr/chaos\[0\] must be a mapping/,
+    ],
 ) {
     my ($name, $yaml, $pattern) = @{$case};
     my $path = "$tmp/non-mapping-$name.yml";

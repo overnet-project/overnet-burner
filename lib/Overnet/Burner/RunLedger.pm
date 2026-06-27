@@ -13,6 +13,7 @@ use POSIX qw(strftime uname);
 use Sys::Hostname qw(hostname);
 
 use Overnet::Burner::Config;
+use Overnet::Burner::Plan;
 
 sub create {
     my ($class, %args) = @_;
@@ -27,6 +28,12 @@ sub create {
 
     die "run already exists: $run_dir\n" if -e $run_dir;
 
+    Overnet::Burner::Config->validate($scenario);
+    my $normalized_json = Overnet::Burner::Config->normalized_json($scenario);
+    my $plan_json = Overnet::Burner::Plan->canonical_json(
+        Overnet::Burner::Plan->build($scenario),
+    );
+
     make_path($runs_dir) unless -d $runs_dir;
     mkdir $run_dir or die "mkdir $run_dir: $!";
     mkdir File::Spec->catdir($run_dir, 'logs')
@@ -39,7 +46,11 @@ sub create {
 
     _write_file(
         File::Spec->catfile($run_dir, 'config.normalized.json'),
-        Overnet::Burner::Config->normalized_json($scenario),
+        $normalized_json,
+    );
+    _write_file(
+        File::Spec->catfile($run_dir, 'plan.json'),
+        $plan_json,
     );
 
     _write_file(File::Spec->catfile($run_dir, 'metrics.jsonl'), '');

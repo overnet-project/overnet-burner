@@ -7,6 +7,11 @@ use FindBin;
 use JSON::PP qw(decode_json);
 use Test::More;
 
+use lib "$FindBin::Bin/../lib";
+
+use Overnet::Burner::Config;
+use Overnet::Burner::Plan;
+
 my $repo = "$FindBin::Bin/..";
 my $bin = "$repo/bin/overnet-burner";
 my $scenario = "$repo/scenarios/single-relay-baseline.yml";
@@ -15,6 +20,18 @@ my $validate = `$^X $bin validate --scenario $scenario 2>&1`;
 is $?, 0, 'validate command exits successfully';
 like $validate, qr/^valid scenario: single-relay-baseline$/m,
     'validate command reports scenario name';
+
+my $plan = `$^X $bin plan --scenario $scenario 2>&1`;
+is $?, 0, 'plan command exits successfully';
+my $expected_plan = Overnet::Burner::Plan->canonical_json(
+    Overnet::Burner::Plan->build(Overnet::Burner::Config->load_file($scenario)),
+);
+is $plan, $expected_plan, 'plan command prints canonical plan JSON';
+my $decoded_plan = decode_json($plan);
+is $decoded_plan->{run}{name}, 'single-relay-baseline',
+    'plan command output records run name';
+is $decoded_plan->{relays}[0]{id}, 'relay-001',
+    'plan command output records relay actor';
 
 my $tmp = tempdir(CLEANUP => 1);
 my $run_id = 'cli-run-001';
