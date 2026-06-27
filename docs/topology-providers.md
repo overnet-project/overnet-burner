@@ -29,4 +29,8 @@ topology:
 
 The `start`, `stop`, and `health` command fields are required non-empty
 strings. Rendered Rex bundles record those commands as planned lifecycle hints
-under `artifacts/rex/topology-provider.json` and per-relay actor config.
+under `artifacts/rex/topology-provider.json` and per-relay actor config. The
+current `rex-local` runner invokes Rex tasks from the rendered `Rexfile`
+using `rex`, or `OVERNET_BURNER_REX` when an alternate executable is needed,
+while preserving those planned command artifacts without executing the command
+strings.

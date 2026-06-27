@@ -7,7 +7,8 @@ use File::Spec;
 use JSON::PP;
 
 my %RUNNER_MODULE = (
-    noop => 'Overnet::Burner::Runner::Noop',
+    noop        => 'Overnet::Burner::Runner::Noop',
+    'rex-local' => 'Overnet::Burner::Runner::RexLocal',
 );
 
 sub load {
@@ -86,10 +87,12 @@ sub run_lifecycle {
         });
     }
 
+    my %summary_fields = $self->summary_fields;
     my $summary = {
         runner       => $self->name,
         phases       => \%phases,
         actor_counts => $actor_counts,
+        %summary_fields,
     };
     $self->write_summary_artifact($summary);
 
@@ -112,6 +115,10 @@ sub actor_counts {
     $counts->{total} += $counts->{$_} for @roles;
 
     return $counts;
+}
+
+sub summary_fields {
+    return ();
 }
 
 sub write_summary_artifact {

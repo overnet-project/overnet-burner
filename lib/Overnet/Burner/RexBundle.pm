@@ -92,7 +92,7 @@ REX
     $text .= "\n";
     for my $phase (@LIFECYCLE_PHASES) {
         $text .= <<"REX";
-task '$phase', group => 'all', sub {
+task '$phase', sub {
     print "planned overnet-burner phase: $phase\\n";
 };
 
