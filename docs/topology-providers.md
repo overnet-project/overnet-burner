@@ -34,3 +34,10 @@ current `rex-local` runner invokes Rex tasks from the rendered `Rexfile`
 using `rex`, or `OVERNET_BURNER_REX` when an alternate executable is needed,
 while preserving those planned command artifacts without executing the command
 strings.
+
+Provider command execution is opt-in through the `rex-local-provider` runner.
+It reads `start`, `health`, and `stop` commands from the rendered
+`topology-provider.json`, writes command stdout and stderr under
+`logs/provider/`, records command events in `logs/runner.jsonl`, and attempts
+`stop` cleanup for relays whose `start` command completed before a later
+failure.

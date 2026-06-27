@@ -221,7 +221,7 @@ usage:
   overnet-burner plan --scenario scenarios/single-relay-baseline.yml
   overnet-burner init-run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
   overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
-  overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop|rex-local]
+  overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop|rex-local|rex-local-provider]
 USAGE
     return 2;
 }

@@ -7,8 +7,9 @@ use File::Spec;
 use JSON::PP;
 
 my %RUNNER_MODULE = (
-    noop        => 'Overnet::Burner::Runner::Noop',
-    'rex-local' => 'Overnet::Burner::Runner::RexLocal',
+    noop                 => 'Overnet::Burner::Runner::Noop',
+    'rex-local'          => 'Overnet::Burner::Runner::RexLocal',
+    'rex-local-provider' => 'Overnet::Burner::Runner::RexLocalProvider',
 );
 
 sub load {
@@ -75,6 +76,20 @@ sub run_lifecycle {
                 actor_counts => $actor_counts,
                 error        => $error,
             });
+            my $cleanup_ok = eval {
+                $self->cleanup_after_lifecycle_failure(
+                    failed_phase => $phase,
+                    error        => $error,
+                    phases       => \%phases,
+                    actor_counts => $actor_counts,
+                );
+                1;
+            };
+            if (!$cleanup_ok) {
+                my $cleanup_error = $@ || 'runner cleanup failed';
+                chomp $cleanup_error;
+                $error = "$error; cleanup failed: $cleanup_error";
+            }
             die "$error\n";
         }
 
@@ -119,6 +134,10 @@ sub actor_counts {
 
 sub summary_fields {
     return ();
+}
+
+sub cleanup_after_lifecycle_failure {
+    return 1;
 }
 
 sub write_summary_artifact {

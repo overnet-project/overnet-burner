@@ -1,0 +1,468 @@
+use strict;
+use warnings;
+
+use File::Spec;
+use File::Temp qw(tempdir);
+use FindBin;
+use JSON::PP qw(decode_json);
+use Test::More;
+
+use lib "$FindBin::Bin/../lib";
+
+use Overnet::Burner::Config;
+use Overnet::Burner::Runner;
+use Overnet::Burner::RunLedger;
+
+my $repo = "$FindBin::Bin/..";
+my $bin = "$repo/bin/overnet-burner";
+my $baseline_scenario = "$repo/scenarios/single-relay-baseline.yml";
+my @rex_tasks = qw(bootstrap deploy start warmup run chaos collect cleanup);
+
+my $success_tmp = tempdir(CLEANUP => 1);
+my $success_rex_log = File::Spec->catfile($success_tmp, 'fake-rex.log');
+my $success_fake_rex = _write_fake_rex($success_tmp);
+my $success_marker = File::Spec->catfile($success_tmp, 'relay.started');
+my $success_stop_marker = File::Spec->catfile($success_tmp, 'relay.stopped');
+my $success_commands = {
+    start  => "printf start > '$success_marker'; echo start-out",
+    health => "test -f '$success_marker' && echo health-out",
+    stop   => "printf stop > '$success_stop_marker'; echo stop-out",
+};
+my $success_scenario = File::Spec->catfile($success_tmp, 'external.yml');
+_write_yaml($success_scenario, _external_scenario_yaml($success_commands));
+
+local $ENV{OVERNET_BURNER_REX} = $success_fake_rex;
+local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $success_rex_log;
+
+my $success_summary = _run_runner(
+    runner_name   => 'rex-local-provider',
+    scenario_path => $success_scenario,
+    runs_dir      => File::Spec->catdir($success_tmp, 'runs'),
+    run_id        => 'success',
+);
+
+is $success_summary->{runner}, 'rex-local-provider',
+    'summary records opt-in provider runner';
+is $success_summary->{rex_bundle}{path}, 'artifacts/rex',
+    'provider runner keeps rex-local bundle rendering';
+is_deeply [map { $_->{task} } @{ $success_summary->{rex_tasks} }],
+    \@rex_tasks,
+    'provider runner keeps rex-local Rex task execution';
+is_deeply [map { $_->{command_kind} } @{ $success_summary->{topology_provider_commands} }],
+    [qw(start health stop)],
+    'provider runner records start, health, and stop command results';
+is_deeply [map { $_->{status} } @{ $success_summary->{topology_provider_commands} }],
+    [qw(completed completed completed)],
+    'provider command results record completion';
+is_deeply [map { $_->{exit_code} } @{ $success_summary->{topology_provider_commands} }],
+    [0, 0, 0],
+    'provider command results record exit codes';
+is_deeply [map { $_->{actor_id} } @{ $success_summary->{topology_provider_commands} }],
+    [qw(relay-001 relay-001 relay-001)],
+    'provider command results record actor ids';
+is $success_summary->{topology_provider_commands}[0]{command},
+    $success_commands->{start},
+    'provider command result records command string from rendered artifact';
+is $success_summary->{topology_provider_commands}[0]{stdout_path},
+    'logs/provider/relay-001-start.stdout',
+    'provider command result records deterministic stdout path';
+is $success_summary->{topology_provider_commands}[0]{stderr_path},
+    'logs/provider/relay-001-start.stderr',
+    'provider command result records deterministic stderr path';
+ok -e $success_marker, 'start provider command ran';
+ok -e $success_stop_marker, 'stop provider command ran';
+
+my $success_run_dir = File::Spec->catdir($success_tmp, 'runs', 'success');
+for my $kind (qw(start health stop)) {
+    ok -e File::Spec->catfile(
+        $success_run_dir, 'logs', 'provider', "relay-001-$kind.stdout",
+    ),
+        "$kind stdout artifact exists";
+    ok -e File::Spec->catfile(
+        $success_run_dir, 'logs', 'provider', "relay-001-$kind.stderr",
+    ),
+        "$kind stderr artifact exists";
+}
+is _read_file(File::Spec->catfile($success_run_dir, 'logs', 'provider', 'relay-001-start.stdout')),
+    "start-out\n",
+    'start stdout artifact captures command output';
+is _read_file(File::Spec->catfile($success_run_dir, 'logs', 'provider', 'relay-001-health.stdout')),
+    "health-out\n",
+    'health stdout artifact captures command output';
+is _read_file(File::Spec->catfile($success_run_dir, 'logs', 'provider', 'relay-001-stop.stdout')),
+    "stop-out\n",
+    'stop stdout artifact captures command output';
+is _read_file(File::Spec->catfile($success_run_dir, 'logs', 'provider', 'relay-001-start.stderr')),
+    '',
+    'start stderr artifact captures empty stderr';
+
+my $success_events = _read_jsonl(
+    File::Spec->catfile($success_run_dir, 'logs', 'runner.jsonl'),
+);
+my @provider_events = grep { exists $_->{command_kind} } @{$success_events};
+is_deeply [map { "$_->{command_kind}:$_->{status}" } @provider_events],
+    [
+    'start:started',
+    'start:completed',
+    'health:started',
+    'health:completed',
+    'stop:started',
+    'stop:completed',
+    ],
+    'runner log records provider command event order';
+is $provider_events[0]{runner}, 'rex-local-provider',
+    'provider event records runner name';
+is $provider_events[0]{actor_id}, 'relay-001',
+    'provider event records actor id';
+is $provider_events[1]{exit_code}, 0,
+    'provider completion event records exit code';
+is $provider_events[1]{stdout_path}, 'logs/provider/relay-001-start.stdout',
+    'provider event records stdout path';
+is $provider_events[1]{stderr_path}, 'logs/provider/relay-001-start.stderr',
+    'provider event records stderr path';
+is $provider_events[1]{command}, $success_commands->{start},
+    'provider event records command string';
+
+my @rex_invocations = _read_lines($success_rex_log);
+is scalar @rex_invocations, scalar @rex_tasks,
+    'provider runner invokes rendered Rex tasks';
+
+my $summary_artifact = _read_json(
+    File::Spec->catfile($success_run_dir, 'artifacts', 'rex-local-provider-runner.json'),
+);
+is_deeply $summary_artifact, $success_summary,
+    'provider runner writes summary artifact with command results';
+
+my $failure_tmp = tempdir(CLEANUP => 1);
+my $failure_fake_rex = _write_fake_rex($failure_tmp);
+my $failure_rex_log = File::Spec->catfile($failure_tmp, 'fake-rex.log');
+my $failure_marker = File::Spec->catfile($failure_tmp, 'relay.started');
+my $failure_stop_marker = File::Spec->catfile($failure_tmp, 'relay.stopped');
+my $failure_commands = {
+    start  => "printf start > '$failure_marker'",
+    health => "echo health failed >&2; exit 42",
+    stop   => "printf stop > '$failure_stop_marker'",
+};
+my $failure_scenario = File::Spec->catfile($failure_tmp, 'external.yml');
+_write_yaml($failure_scenario, _external_scenario_yaml($failure_commands));
+
+{
+    local $ENV{OVERNET_BURNER_REX} = $failure_fake_rex;
+    local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $failure_rex_log;
+    my $failed = `$^X $bin run --scenario $failure_scenario --runs-dir $failure_tmp/runs --run-id failure --runner rex-local-provider 2>&1`;
+    is $? >> 8, 2, 'CLI provider runner fails when health fails';
+    like $failed, qr/provider command failed: relay-001 health/,
+        'health failure is reported';
+}
+ok -e $failure_stop_marker,
+    'stop is attempted after successful start and failed health';
+
+my $failure_events = _read_jsonl(
+    File::Spec->catfile($failure_tmp, 'runs', 'failure', 'logs', 'runner.jsonl'),
+);
+my @failure_provider_events = grep { exists $_->{command_kind} } @{$failure_events};
+is_deeply [map { "$_->{command_kind}:$_->{status}" } @failure_provider_events],
+    [
+    'start:started',
+    'start:completed',
+    'health:started',
+    'health:failed',
+    'stop:started',
+    'stop:completed',
+    ],
+    'provider runner records stop after health failure';
+is $failure_provider_events[3]{exit_code}, 42,
+    'failed health event records exit code';
+
+my $rex_failure_tmp = tempdir(CLEANUP => 1);
+my $rex_failure_fake_rex = _write_fake_rex($rex_failure_tmp);
+my $rex_failure_rex_log = File::Spec->catfile($rex_failure_tmp, 'fake-rex.log');
+my $rex_failure_marker = File::Spec->catfile($rex_failure_tmp, 'relay.started');
+my $rex_failure_stop_marker = File::Spec->catfile($rex_failure_tmp, 'relay.stopped');
+my $rex_failure_commands = {
+    start  => "printf start > '$rex_failure_marker'",
+    health => "test -f '$rex_failure_marker'",
+    stop   => "printf stop > '$rex_failure_stop_marker'",
+};
+my $rex_failure_scenario = File::Spec->catfile($rex_failure_tmp, 'external.yml');
+_write_yaml($rex_failure_scenario, _external_scenario_yaml($rex_failure_commands));
+{
+    local $ENV{OVERNET_BURNER_REX} = $rex_failure_fake_rex;
+    local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $rex_failure_rex_log;
+    local $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK} = 'warmup';
+    my $failed = `$^X $bin run --scenario $rex_failure_scenario --runs-dir $rex_failure_tmp/runs --run-id rex-failure --runner rex-local-provider 2>&1`;
+    is $? >> 8, 2, 'CLI provider runner fails when a Rex task fails';
+    like $failed, qr/Rex task command failed:/,
+        'Rex failure is reported';
+}
+ok -e $rex_failure_stop_marker,
+    'stop is attempted after provider start and Rex task failure';
+my $rex_failure_events = _read_jsonl(
+    File::Spec->catfile($rex_failure_tmp, 'runs', 'rex-failure', 'logs', 'runner.jsonl'),
+);
+my @rex_failure_provider_events = grep { exists $_->{command_kind} } @{$rex_failure_events};
+is_deeply [map { "$_->{command_kind}:$_->{status}" } @rex_failure_provider_events],
+    [
+    'start:started',
+    'start:completed',
+    'health:started',
+    'health:completed',
+    'stop:started',
+    'stop:completed',
+    ],
+    'provider runner records stop after Rex task failure';
+
+my $stop_failure_tmp = tempdir(CLEANUP => 1);
+my $stop_failure_fake_rex = _write_fake_rex($stop_failure_tmp);
+my $stop_failure_rex_log = File::Spec->catfile($stop_failure_tmp, 'fake-rex.log');
+my $stop_failure_marker = File::Spec->catfile($stop_failure_tmp, 'relay.started');
+my $stop_failure_commands = {
+    start  => "printf start > '$stop_failure_marker'",
+    health => "test -f '$stop_failure_marker'",
+    stop   => "echo stop failed >&2; exit 43",
+};
+my $stop_failure_scenario = File::Spec->catfile($stop_failure_tmp, 'external.yml');
+_write_yaml($stop_failure_scenario, _external_scenario_yaml($stop_failure_commands));
+{
+    local $ENV{OVERNET_BURNER_REX} = $stop_failure_fake_rex;
+    local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $stop_failure_rex_log;
+    my $failed = `$^X $bin run --scenario $stop_failure_scenario --runs-dir $stop_failure_tmp/runs --run-id stop-failure --runner rex-local-provider 2>&1`;
+    is $? >> 8, 2, 'CLI provider runner fails when stop fails';
+    like $failed, qr/provider command failed: relay-001 stop/,
+        'stop failure is reported';
+}
+my $stop_failure_manifest = _read_json(
+    File::Spec->catfile($stop_failure_tmp, 'runs', 'stop-failure', 'manifest.json'),
+);
+is $stop_failure_manifest->{status}, 'failed',
+    'stop failure manifest records failed status';
+like $stop_failure_manifest->{error}, qr/provider command failed: relay-001 stop/,
+    'stop failure manifest records provider stop error';
+my $stop_failure_events = _read_jsonl(
+    File::Spec->catfile($stop_failure_tmp, 'runs', 'stop-failure', 'logs', 'runner.jsonl'),
+);
+my @stop_failure_provider_events = grep { exists $_->{command_kind} } @{$stop_failure_events};
+is_deeply [map { "$_->{command_kind}:$_->{status}" } @stop_failure_provider_events],
+    [
+    'start:started',
+    'start:completed',
+    'health:started',
+    'health:completed',
+    'stop:started',
+    'stop:failed',
+    ],
+    'provider runner records failed stop command';
+is $stop_failure_provider_events[-1]{exit_code}, 43,
+    'failed stop event records exit code';
+
+my $rex_local_tmp = tempdir(CLEANUP => 1);
+my $rex_local_fake_rex = _write_fake_rex($rex_local_tmp);
+my $rex_local_rex_log = File::Spec->catfile($rex_local_tmp, 'fake-rex.log');
+my $rex_local_marker = File::Spec->catfile($rex_local_tmp, 'relay.started');
+my $rex_local_commands = {
+    start  => "printf start > '$rex_local_marker'",
+    health => 'echo health',
+    stop   => 'echo stop',
+};
+my $rex_local_scenario = File::Spec->catfile($rex_local_tmp, 'external.yml');
+_write_yaml($rex_local_scenario, _external_scenario_yaml($rex_local_commands));
+{
+    local $ENV{OVERNET_BURNER_REX} = $rex_local_fake_rex;
+    local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $rex_local_rex_log;
+    _run_runner(
+        runner_name   => 'rex-local',
+        scenario_path => $rex_local_scenario,
+        runs_dir      => File::Spec->catdir($rex_local_tmp, 'runs'),
+        run_id        => 'rex-local',
+    );
+}
+ok !-e $rex_local_marker,
+    'rex-local still does not execute provider commands';
+
+my $generic_tmp = tempdir(CLEANUP => 1);
+my $generic_fake_rex = _write_fake_rex($generic_tmp);
+my $generic_rex_log = File::Spec->catfile($generic_tmp, 'fake-rex.log');
+{
+    local $ENV{OVERNET_BURNER_REX} = $generic_fake_rex;
+    local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $generic_rex_log;
+    my $generic_summary = _run_runner(
+        runner_name   => 'rex-local-provider',
+        scenario_path => $baseline_scenario,
+        runs_dir      => File::Spec->catdir($generic_tmp, 'runs'),
+        run_id        => 'generic',
+    );
+    is_deeply $generic_summary->{topology_provider_commands}, [],
+        'generic-relay provider runner records no provider command results';
+    ok !-d File::Spec->catdir(
+        $generic_tmp, 'runs', 'generic', 'logs', 'provider',
+    ),
+        'generic-relay provider runner does not create provider logs';
+}
+
+my $cli_tmp = tempdir(CLEANUP => 1);
+my $cli_fake_rex = _write_fake_rex($cli_tmp);
+my $cli_rex_log = File::Spec->catfile($cli_tmp, 'fake-rex.log');
+my $cli_marker = File::Spec->catfile($cli_tmp, 'relay.started');
+my $cli_stop_marker = File::Spec->catfile($cli_tmp, 'relay.stopped');
+my $cli_commands = {
+    start  => "printf start > '$cli_marker'",
+    health => "test -f '$cli_marker'",
+    stop   => "printf stop > '$cli_stop_marker'",
+};
+my $cli_scenario = File::Spec->catfile($cli_tmp, 'external.yml');
+_write_yaml($cli_scenario, _external_scenario_yaml($cli_commands));
+{
+    local $ENV{OVERNET_BURNER_REX} = $cli_fake_rex;
+    local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $cli_rex_log;
+    my $cli = `$^X $bin run --scenario $cli_scenario --runs-dir $cli_tmp/runs --run-id cli --runner rex-local-provider 2>&1`;
+    is $?, 0, 'CLI run --runner rex-local-provider exits successfully';
+    like $cli, qr{^completed run: \Q$cli_tmp/runs/cli\E$}m,
+        'CLI provider runner reports completed run directory';
+}
+my $cli_manifest = _read_json(
+    File::Spec->catfile($cli_tmp, 'runs', 'cli', 'manifest.json'),
+);
+is $cli_manifest->{runner}{name}, 'rex-local-provider',
+    'CLI manifest records provider runner';
+is $cli_manifest->{rex_bundle}{path}, 'artifacts/rex',
+    'CLI manifest records Rex bundle';
+is $cli_manifest->{lifecycle}{runner}, 'rex-local-provider',
+    'CLI manifest lifecycle records provider runner';
+is_deeply [map { $_->{command_kind} } @{ $cli_manifest->{lifecycle}{topology_provider_commands} }],
+    [qw(start health stop)],
+    'CLI manifest lifecycle records provider command results';
+ok !exists $cli_manifest->{provider},
+    'CLI provider run avoids ambiguous provider field';
+ok !exists $cli_manifest->{execution_provider},
+    'CLI provider run avoids execution provider field';
+
+done_testing;
+
+sub _run_runner {
+    my (%args) = @_;
+
+    my $scenario = Overnet::Burner::Config->load_file($args{scenario_path});
+    my $ledger = Overnet::Burner::RunLedger->create(
+        scenario      => $scenario,
+        scenario_path => $args{scenario_path},
+        runs_dir      => $args{runs_dir},
+        run_id        => $args{run_id},
+        now           => sub { '2026-06-27T14:00:00Z' },
+        host_facts    => {
+            hostname => 'builder-host',
+            os       => 'linux',
+            arch     => 'x86_64',
+        },
+        repo_sha    => 'abc123',
+        rex_version => undef,
+    );
+    my $plan = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
+    my $runner = Overnet::Burner::Runner->load(
+        name    => $args{runner_name},
+        ledger  => $ledger,
+        plan    => $plan,
+        run_dir => $ledger->{run_dir},
+    );
+
+    return $runner->run_lifecycle;
+}
+
+sub _external_scenario_yaml {
+    my ($command) = @_;
+
+    return <<"YAML";
+run:
+  name: external-command-relay
+  duration: 60
+  seed: 24680
+
+topology:
+  relays:
+    count: 1
+    provider: external-command
+    command:
+      start: $command->{start}
+      stop: $command->{stop}
+      health: $command->{health}
+  publishers:
+    count: 0
+  subscribers:
+    count: 0
+  query_readers:
+    count: 0
+  object_readers:
+    count: 0
+
+workload:
+  publish_rate_per_second: 0
+YAML
+}
+
+sub _write_fake_rex {
+    my ($dir) = @_;
+    my $path = File::Spec->catfile($dir, 'fake-rex');
+
+    open my $fh, '>', $path or die "open $path: $!";
+    print {$fh} <<'PERL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+my $log = $ENV{OVERNET_BURNER_TEST_REX_LOG}
+    or die "OVERNET_BURNER_TEST_REX_LOG is required\n";
+open my $fh, '>>', $log or die "open $log: $!";
+print {$fh} join("\0", @ARGV), "\n";
+close $fh or die "close $log: $!";
+my $fail_task = $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK};
+if (defined $fail_task && @ARGV && $ARGV[-1] eq $fail_task) {
+    print STDERR "fake rex failed task: $fail_task\n";
+    exit 42;
+}
+print "fake rex: @ARGV\n";
+exit 0;
+PERL
+    close $fh or die "close $path: $!";
+    chmod 0755, $path or die "chmod $path: $!";
+
+    return $path;
+}
+
+sub _write_yaml {
+    my ($path, $yaml) = @_;
+
+    open my $fh, '>', $path or die "open $path: $!";
+    print {$fh} $yaml;
+    close $fh or die "close $path: $!";
+}
+
+sub _read_json {
+    my ($path) = @_;
+
+    return decode_json(_read_file($path));
+}
+
+sub _read_jsonl {
+    my ($path) = @_;
+
+    open my $fh, '<', $path or die "open $path: $!";
+    my @records = map { decode_json($_) } <$fh>;
+    close $fh or die "close $path: $!";
+    return \@records;
+}
+
+sub _read_lines {
+    my ($path) = @_;
+
+    open my $fh, '<', $path or die "open $path: $!";
+    chomp(my @lines = <$fh>);
+    close $fh or die "close $path: $!";
+    return @lines;
+}
+
+sub _read_file {
+    my ($path) = @_;
+
+    open my $fh, '<', $path or die "open $path: $!";
+    local $/;
+    return <$fh>;
+}
