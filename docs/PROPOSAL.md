@@ -129,6 +129,32 @@ The relay specification currently leaves relay peering policy, topology,
 scheduling, and filter selection strategy open. `overnet-burner` should be able
 to explore those areas without treating its findings as normative spec text.
 
+## Topology Providers
+
+Topology providers are the implementation-under-test boundary. A topology
+provider may be the Perl reference relay, a Python implementation, a container
+image, an external command, a remote service, or another Overnet-compatible
+system.
+
+`overnet-burner` must judge topology providers by observable Overnet behavior,
+performance, and recovery against the Overnet specification, not by language,
+runtime, framework, or repository layout.
+
+Topology providers should supply the information needed to place them into a
+Rex execution bundle:
+
+- process or container start commands
+- stop and cleanup commands
+- configuration and environment inputs
+- readiness and health checks
+- network endpoints
+- logs, metrics, state, and artifact locations
+- implementation version metadata
+
+Rex remains the execution substrate. Topology providers describe what should be
+run and observed; Rex-based burner runners decide how to orchestrate that work
+across machines.
+
 ## Architecture
 
 ### Top-Level Shape

@@ -25,10 +25,17 @@ is $plan_a->{scenario}{name}, 'single-relay-baseline',
 is $plan_a->{run}{name}, 'single-relay-baseline', 'plan records run name';
 is $plan_a->{run}{duration_seconds}, 60, 'plan records run duration';
 is $plan_a->{run}{seed}, 12345, 'plan records run seed';
-is $plan_a->{provider}{name}, 'generic-relay', 'plan records provider';
+my $plan_topology_provider = $plan_a->{topology_provider} || {};
+is $plan_topology_provider->{name}, 'generic-relay',
+    'plan records topology provider';
+ok !exists $plan_a->{provider}, 'plan does not use ambiguous provider field';
 
 is_deeply [map { $_->{id} } @{ $plan_a->{relays} }], ['relay-001'],
     'plan expands relay count into stable ids';
+is $plan_a->{relays}[0]{topology_provider}, 'generic-relay',
+    'relay actor records topology provider';
+ok !exists $plan_a->{relays}[0]{provider},
+    'relay actor does not use ambiguous provider field';
 is_deeply [map { $_->{id} } @{ $plan_a->{publishers} }], ['publisher-001'],
     'plan expands publisher count into stable ids';
 is_deeply [map { $_->{id} } @{ $plan_a->{subscribers} }], ['subscriber-001'],

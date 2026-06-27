@@ -32,6 +32,10 @@ is $decoded_plan->{run}{name}, 'single-relay-baseline',
     'plan command output records run name';
 is $decoded_plan->{relays}[0]{id}, 'relay-001',
     'plan command output records relay actor';
+is $decoded_plan->{topology_provider}{name}, 'generic-relay',
+    'plan command output records topology provider';
+ok !exists $decoded_plan->{provider},
+    'plan command output does not use ambiguous provider field';
 
 my $tmp = tempdir(CLEANUP => 1);
 my $run_id = 'cli-run-001';

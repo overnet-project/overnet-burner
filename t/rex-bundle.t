@@ -25,6 +25,12 @@ my $ledger_b = _ledger("$tmp/b", 'rex-render-b');
 my $plan_a = Overnet::Burner::RunLedger->load_plan($ledger_a->{run_dir});
 my $plan_b = Overnet::Burner::RunLedger->load_plan($ledger_b->{run_dir});
 
+my $plan_topology_provider = $plan_a->{topology_provider} || {};
+is $plan_topology_provider->{name}, 'generic-relay',
+    'source plan records topology provider';
+ok !exists $plan_a->{provider},
+    'source plan does not use ambiguous provider field';
+
 my $bundle_a = Overnet::Burner::RexBundle->render(
     run_dir => $ledger_a->{run_dir},
     plan    => $plan_a,
@@ -116,6 +122,10 @@ is_deeply [map { $_->{host_id} } @{ $assignments->{assignments} }],
 my $relay_config = _read_json(File::Spec->catfile($bundle_dir, 'actors', 'relay-001.json'));
 is $relay_config->{actor}{id}, 'relay-001', 'per-actor config records actor id';
 is $relay_config->{actor}{role}, 'relay', 'per-actor config records actor role';
+is $relay_config->{actor}{topology_provider}, 'generic-relay',
+    'per-actor config records topology provider';
+ok !exists $relay_config->{actor}{provider},
+    'per-actor config does not use ambiguous provider field';
 is $relay_config->{host_id}, 'host-001', 'per-actor config records host';
 is $relay_config->{metric_stream}, 'metrics/relay-001.jsonl',
     'per-actor config records metric stream';

@@ -158,7 +158,7 @@ sub _actor_env {
         OVERNET_BURNER_ROLE              => $actor->{role},
         OVERNET_BURNER_RUN_NAME          => $plan->{run}{name},
         OVERNET_BURNER_SEED              => "$actor->{seed}",
-        OVERNET_BURNER_TOPOLOGY_PROVIDER => $plan->{provider}{name},
+        OVERNET_BURNER_TOPOLOGY_PROVIDER => $plan->{topology_provider}{name},
     };
 }
 

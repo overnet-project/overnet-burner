@@ -15,7 +15,7 @@ sub build {
         role     => 'relay',
         prefix   => 'relay',
         extra    => {
-            provider => $scenario->{topology}{relays}{provider},
+            topology_provider => $scenario->{topology}{relays}{provider},
         },
     );
     my @publishers = _actors(
@@ -61,7 +61,7 @@ sub build {
             duration_seconds => 0 + $scenario->{run}{duration},
             seed             => 0 + $scenario->{run}{seed},
         },
-        provider => {
+        topology_provider => {
             name => $scenario->{topology}{relays}{provider},
         },
         relays         => \@relays,
