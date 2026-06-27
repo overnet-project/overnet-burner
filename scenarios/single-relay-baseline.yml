@@ -1,0 +1,33 @@
+run:
+  name: single-relay-baseline
+  duration: 60
+  seed: 12345
+
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+  subscribers:
+    count: 1
+  query_readers:
+    count: 1
+  object_readers:
+    count: 1
+
+workload:
+  publish_rate_per_second: 10
+  subscription_filters:
+    - kinds: [37800]
+      "#overnet_ot": ["chat.channel"]
+  query_filters:
+    - kinds: [37800]
+      limit: 100
+  object_reads:
+    count_per_second: 1
+
+thresholds:
+  publish_p99_ms: 250
+  subscription_fanout_p99_ms: 1000
+  error_rate_max: 0.01

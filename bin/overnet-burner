@@ -1,0 +1,93 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use FindBin;
+use Getopt::Long qw(GetOptionsFromArray);
+use lib "$FindBin::Bin/../lib";
+
+use Overnet::Burner::Config;
+use Overnet::Burner::RunLedger;
+
+exit main(@ARGV) unless caller;
+
+sub main {
+    my @args = @_;
+    my $command = shift @args || return _usage();
+
+    my $status = eval {
+        if ($command eq 'validate') {
+            return _validate(@args);
+        }
+        if ($command eq 'init-run') {
+            return _init_run(@args);
+        }
+
+        die "unknown command: $command\n";
+    };
+
+    if ($@) {
+        my $error = $@ || 'command failed';
+        chomp $error;
+        print STDERR "$error\n";
+        return 2;
+    }
+
+    return $status;
+}
+
+sub _validate {
+    my @args = @_;
+    my $scenario_path;
+
+    GetOptionsFromArray(
+        \@args,
+        'scenario=s' => \$scenario_path,
+    ) or return _usage();
+
+    die "--scenario is required\n" unless $scenario_path;
+    die "unexpected arguments: @args\n" if @args;
+
+    my $scenario = Overnet::Burner::Config->load_file($scenario_path);
+    print "valid scenario: $scenario->{run}{name}\n";
+
+    return 0;
+}
+
+sub _init_run {
+    my @args = @_;
+    my $scenario_path;
+    my $runs_dir = 'runs';
+    my $run_id;
+
+    GetOptionsFromArray(
+        \@args,
+        'scenario=s' => \$scenario_path,
+        'runs-dir=s' => \$runs_dir,
+        'run-id=s'   => \$run_id,
+    ) or return _usage();
+
+    die "--scenario is required\n" unless $scenario_path;
+    die "unexpected arguments: @args\n" if @args;
+
+    my $scenario = Overnet::Burner::Config->load_file($scenario_path);
+    my $ledger = Overnet::Burner::RunLedger->create(
+        scenario      => $scenario,
+        scenario_path => $scenario_path,
+        runs_dir      => $runs_dir,
+        defined $run_id ? (run_id => $run_id) : (),
+    );
+
+    print "created run: $ledger->{run_dir}\n";
+
+    return 0;
+}
+
+sub _usage {
+    print STDERR <<'USAGE';
+usage:
+  overnet-burner validate --scenario scenarios/single-relay-baseline.yml
+  overnet-burner init-run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
+USAGE
+    return 2;
+}
