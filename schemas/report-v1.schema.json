@@ -1,0 +1,960 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://overnet-project.org/schemas/overnet-burner/report-v1.schema.json",
+  "title": "overnet-burner report v1",
+  "description": "Stable automation contract for one overnet-burner run. Lower-level artifacts are evidence; report.json is the normal machine-consumption surface.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "report_version",
+    "schema",
+    "generated_at",
+    "run",
+    "scenario",
+    "environment",
+    "topology",
+    "execution",
+    "workload",
+    "metrics",
+    "thresholds",
+    "chaos",
+    "artifacts",
+    "diagnostics",
+    "human_summary",
+    "extensions"
+  ],
+  "properties": {
+    "report_version": {
+      "description": "Integer report contract version. Breaking changes require a new value.",
+      "const": 1
+    },
+    "schema": {
+      "description": "Stable schema identifier used by automation before consuming this report.",
+      "const": "https://overnet-project.org/schemas/overnet-burner/report-v1.schema.json"
+    },
+    "generated_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "verdict",
+        "result_class",
+        "created_at",
+        "started_at",
+        "finished_at",
+        "duration_ms"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/run_id"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "created",
+            "running",
+            "completed",
+            "failed",
+            "aborted"
+          ]
+        },
+        "verdict": {
+          "type": "string",
+          "description": "Machine-readable conclusion. This is intentionally distinct from run status.",
+          "enum": [
+            "not_evaluated",
+            "smoke_passed",
+            "performance_passed",
+            "performance_failed",
+            "chaos_passed",
+            "chaos_failed",
+            "conformance_passed",
+            "conformance_failed",
+            "orchestration_failed",
+            "inconclusive_no_metrics",
+            "inconclusive_partial_run",
+            "aborted"
+          ]
+        },
+        "result_class": {
+          "type": "string",
+          "enum": [
+            "none",
+            "orchestration",
+            "performance",
+            "chaos",
+            "conformance",
+            "mixed"
+          ]
+        },
+        "created_at": {
+          "$ref": "#/$defs/nullable_timestamp"
+        },
+        "started_at": {
+          "$ref": "#/$defs/nullable_timestamp"
+        },
+        "finished_at": {
+          "$ref": "#/$defs/nullable_timestamp"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/nullable_non_negative_integer"
+        }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "seed",
+        "source_path",
+        "normalized_config_path",
+        "plan_path"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "source_path": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "normalized_config_path": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "plan_path": {
+          "$ref": "#/$defs/relative_path"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "perl_version",
+        "rex_version",
+        "repo_sha"
+      ],
+      "properties": {
+        "host": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "hostname",
+            "os",
+            "release",
+            "arch"
+          ],
+          "properties": {
+            "hostname": {
+              "$ref": "#/$defs/nullable_non_empty_string"
+            },
+            "os": {
+              "$ref": "#/$defs/nullable_non_empty_string"
+            },
+            "release": {
+              "$ref": "#/$defs/nullable_non_empty_string"
+            },
+            "arch": {
+              "$ref": "#/$defs/nullable_non_empty_string"
+            }
+          }
+        },
+        "perl_version": {
+          "$ref": "#/$defs/nullable_non_empty_string"
+        },
+        "rex_version": {
+          "$ref": "#/$defs/nullable_non_empty_string"
+        },
+        "repo_sha": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "hosts",
+        "actors"
+      ],
+      "properties": {
+        "provider": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "descriptor"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "descriptor": {
+              "description": "Provider-specific structured descriptor. Empty object when no descriptor is needed.",
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "hosts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total",
+            "groups"
+          ],
+          "properties": {
+            "total": {
+              "$ref": "#/$defs/non_negative_integer"
+            },
+            "groups": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/non_negative_integer"
+              }
+            }
+          }
+        },
+        "actors": {
+          "$ref": "#/$defs/actor_counts"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runner",
+        "remote_execution",
+        "phases"
+      ],
+      "properties": {
+        "runner": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "remote_execution": {
+          "type": "string",
+          "enum": [
+            "not_performed",
+            "local",
+            "remote",
+            "mixed"
+          ]
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/phase"
+          }
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "duration_seconds",
+        "phases"
+      ],
+      "properties": {
+        "duration_seconds": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workload_phase"
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "collected",
+        "reason",
+        "streams",
+        "operations"
+      ],
+      "properties": {
+        "collected": {
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "none",
+                "smoke_only",
+                "no_metrics",
+                "run_failed",
+                "not_supported",
+                "no_streams",
+                "configuration_error",
+                "unknown"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "streams": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "expected",
+            "seen",
+            "missing"
+          ],
+          "properties": {
+            "expected": {
+              "$ref": "#/$defs/non_negative_integer"
+            },
+            "seen": {
+              "$ref": "#/$defs/non_negative_integer"
+            },
+            "missing": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            }
+          }
+        },
+        "operations": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/operation_metrics"
+          }
+        }
+      }
+    },
+    "thresholds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/threshold"
+      }
+    },
+    "chaos": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hooks_configured",
+        "hooks_executed",
+        "hooks"
+      ],
+      "properties": {
+        "hooks_configured": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "hooks_executed": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "hooks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/chaos_hook"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "errors",
+        "warnings"
+      ],
+      "properties": {
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        }
+      }
+    },
+    "human_summary": {
+      "description": "Non-authoritative text for people. Automation must use structured fields instead.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "headline",
+        "important_notes"
+      ],
+      "properties": {
+        "headline": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "important_notes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        }
+      }
+    },
+    "extensions": {
+      "description": "Explicit forward-compatible extension point. Consumers must ignore unknown extension members unless they opt into them.",
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullable_timestamp": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nullable_non_empty_string": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "non_negative_integer": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "nullable_non_negative_integer": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "non_negative_number": {
+      "type": "number",
+      "minimum": 0
+    },
+    "nullable_number": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scalar": {
+      "type": [
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "null"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+$",
+      "not": {
+        "enum": [
+          ".",
+          ".."
+        ]
+      }
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "actor_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relays",
+        "publishers",
+        "subscribers",
+        "query_readers",
+        "object_readers",
+        "total"
+      ],
+      "properties": {
+        "relays": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "publishers": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "subscribers": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "query_readers": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "object_readers": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "total": {
+          "$ref": "#/$defs/non_negative_integer"
+        }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "status",
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "actor_id",
+        "host_id",
+        "command",
+        "exit_code",
+        "error",
+        "artifacts",
+        "extensions"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "name": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "runner_phase",
+            "rex_task",
+            "provider_command",
+            "workload_phase",
+            "chaos_hook",
+            "artifact_collection"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "skipped",
+            "running",
+            "completed",
+            "failed",
+            "not_evaluated"
+          ]
+        },
+        "started_at": {
+          "$ref": "#/$defs/nullable_timestamp"
+        },
+        "finished_at": {
+          "$ref": "#/$defs/nullable_timestamp"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/nullable_non_negative_integer"
+        },
+        "actor_id": {
+          "$ref": "#/$defs/nullable_non_empty_string"
+        },
+        "host_id": {
+          "$ref": "#/$defs/nullable_non_empty_string"
+        },
+        "command": {
+          "$ref": "#/$defs/nullable_non_empty_string"
+        },
+        "exit_code": {
+          "$ref": "#/$defs/nullable_non_negative_integer"
+        },
+        "error": {
+          "$ref": "#/$defs/nullable_non_empty_string"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact_ref"
+          }
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "workload_phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "start_seconds",
+        "duration_seconds",
+        "publish_rate_per_second",
+        "object_reads_per_second",
+        "subscription_filter_count",
+        "query_filter_count",
+        "actor_seeds"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "name": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "start_seconds": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "duration_seconds": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "publish_rate_per_second": {
+          "$ref": "#/$defs/non_negative_number"
+        },
+        "object_reads_per_second": {
+          "$ref": "#/$defs/non_negative_number"
+        },
+        "subscription_filter_count": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "query_filter_count": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "actor_seeds": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "operation_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "success_count",
+        "error_count",
+        "error_rate",
+        "latency_ms"
+      ],
+      "properties": {
+        "count": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "success_count": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "error_count": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "error_rate": {
+          "$ref": "#/$defs/non_negative_number"
+        },
+        "latency_ms": {
+          "$ref": "#/$defs/latency_summary"
+        }
+      }
+    },
+    "latency_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "p50",
+        "p90",
+        "p95",
+        "p99",
+        "max",
+        "mean"
+      ],
+      "properties": {
+        "min": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "p50": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "p90": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "p95": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "p99": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "max": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "mean": {
+          "$ref": "#/$defs/nullable_number"
+        }
+      }
+    },
+    "threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "metric",
+        "comparator",
+        "configured_value",
+        "observed_value",
+        "unit",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "not_evaluated",
+            "passed",
+            "failed"
+          ]
+        },
+        "metric": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "comparator": {
+          "type": "string",
+          "enum": [
+            "<",
+            "<=",
+            ">",
+            ">=",
+            "==",
+            "!="
+          ]
+        },
+        "configured_value": {
+          "$ref": "#/$defs/scalar"
+        },
+        "observed_value": {
+          "$ref": "#/$defs/scalar"
+        },
+        "unit": {
+          "$ref": "#/$defs/nullable_non_empty_string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "none",
+                "no_metrics",
+                "metric_missing",
+                "configuration_error",
+                "run_failed",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "chaos_hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "action",
+        "target",
+        "status",
+        "scheduled_at_seconds",
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "error"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "action": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "target": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "skipped",
+            "completed",
+            "failed",
+            "not_evaluated"
+          ]
+        },
+        "scheduled_at_seconds": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "started_at": {
+          "$ref": "#/$defs/nullable_timestamp"
+        },
+        "finished_at": {
+          "$ref": "#/$defs/nullable_timestamp"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/nullable_non_negative_integer"
+        },
+        "error": {
+          "$ref": "#/$defs/nullable_non_empty_string"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "media_type",
+        "role",
+        "required",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "path": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "media_type": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "input",
+            "evidence",
+            "output",
+            "log",
+            "metrics",
+            "report",
+            "schema",
+            "rex_bundle"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "$ref": "#/$defs/non_negative_integer"
+        }
+      }
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "path": {
+          "$ref": "#/$defs/relative_path"
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "code",
+        "message",
+        "source"
+      ],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "code": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "message": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "source": {
+          "$ref": "#/$defs/nullable_non_empty_string"
+        }
+      }
+    }
+  }
+}

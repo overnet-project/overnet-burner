@@ -1,0 +1,429 @@
+{
+  "report_version": 1,
+  "schema": "https://overnet-project.org/schemas/overnet-burner/report-v1.schema.json",
+  "generated_at": "2026-06-27T20:02:00Z",
+  "run": {
+    "id": "smoke-20260627T155443",
+    "status": "completed",
+    "verdict": "smoke_passed",
+    "result_class": "orchestration",
+    "created_at": "2026-06-27T20:01:57Z",
+    "started_at": "2026-06-27T20:01:57Z",
+    "finished_at": "2026-06-27T20:01:59Z",
+    "duration_ms": 2000
+  },
+  "scenario": {
+    "name": "single-relay-baseline",
+    "seed": 12345,
+    "source_path": "scenario.yml",
+    "normalized_config_path": "config.normalized.json",
+    "plan_path": "plan.json"
+  },
+  "environment": {
+    "host": {
+      "hostname": "slackpad.slackpad.domain",
+      "os": "Linux",
+      "release": "6.18.36",
+      "arch": "x86_64"
+    },
+    "perl_version": "5.42.2",
+    "rex_version": "1.16.1",
+    "repo_sha": "a087de726ba2e54ce6ca125a9c7e12dd26fc5488"
+  },
+  "topology": {
+    "provider": {
+      "name": "generic-relay",
+      "descriptor": {}
+    },
+    "hosts": {
+      "total": 1,
+      "groups": {
+        "all": 1,
+        "relays": 1,
+        "publishers": 1,
+        "subscribers": 1,
+        "query_readers": 1,
+        "object_readers": 1
+      }
+    },
+    "actors": {
+      "relays": 1,
+      "publishers": 1,
+      "subscribers": 1,
+      "query_readers": 1,
+      "object_readers": 1,
+      "total": 5
+    }
+  },
+  "execution": {
+    "runner": "rex-local",
+    "remote_execution": "not_performed",
+    "phases": [
+      {
+        "id": "runner-prepare",
+        "name": "prepare",
+        "kind": "runner_phase",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:57Z",
+        "finished_at": "2026-06-27T20:01:57Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": null,
+        "error": null,
+        "artifacts": [
+          {
+            "id": "rexfile",
+            "path": "artifacts/rex/Rexfile"
+          }
+        ],
+        "extensions": {}
+      },
+      {
+        "id": "rex-bootstrap",
+        "name": "bootstrap",
+        "kind": "rex_task",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:57Z",
+        "finished_at": "2026-06-27T20:01:57Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": 0,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "rex-deploy",
+        "name": "deploy",
+        "kind": "rex_task",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:57Z",
+        "finished_at": "2026-06-27T20:01:57Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": 0,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "rex-start",
+        "name": "start",
+        "kind": "rex_task",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:57Z",
+        "finished_at": "2026-06-27T20:01:58Z",
+        "duration_ms": 1000,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": 0,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "rex-warmup",
+        "name": "warmup",
+        "kind": "rex_task",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:58Z",
+        "finished_at": "2026-06-27T20:01:58Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": 0,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "rex-run",
+        "name": "run",
+        "kind": "rex_task",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:58Z",
+        "finished_at": "2026-06-27T20:01:58Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": 0,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "rex-chaos",
+        "name": "chaos",
+        "kind": "rex_task",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:58Z",
+        "finished_at": "2026-06-27T20:01:59Z",
+        "duration_ms": 1000,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": 0,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "rex-collect",
+        "name": "collect",
+        "kind": "rex_task",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:59Z",
+        "finished_at": "2026-06-27T20:01:59Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": 0,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "rex-cleanup",
+        "name": "cleanup",
+        "kind": "rex_task",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:59Z",
+        "finished_at": "2026-06-27T20:01:59Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": 0,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "runner-observe",
+        "name": "observe",
+        "kind": "runner_phase",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:59Z",
+        "finished_at": "2026-06-27T20:01:59Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": null,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "runner-stop",
+        "name": "stop",
+        "kind": "runner_phase",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:59Z",
+        "finished_at": "2026-06-27T20:01:59Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": null,
+        "error": null,
+        "artifacts": [],
+        "extensions": {}
+      },
+      {
+        "id": "runner-collect",
+        "name": "collect",
+        "kind": "runner_phase",
+        "status": "completed",
+        "started_at": "2026-06-27T20:01:59Z",
+        "finished_at": "2026-06-27T20:01:59Z",
+        "duration_ms": 0,
+        "actor_id": null,
+        "host_id": null,
+        "command": null,
+        "exit_code": null,
+        "error": null,
+        "artifacts": [
+          {
+            "id": "runner_log",
+            "path": "logs/runner.jsonl"
+          },
+          {
+            "id": "metrics",
+            "path": "metrics.jsonl"
+          }
+        ],
+        "extensions": {}
+      }
+    ]
+  },
+  "workload": {
+    "duration_seconds": 60,
+    "phases": [
+      {
+        "id": "phase-001",
+        "name": "main",
+        "start_seconds": 0,
+        "duration_seconds": 60,
+        "publish_rate_per_second": 10,
+        "object_reads_per_second": 1,
+        "subscription_filter_count": 1,
+        "query_filter_count": 1,
+        "actor_seeds": {
+          "relay-001": 3998555771,
+          "publisher-001": 1840966212,
+          "subscriber-001": 3299037843,
+          "query-reader-001": 3221608014,
+          "object-reader-001": 621371345
+        }
+      }
+    ]
+  },
+  "metrics": {
+    "collected": false,
+    "reason": "smoke_only",
+    "streams": {
+      "expected": 5,
+      "seen": 0,
+      "missing": [
+        "metrics/relay-001.jsonl",
+        "metrics/publisher-001.jsonl",
+        "metrics/subscriber-001.jsonl",
+        "metrics/query-reader-001.jsonl",
+        "metrics/object-reader-001.jsonl"
+      ]
+    },
+    "operations": {}
+  },
+  "thresholds": [
+    {
+      "id": "publish_p99_ms",
+      "status": "not_evaluated",
+      "metric": "publish.latency_ms.p99",
+      "comparator": "<=",
+      "configured_value": 250,
+      "observed_value": null,
+      "unit": "ms",
+      "reason": "no_metrics"
+    },
+    {
+      "id": "subscription_fanout_p99_ms",
+      "status": "not_evaluated",
+      "metric": "subscription_fanout.latency_ms.p99",
+      "comparator": "<=",
+      "configured_value": 1000,
+      "observed_value": null,
+      "unit": "ms",
+      "reason": "no_metrics"
+    },
+    {
+      "id": "error_rate_max",
+      "status": "not_evaluated",
+      "metric": "overall.error_rate",
+      "comparator": "<=",
+      "configured_value": 0.01,
+      "observed_value": null,
+      "unit": "ratio",
+      "reason": "no_metrics"
+    }
+  ],
+  "chaos": {
+    "hooks_configured": 0,
+    "hooks_executed": 0,
+    "hooks": []
+  },
+  "artifacts": [
+    {
+      "id": "manifest",
+      "path": "manifest.json",
+      "media_type": "application/json",
+      "role": "evidence",
+      "required": true,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 4096
+    },
+    {
+      "id": "scenario",
+      "path": "scenario.yml",
+      "media_type": "application/yaml",
+      "role": "input",
+      "required": true,
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "size_bytes": 512
+    },
+    {
+      "id": "plan",
+      "path": "plan.json",
+      "media_type": "application/json",
+      "role": "evidence",
+      "required": true,
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "size_bytes": 2048
+    },
+    {
+      "id": "runner_log",
+      "path": "logs/runner.jsonl",
+      "media_type": "application/x-ndjson",
+      "role": "log",
+      "required": true,
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "size_bytes": 3072
+    },
+    {
+      "id": "metrics",
+      "path": "metrics.jsonl",
+      "media_type": "application/x-ndjson",
+      "role": "metrics",
+      "required": true,
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "size_bytes": 0
+    },
+    {
+      "id": "rex_bundle",
+      "path": "artifacts/rex/bundle.json",
+      "media_type": "application/json",
+      "role": "rex_bundle",
+      "required": true,
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "size_bytes": 1024
+    },
+    {
+      "id": "rexfile",
+      "path": "artifacts/rex/Rexfile",
+      "media_type": "text/x-perl",
+      "role": "rex_bundle",
+      "required": true,
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "size_bytes": 768
+    }
+  ],
+  "diagnostics": {
+    "errors": [],
+    "warnings": [
+      {
+        "severity": "warning",
+        "code": "no_real_workload",
+        "message": "Rex smoke lifecycle completed without running real Overnet actor processes.",
+        "source": "execution.runner"
+      }
+    ]
+  },
+  "human_summary": {
+    "headline": "Rex smoke lifecycle completed; no real Overnet workload was executed.",
+    "important_notes": [
+      "This report proves orchestration wiring, not system performance.",
+      "metrics.jsonl is empty because no actor workload processes ran."
+    ]
+  },
+  "extensions": {}
+}
