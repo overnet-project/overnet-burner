@@ -57,6 +57,50 @@ ok !exists $manifest->{provider},
 ok !exists $manifest->{execution_provider},
     'CLI init-run manifest does not use execution provider field';
 
+my $render_tmp = tempdir(CLEANUP => 1);
+my $render_id = 'cli-rex-render-001';
+my $render = `$^X $bin render-rex --scenario $scenario --runs-dir $render_tmp --run-id $render_id 2>&1`;
+is $?, 0, 'render-rex command exits successfully';
+like $render, qr{^rendered Rex bundle: \Q$render_tmp/$render_id/artifacts/rex\E$}m,
+    'render-rex command reports bundle directory';
+
+my $render_run_dir = File::Spec->catdir($render_tmp, $render_id);
+ok -e File::Spec->catfile($render_run_dir, 'plan.json'),
+    'render-rex creates a deterministic plan first';
+ok -e File::Spec->catfile($render_run_dir, 'artifacts', 'rex', 'Rexfile'),
+    'render-rex writes Rexfile artifact';
+ok -e File::Spec->catfile($render_run_dir, 'artifacts', 'rex', 'inventory', 'hosts.json'),
+    'render-rex writes inventory artifact';
+
+my $render_manifest = _read_json(File::Spec->catfile($render_run_dir, 'manifest.json'));
+is $render_manifest->{topology_provider}{name}, 'generic-relay',
+    'render-rex manifest keeps topology provider';
+ok !defined $render_manifest->{runner}{name},
+    'render-rex does not select or run a runner';
+ok !exists $render_manifest->{status},
+    'render-rex does not mark lifecycle execution status';
+is $render_manifest->{rex_bundle}{path}, 'artifacts/rex',
+    'render-rex manifest records bundle path';
+is $render_manifest->{rex_bundle}{rendered}, 1,
+    'render-rex manifest records rendered bundle';
+is $render_manifest->{rex_bundle}{remote_execution}, 'not_performed',
+    'render-rex manifest does not imply remote execution';
+ok $render_manifest->{rex_bundle}{rendered_at},
+    'render-rex manifest records render timestamp';
+ok !exists $render_manifest->{provider},
+    'render-rex manifest does not use ambiguous provider field';
+ok !exists $render_manifest->{execution_provider},
+    'render-rex manifest does not use execution provider field';
+ok !-e File::Spec->catfile($render_run_dir, 'logs', 'runner.jsonl'),
+    'render-rex does not write runner lifecycle logs';
+
+my $render_missing = `$^X $bin render-rex --runs-dir $render_tmp --run-id missing-scenario 2>&1`;
+is $? >> 8, 2, 'render-rex rejects missing scenario';
+like $render_missing, qr/--scenario is required/,
+    'render-rex reports missing scenario';
+ok !-d File::Spec->catdir($render_tmp, 'missing-scenario'),
+    'render-rex missing scenario does not create run directory';
+
 my $bad_tmp = tempdir(CLEANUP => 1);
 my $bad_init = `$^X $bin init-run --scenario $scenario --runs-dir $bad_tmp/runs --run-id ../escape 2>&1`;
 is $? >> 8, 2, 'init-run rejects invalid run id';

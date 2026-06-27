@@ -8,6 +8,7 @@ use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Config;
 use Overnet::Burner::Plan;
+use Overnet::Burner::RexBundle;
 use Overnet::Burner::RunLedger;
 use Overnet::Burner::Runner;
 
@@ -26,6 +27,9 @@ sub main {
         }
         if ($command eq 'init-run') {
             return _init_run(@args);
+        }
+        if ($command eq 'render-rex') {
+            return _render_rex(@args);
         }
         if ($command eq 'run') {
             return _run(@args);
@@ -111,6 +115,45 @@ sub _init_run {
     return 0;
 }
 
+sub _render_rex {
+    my @args = @_;
+    my $scenario_path;
+    my $runs_dir = 'runs';
+    my $run_id;
+
+    GetOptionsFromArray(
+        \@args,
+        'scenario=s' => \$scenario_path,
+        'runs-dir=s' => \$runs_dir,
+        'run-id=s'   => \$run_id,
+    ) or return _usage();
+
+    die "--scenario is required\n" unless $scenario_path;
+    die "unexpected arguments: @args\n" if @args;
+
+    my $scenario = Overnet::Burner::Config->load_file($scenario_path);
+    my $ledger = Overnet::Burner::RunLedger->create(
+        scenario      => $scenario,
+        scenario_path => $scenario_path,
+        runs_dir      => $runs_dir,
+        defined $run_id ? (run_id => $run_id) : (),
+    );
+    my $plan = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
+    my $bundle = Overnet::Burner::RexBundle->render(
+        run_dir => $ledger->{run_dir},
+        plan    => $plan,
+    );
+
+    $ledger->record_rex_bundle(
+        relative_dir => $bundle->{relative_dir},
+        files        => $bundle->{files},
+    );
+
+    print "rendered Rex bundle: $ledger->{run_dir}/$bundle->{relative_dir}\n";
+
+    return 0;
+}
+
 sub _run {
     my @args = @_;
     my $scenario_path;
@@ -177,6 +220,7 @@ usage:
   overnet-burner validate --scenario scenarios/single-relay-baseline.yml
   overnet-burner plan --scenario scenarios/single-relay-baseline.yml
   overnet-burner init-run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
+  overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
   overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop]
 USAGE
     return 2;

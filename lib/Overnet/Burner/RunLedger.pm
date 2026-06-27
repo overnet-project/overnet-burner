@@ -157,6 +157,26 @@ sub append_runner_event {
     return 1;
 }
 
+sub record_rex_bundle {
+    my ($self, %args) = @_;
+
+    my $relative_dir = $args{relative_dir} || die "relative_dir is required\n";
+    my $files = $args{files} || die "files is required\n";
+    my $manifest = $self->_read_manifest;
+
+    $manifest->{rex_bundle} = {
+        path             => $relative_dir,
+        rendered         => 1,
+        rendered_at      => $self->{now}->(),
+        remote_execution => 'not_performed',
+        files            => $files,
+    };
+
+    $self->_write_manifest($manifest);
+
+    return 1;
+}
+
 sub _set_runner {
     my ($manifest, $name) = @_;
 

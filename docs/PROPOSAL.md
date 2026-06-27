@@ -171,6 +171,7 @@ Expected commands:
 
 ```text
 overnet-burner validate --scenario scenarios/example.yml
+overnet-burner render-rex --scenario scenarios/example.yml
 overnet-burner run --scenario scenarios/example.yml
 overnet-burner summarize --run runs/<run-id>
 overnet-burner compare --baseline runs/<run-a> --candidate runs/<run-b>

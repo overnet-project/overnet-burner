@@ -10,6 +10,7 @@ WriteMakefile(
     EXE_FILES        => ['bin/overnet-burner'],
     PREREQ_PM        => {
         'JSON::PP' => 0,
+        'Rex'      => 0,
         'YAML::PP' => 0,
     },
 );
