@@ -1,5 +1,4 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use ExtUtils::MakeMaker;
 
@@ -8,9 +7,14 @@ WriteMakefile(
     VERSION          => '0.001',
     MIN_PERL_VERSION => '5.042000',
     EXE_FILES        => ['bin/overnet-burner'],
+    CONFIGURE_REQUIRES => {
+        'ExtUtils::MakeMaker' => 0,
+        'strictures'         => 2,
+    },
     PREREQ_PM        => {
-        'JSON::PP' => 0,
-        'Rex'      => 0,
-        'YAML::PP' => 0,
+        'JSON'       => 0,
+        'Rex'        => 0,
+        'strictures' => 2,
+        'YAML::PP'   => 0,
     },
 );

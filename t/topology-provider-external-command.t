@@ -1,10 +1,9 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 use lib "$FindBin::Bin/../lib";
@@ -44,7 +43,7 @@ is_deeply $provider,
     },
     'topology provider abstraction returns canonical descriptor';
 
-my $normalized = decode_json(Overnet::Burner::Config->normalized_json($scenario));
+my $normalized = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
 is_deeply $normalized->{topology}{relays}{command}, $command,
     'normalized config preserves external-command descriptor';
 
@@ -113,7 +112,7 @@ ok !exists $plan_a->{relays}[0]{provider},
 my $canonical_a = Overnet::Burner::Plan->canonical_json($plan_a);
 my $canonical_b = Overnet::Burner::Plan->canonical_json($plan_b);
 is $canonical_a, $canonical_b, 'external-command canonical plan JSON is stable';
-is_deeply decode_json($canonical_a), $plan_a,
+is_deeply JSON::decode_json($canonical_a), $plan_a,
     'external-command canonical plan JSON decodes to the plan';
 
 my $ledger = Overnet::Burner::RunLedger->create(
@@ -264,5 +263,5 @@ sub _read_json {
 
     open my $fh, '<', $path or die "open $path: $!";
     local $/;
-    return decode_json(<$fh>);
+    return JSON::decode_json(<$fh>);
 }

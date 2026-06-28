@@ -1,8 +1,7 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 use lib "$FindBin::Bin/../lib";
@@ -103,7 +102,7 @@ for my $actor_id (
 
 is_deeply $plan_a->{chaos_hooks}, [], 'plan includes empty chaos hook list';
 
-my $changed_seed = decode_json(Overnet::Burner::Config->normalized_json($scenario));
+my $changed_seed = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
 $changed_seed->{run}{seed} = 98765;
 my $changed_plan = Overnet::Burner::Plan->build($changed_seed);
 isnt $changed_plan->{publishers}[0]{seed}, $plan_a->{publishers}[0]{seed},
@@ -112,7 +111,7 @@ isnt $changed_plan->{workload}{phases}[0]{actor_seeds}{'publisher-001'},
     $phase->{actor_seeds}{'publisher-001'},
     'phase actor seed changes when scenario seed changes';
 
-my $multi = decode_json(Overnet::Burner::Config->normalized_json($scenario));
+my $multi = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
 $multi->{topology}{relays}{count} = 2;
 $multi->{topology}{publishers}{count} = 2;
 my $multi_plan = Overnet::Burner::Plan->build($multi);
@@ -123,7 +122,7 @@ is_deeply [map { $_->{id} } @{ $multi_plan->{publishers} }],
     [qw(publisher-001 publisher-002)],
     'plan expands multiple publishers';
 
-my $chaos = decode_json(Overnet::Burner::Config->normalized_json($scenario));
+my $chaos = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
 $chaos->{chaos} = [
     {
         at     => 15,
@@ -146,6 +145,6 @@ ok $chaos_plan->{chaos_hooks}[0]{seed} =~ /\A\d+\z/,
 my $json_a = Overnet::Burner::Plan->canonical_json($plan_a);
 my $json_b = Overnet::Burner::Plan->canonical_json($plan_b);
 is $json_a, $json_b, 'canonical plan JSON is deterministic';
-is_deeply decode_json($json_a), $plan_a, 'canonical plan JSON decodes to plan';
+is_deeply JSON::decode_json($json_a), $plan_a, 'canonical plan JSON decodes to plan';
 
 done_testing;

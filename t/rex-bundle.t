@@ -1,11 +1,10 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use File::Find qw(find);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 use lib "$FindBin::Bin/../lib";
@@ -191,7 +190,7 @@ unlike $rexfile, qr/--provider rex/, 'Rexfile does not treat Rex as a provider';
 is_deeply _bundle_files($ledger_a->{run_dir}), _bundle_files($ledger_b->{run_dir}),
     'rendered bundle files are deterministic across run directories';
 
-my $chaos_scenario = decode_json(Overnet::Burner::Config->normalized_json($scenario));
+my $chaos_scenario = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
 $chaos_scenario->{chaos} = [
     {
         at     => 30,
@@ -259,7 +258,7 @@ sub _bundle_files {
 sub _read_json {
     my ($path) = @_;
 
-    return decode_json(_read_file($path));
+    return JSON::decode_json(_read_file($path));
 }
 
 sub _read_file {

@@ -1,9 +1,8 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use File::Temp qw(tempdir);
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 use lib "$FindBin::Bin/../lib";
@@ -27,7 +26,7 @@ my $normalized_b = Overnet::Burner::Config->normalized_json(
 
 is $normalized_a, $normalized_b, 'normalized config is deterministic';
 
-my $decoded = decode_json($normalized_a);
+my $decoded = JSON::decode_json($normalized_a);
 is $decoded->{run}{seed}, 12345, 'normalized config keeps seed';
 is $decoded->{topology}{relays}{provider}, 'generic-relay',
     'normalized config keeps provider';

@@ -1,10 +1,9 @@
 package Overnet::Burner::Runner;
 
-use strict;
-use warnings;
+use strictures 2;
 
 use File::Spec;
-use JSON::PP;
+use JSON ();
 
 my %RUNNER_MODULE = (
     noop                 => 'Overnet::Burner::Runner::Noop',
@@ -150,7 +149,7 @@ sub write_summary_artifact {
     );
 
     open my $fh, '>', $path or die "open $path: $!";
-    print {$fh} JSON::PP->new->canonical(1)->pretty(1)->space_before(0)
+    print {$fh} JSON->new->canonical(1)->pretty(1)->space_before(0)
         ->encode($summary);
     close $fh or die "close $path: $!";
 

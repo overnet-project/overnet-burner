@@ -1,14 +1,13 @@
 package Overnet::Burner::RunLedger;
 
-use strict;
-use warnings;
+use strictures 2;
 
 use Cwd qw(getcwd);
 use File::Basename qw(dirname);
 use File::Copy qw(copy);
 use File::Path qw(make_path);
 use File::Spec;
-use JSON::PP;
+use JSON ();
 use POSIX qw(strftime uname);
 use Sys::Hostname qw(hostname);
 
@@ -84,7 +83,7 @@ sub create {
 
     _write_file(
         File::Spec->catfile($run_dir, 'manifest.json'),
-        JSON::PP->new->canonical(1)->pretty(1)->space_before(0)->encode($manifest),
+        JSON->new->canonical(1)->pretty(1)->space_before(0)->encode($manifest),
     );
 
     return bless {
@@ -151,7 +150,7 @@ sub append_runner_event {
     my $path = File::Spec->catfile($self->{run_dir}, 'logs', 'runner.jsonl');
 
     open my $fh, '>>', $path or die "open $path: $!";
-    print {$fh} JSON::PP->new->canonical(1)->encode(\%record), "\n";
+    print {$fh} JSON->new->canonical(1)->encode(\%record), "\n";
     close $fh or die "close $path: $!";
 
     return 1;
@@ -203,7 +202,7 @@ sub _write_manifest {
 
     _write_file(
         File::Spec->catfile($self->{run_dir}, 'manifest.json'),
-        JSON::PP->new->canonical(1)->pretty(1)->space_before(0)
+        JSON->new->canonical(1)->pretty(1)->space_before(0)
             ->encode($manifest),
     );
 }
@@ -213,7 +212,7 @@ sub _read_json_file {
 
     open my $fh, '<', $path or die "open $path: $!";
     local $/;
-    return JSON::PP->new->decode(<$fh>);
+    return JSON->new->decode(<$fh>);
 }
 
 sub _default_run_id {

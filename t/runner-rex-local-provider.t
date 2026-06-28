@@ -1,10 +1,9 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 use lib "$FindBin::Bin/../lib";
@@ -405,8 +404,7 @@ sub _write_fake_rex {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} <<'PERL';
 #!/usr/bin/env perl
-use strict;
-use warnings;
+use strictures 2;
 
 my $log = $ENV{OVERNET_BURNER_TEST_REX_LOG}
     or die "OVERNET_BURNER_TEST_REX_LOG is required\n";
@@ -438,14 +436,14 @@ sub _write_yaml {
 sub _read_json {
     my ($path) = @_;
 
-    return decode_json(_read_file($path));
+    return JSON::decode_json(_read_file($path));
 }
 
 sub _read_jsonl {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    my @records = map { decode_json($_) } <$fh>;
+    my @records = map { JSON::decode_json($_) } <$fh>;
     close $fh or die "close $path: $!";
     return \@records;
 }

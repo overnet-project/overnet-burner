@@ -1,9 +1,8 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use File::Spec;
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 my $repo = "$FindBin::Bin/..";
@@ -25,7 +24,7 @@ is $schema->{'$schema'}, 'https://json-schema.org/draft/2020-12/schema',
     'schema declares JSON Schema draft 2020-12';
 is $schema->{'$id'}, $schema_id, 'schema has stable id';
 is $schema->{title}, 'overnet-burner report v1', 'schema names the contract';
-is $schema->{additionalProperties}, JSON::PP::false,
+is $schema->{additionalProperties}, JSON::false,
     'top-level report schema is closed';
 is $schema->{properties}{report_version}{const}, 1,
     'report_version is locked to v1';
@@ -101,7 +100,7 @@ is $example->{execution}{runner}, 'rex-local',
     'example records execution runner';
 is $example->{execution}{remote_execution}, 'not_performed',
     'example records no remote execution';
-is $example->{metrics}{collected}, JSON::PP::false,
+is $example->{metrics}{collected}, JSON::false,
     'example records no metrics collected';
 is $example->{metrics}{reason}, 'smoke_only',
     'example explains missing metrics';
@@ -136,7 +135,7 @@ sub _read_json {
 
     open my $fh, '<', $path or die "open $path: $!";
     local $/;
-    return decode_json(<$fh>);
+    return JSON::decode_json(<$fh>);
 }
 
 sub _read_file {

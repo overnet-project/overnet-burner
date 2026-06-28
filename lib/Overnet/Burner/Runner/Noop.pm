@@ -1,7 +1,6 @@
 package Overnet::Burner::Runner::Noop;
 
-use strict;
-use warnings;
+use strictures 2;
 
 use parent 'Overnet::Burner::Runner';
 

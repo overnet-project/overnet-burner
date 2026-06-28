@@ -1,9 +1,8 @@
 package Overnet::Burner::TopologyProvider;
 
-use strict;
-use warnings;
+use strictures 2;
 
-use JSON::PP qw(decode_json);
+use JSON ();
 
 my %SUPPORTED_PROVIDER = map { $_ => 1 } qw(generic-relay external-command);
 
@@ -77,7 +76,7 @@ sub _require_mapping_ref {
 sub _clone {
     my ($value) = @_;
 
-    return decode_json(JSON::PP->new->canonical(1)->encode($value));
+    return JSON::decode_json(JSON->new->canonical(1)->encode($value));
 }
 
 1;

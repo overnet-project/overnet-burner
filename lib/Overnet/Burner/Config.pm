@@ -1,9 +1,8 @@
 package Overnet::Burner::Config;
 
-use strict;
-use warnings;
+use strictures 2;
 
-use JSON::PP;
+use JSON ();
 use YAML::PP;
 
 use Overnet::Burner::TopologyProvider;
@@ -17,7 +16,7 @@ sub load_file {
 
     my $config = eval {
         YAML::PP->new(
-            boolean => 'JSON::PP',
+            boolean => 'perl',
             schema  => ['Core'],
         )->load_string($text);
     };
@@ -33,7 +32,7 @@ sub load_file {
 sub normalize {
     my ($class, $config) = @_;
 
-    my $copy = decode_json(JSON::PP->new->canonical(1)->encode($config));
+    my $copy = JSON::decode_json(JSON->new->canonical(1)->encode($config));
 
     _require_mapping_ref($copy, 'root');
     _require_optional_mapping($copy, 'run');
@@ -99,7 +98,7 @@ sub validate {
 sub normalized_json {
     my ($class, $config) = @_;
 
-    return JSON::PP->new->canonical(1)->pretty(1)->space_before(0)
+    return JSON->new->canonical(1)->pretty(1)->space_before(0)
         ->encode($class->normalize($config));
 }
 

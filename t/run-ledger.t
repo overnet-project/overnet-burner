@@ -1,10 +1,9 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 use lib "$FindBin::Bin/../lib";
@@ -53,7 +52,7 @@ my $manifest = do {
     open my $fh, '<', File::Spec->catfile($run_dir, 'manifest.json')
         or die "open manifest.json: $!";
     local $/;
-    decode_json(<$fh>);
+    JSON::decode_json(<$fh>);
 };
 
 is $manifest->{run_id}, 'test-run-001', 'manifest records run id';
@@ -99,7 +98,7 @@ is $plan_json,
     'ledger writes deterministic plan';
 
 my $bad_plan_tmp = tempdir(CLEANUP => 1);
-my $bad_plan_scenario = decode_json(Overnet::Burner::Config->normalized_json($scenario));
+my $bad_plan_scenario = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
 $bad_plan_scenario->{chaos} = [5];
 my $bad_plan_created = eval {
     Overnet::Burner::RunLedger->create(

@@ -1,11 +1,10 @@
 package Overnet::Burner::Report;
 
-use strict;
-use warnings;
+use strictures 2;
 
 use Digest::SHA;
 use File::Spec;
-use JSON::PP qw(decode_json);
+use JSON ();
 use POSIX qw(strftime);
 use Time::Local qw(timegm);
 
@@ -82,7 +81,7 @@ sub write {
 sub canonical_json {
     my ($class, $report) = @_;
 
-    return JSON::PP->new->canonical(1)->pretty(1)->space_before(0)
+    return JSON->new->canonical(1)->pretty(1)->space_before(0)
         ->encode($report);
 }
 
@@ -347,7 +346,7 @@ sub _metrics {
         }
     }
 
-    my $collected = @streams && $seen == @streams ? JSON::PP::true : JSON::PP::false;
+    my $collected = @streams && $seen == @streams ? JSON::true : JSON::false;
 
     return {
         collected => $collected,
@@ -456,7 +455,7 @@ sub _artifact {
         path       => $args{path},
         media_type => $args{media_type},
         role       => $args{role},
-        required   => $args{required} ? JSON::PP::true : JSON::PP::false,
+        required   => $args{required} ? JSON::true : JSON::false,
         sha256     => _sha256_file($args{absolute_path}),
         size_bytes => 0 + (-s $args{absolute_path}),
     };
@@ -542,7 +541,7 @@ sub _read_json_file {
 
     open my $fh, '<', $path or die "open $path: $!";
     local $/;
-    return decode_json(<$fh>);
+    return JSON::decode_json(<$fh>);
 }
 
 sub _read_optional_json_file {
@@ -557,7 +556,7 @@ sub _read_jsonl_file {
 
     return [] unless -e $path;
     open my $fh, '<', $path or die "open $path: $!";
-    my @records = map { decode_json($_) } <$fh>;
+    my @records = map { JSON::decode_json($_) } <$fh>;
     close $fh or die "close $path: $!";
     return \@records;
 }

@@ -1,10 +1,9 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 use lib "$FindBin::Bin/../lib";
@@ -81,7 +80,7 @@ is_deeply $summary->{actor_counts},
 
 my $runner_log_path = File::Spec->catfile($ledger->{run_dir}, 'logs', 'runner.jsonl');
 open my $log_fh, '<', $runner_log_path or die "open $runner_log_path: $!";
-my @events = map { decode_json($_) } <$log_fh>;
+my @events = map { JSON::decode_json($_) } <$log_fh>;
 
 is_deeply [map { "$_->{phase}:$_->{status}" } @events],
     [
@@ -111,7 +110,7 @@ my $artifact_path = File::Spec->catfile(
 );
 open my $artifact_fh, '<', $artifact_path or die "open $artifact_path: $!";
 local $/;
-my $artifact = decode_json(<$artifact_fh>);
+my $artifact = JSON::decode_json(<$artifact_fh>);
 
 is_deeply $artifact, $summary, 'noop runner writes deterministic summary artifact';
 

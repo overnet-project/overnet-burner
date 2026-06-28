@@ -1,12 +1,11 @@
 package Overnet::Burner::Runner::RexLocal;
 
-use strict;
-use warnings;
+use strictures 2;
 
 use parent 'Overnet::Burner::Runner';
 
 use File::Spec;
-use JSON::PP qw(decode_json);
+use JSON ();
 
 use Overnet::Burner::RexBundle;
 
@@ -203,7 +202,7 @@ sub _capture_command {
 sub _read_json {
     my ($path) = @_;
 
-    return decode_json(_read_file($path));
+    return JSON::decode_json(_read_file($path));
 }
 
 sub _read_file {

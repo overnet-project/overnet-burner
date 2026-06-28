@@ -1,10 +1,9 @@
 package Overnet::Burner::Plan;
 
-use strict;
-use warnings;
+use strictures 2;
 
 use Digest::SHA qw(sha256_hex);
-use JSON::PP qw(decode_json);
+use JSON ();
 
 use Overnet::Burner::TopologyProvider;
 
@@ -90,7 +89,7 @@ sub build {
 sub canonical_json {
     my ($class, $plan) = @_;
 
-    return JSON::PP->new->canonical(1)->pretty(1)->space_before(0)
+    return JSON->new->canonical(1)->pretty(1)->space_before(0)
         ->encode($plan);
 }
 
@@ -193,7 +192,7 @@ sub _seed {
 sub _clone {
     my ($value) = @_;
 
-    return decode_json(JSON::PP->new->canonical(1)->encode($value));
+    return JSON::decode_json(JSON->new->canonical(1)->encode($value));
 }
 
 1;

@@ -1,11 +1,10 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use Digest::SHA;
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 use lib "$FindBin::Bin/../lib";
@@ -101,7 +100,7 @@ is $noop_report->{workload}{phases}[0]{publish_rate_per_second}, 10,
     'noop report records publish rate';
 is $noop_report->{workload}{phases}[0]{object_reads_per_second}, 1,
     'noop report records object read rate';
-is $noop_report->{metrics}{collected}, JSON::PP::false,
+is $noop_report->{metrics}{collected}, JSON::false,
     'noop report records no metrics collected';
 is $noop_report->{metrics}{reason}, 'smoke_only',
     'noop report explains missing metrics';
@@ -256,7 +255,7 @@ sub _read_json {
 
     open my $fh, '<', $path or die "open $path: $!";
     local $/;
-    return decode_json(<$fh>);
+    return JSON::decode_json(<$fh>);
 }
 
 sub _write_fake_rex {
@@ -266,8 +265,7 @@ sub _write_fake_rex {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} <<'PERL';
 #!/usr/bin/env perl
-use strict;
-use warnings;
+use strictures 2;
 
 my $log = $ENV{OVERNET_BURNER_TEST_REX_LOG}
     or die "OVERNET_BURNER_TEST_REX_LOG is required\n";

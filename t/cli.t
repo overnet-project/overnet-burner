@@ -1,10 +1,9 @@
-use strict;
-use warnings;
+use strictures 2;
 
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
-use JSON::PP qw(decode_json);
+use JSON ();
 use Test::More;
 
 use lib "$FindBin::Bin/../lib";
@@ -27,7 +26,7 @@ my $expected_plan = Overnet::Burner::Plan->canonical_json(
     Overnet::Burner::Plan->build(Overnet::Burner::Config->load_file($scenario)),
 );
 is $plan, $expected_plan, 'plan command prints canonical plan JSON';
-my $decoded_plan = decode_json($plan);
+my $decoded_plan = JSON::decode_json($plan);
 is $decoded_plan->{run}{name}, 'single-relay-baseline',
     'plan command output records run name';
 is $decoded_plan->{relays}[0]{id}, 'relay-001',
@@ -149,7 +148,7 @@ is $run_manifest->{lifecycle}{actor_counts}{total}, 5,
 
 my $run_log_path = File::Spec->catfile($run_tmp, $run_command_id, 'logs', 'runner.jsonl');
 open my $run_log_fh, '<', $run_log_path or die "open $run_log_path: $!";
-my @run_events = map { decode_json($_) } <$run_log_fh>;
+my @run_events = map { JSON::decode_json($_) } <$run_log_fh>;
 is scalar @run_events, 10, 'run command records runner lifecycle events';
 is_deeply [map { $_->{phase} } grep { $_->{status} eq 'started' } @run_events],
     [qw(prepare start observe stop collect)],
@@ -186,5 +185,5 @@ sub _read_json {
 
     open my $fh, '<', $path or die "open $path: $!";
     local $/;
-    return decode_json(<$fh>);
+    return JSON::decode_json(<$fh>);
 }

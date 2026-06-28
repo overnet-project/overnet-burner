@@ -1,13 +1,12 @@
 package Overnet::Burner::Runner::RexLocalProvider;
 
-use strict;
-use warnings;
+use strictures 2;
 
 use parent 'Overnet::Burner::Runner::RexLocal';
 
 use File::Path qw(make_path);
 use File::Spec;
-use JSON::PP qw(decode_json);
+use JSON ();
 
 sub prepare {
     my ($self) = @_;
@@ -272,7 +271,7 @@ sub _read_json {
 
     open my $fh, '<', $path or die "open $path: $!";
     local $/;
-    return decode_json(<$fh>);
+    return JSON::decode_json(<$fh>);
 }
 
 1;
