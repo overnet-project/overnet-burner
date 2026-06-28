@@ -8,6 +8,7 @@ use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Config;
 use Overnet::Burner::Plan;
+use Overnet::Burner::Report;
 use Overnet::Burner::RexBundle;
 use Overnet::Burner::RunLedger;
 use Overnet::Burner::Runner;
@@ -33,6 +34,9 @@ sub main {
         }
         if ($command eq 'run') {
             return _run(@args);
+        }
+        if ($command eq 'report') {
+            return _report(@args);
         }
 
         die "unknown command: $command\n";
@@ -214,6 +218,24 @@ sub _run {
     return 0;
 }
 
+sub _report {
+    my @args = @_;
+    my $run_dir;
+
+    GetOptionsFromArray(
+        \@args,
+        'run-dir=s' => \$run_dir,
+    ) or return _usage();
+
+    die "--run-dir is required\n" unless $run_dir;
+    die "unexpected arguments: @args\n" if @args;
+
+    my $path = Overnet::Burner::Report->write(run_dir => $run_dir);
+    print "wrote report: $path\n";
+
+    return 0;
+}
+
 sub _usage {
     print STDERR <<'USAGE';
 usage:
@@ -222,6 +244,7 @@ usage:
   overnet-burner init-run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
   overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
   overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop|rex-local|rex-local-provider]
+  overnet-burner report --run-dir runs/RUN_ID
 USAGE
     return 2;
 }
