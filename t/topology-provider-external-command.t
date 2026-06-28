@@ -65,7 +65,7 @@ for my $case (
     _write_yaml($bad_path, _scenario_yaml(\%bad_command));
 
     eval { Overnet::Burner::Config->load_file($bad_path) };
-    like $@, qr/\Q$pattern\E/, "external-command validates command.$field";
+    like $@, qr/\Q$pattern\E/mx, "external-command validates command.$field";
 }
 
 my $bad_command_shape = File::Spec->catfile($tmp, 'bad-command-shape.yml');
@@ -74,7 +74,7 @@ _write_yaml(
     _scenario_yaml('python -m pyovernet.relay --config {config}'),
 );
 eval { Overnet::Burner::Config->load_file($bad_command_shape) };
-like $@, qr/topology\.relays\.command must be a mapping/,
+like $@, qr/topology\.relays\.command\ must\ be\ a\ mapping/mx,
     'external-command command descriptor must be a mapping';
 
 my $generic_path = "$repo/scenarios/single-relay-baseline.yml";
@@ -85,7 +85,7 @@ ok !exists $generic_scenario->{topology}{relays}{command},
 my $unknown_provider = File::Spec->catfile($tmp, 'unknown-provider.yml');
 _write_yaml($unknown_provider, _scenario_yaml($command, provider => 'python-relay'));
 eval { Overnet::Burner::Config->load_file($unknown_provider) };
-like $@, qr/unknown topology provider: python-relay/,
+like $@, qr/unknown\ topology\ provider:\ python-relay/mx,
     'rejects unsupported topology provider names';
 
 my $plan_a = Overnet::Burner::Plan->build($scenario);
@@ -183,10 +183,10 @@ my $cli_tmp = tempdir(CLEANUP => 1);
 my $cli_run_id = 'external-command-cli';
 my $render = `$^X $bin render-rex --scenario $scenario_path --runs-dir $cli_tmp --run-id $cli_run_id 2>&1`;
 is $?, 0, 'CLI render-rex accepts external-command scenario';
-unlike $render, qr/^fatal:/m,
+unlike $render, qr{(?:\A|\n)fatal:}xm,
     'CLI render-rex does not leak git stderr for scenarios outside git';
 like $render,
-    qr{^rendered Rex bundle: \Q$cli_tmp/$cli_run_id/artifacts/rex\E$}m,
+    qr{\Arendered\ Rex\ bundle:\ \Q$cli_tmp/$cli_run_id/artifacts/rex\E\n?\z}xm,
     'CLI render-rex reports external-command bundle directory';
 
 my $cli_bundle_dir = File::Spec->catdir(
@@ -256,12 +256,13 @@ sub _write_yaml {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} $yaml;
     close $fh or die "close $path: $!";
+  return;
 }
 
 sub _read_json {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return JSON::decode_json(<$fh>);
 }

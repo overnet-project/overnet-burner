@@ -19,7 +19,7 @@ my $tmp = tempdir(CLEANUP => 1);
 my $init_run_id = 'report-init-001';
 my $init_run = `$^X $bin init-run --scenario $scenario --runs-dir $tmp --run-id $init_run_id 2>&1`;
 is $?, 0, 'creates initialized run for reporting';
-like $init_run, qr{^created run: \Q$tmp/$init_run_id\E$}m,
+like $init_run, qr{\Acreated\ run:\ \Q$tmp/$init_run_id\E\n?\z}xm,
     'init-run reports created run directory';
 
 my $init_run_dir = File::Spec->catdir($tmp, $init_run_id);
@@ -42,13 +42,13 @@ is_deeply $init_report->{execution}{phases}, [],
 my $noop_run_id = 'report-noop-001';
 my $noop_run = `$^X $bin run --scenario $scenario --runs-dir $tmp --run-id $noop_run_id --runner noop 2>&1`;
 is $?, 0, 'creates noop run for reporting';
-like $noop_run, qr{^completed run: \Q$tmp/$noop_run_id\E$}m,
+like $noop_run, qr{\Acompleted\ run:\ \Q$tmp/$noop_run_id\E\n?\z}xm,
     'noop run reports completed run directory';
 
 my $noop_run_dir = File::Spec->catdir($tmp, $noop_run_id);
 my $noop_report_command = `$^X $bin report --run-dir $noop_run_dir 2>&1`;
 is $?, 0, 'report command exits successfully for noop run';
-like $noop_report_command, qr{^wrote report: \Q$noop_run_dir/report.json\E$}m,
+like $noop_report_command, qr{\Awrote\ report:\ \Q$noop_run_dir/report.json\E\n?\z}xm,
     'report command prints report path';
 ok -e File::Spec->catfile($noop_run_dir, 'report.json'),
     'report command writes report.json';
@@ -141,14 +141,14 @@ my $rex_run_id = 'report-rex-local-001';
     local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $rex_log;
     my $rex_run = `$^X $bin run --scenario $scenario --runs-dir $tmp --run-id $rex_run_id --runner rex-local 2>&1`;
     is $?, 0, 'creates rex-local run for reporting';
-    like $rex_run, qr{^completed run: \Q$tmp/$rex_run_id\E$}m,
+    like $rex_run, qr{\Acompleted\ run:\ \Q$tmp/$rex_run_id\E\n?\z}xm,
         'rex-local run reports completed run directory';
 }
 
 my $rex_run_dir = File::Spec->catdir($tmp, $rex_run_id);
 my $rex_report_command = `$^X $bin report --run-dir $rex_run_dir 2>&1`;
 is $?, 0, 'report command exits successfully for rex-local run';
-like $rex_report_command, qr{^wrote report: \Q$rex_run_dir/report.json\E$}m,
+like $rex_report_command, qr{\Awrote\ report:\ \Q$rex_run_dir/report.json\E\n?\z}xm,
     'rex-local report command prints report path';
 
 my $rex_report = _read_json(File::Spec->catfile($rex_run_dir, 'report.json'));
@@ -175,7 +175,7 @@ for my $id (qw(rex_bundle rexfile rex_lifecycle rex_inventory rex_topology_provi
 my $failed_run_id = 'report-failed-001';
 my $failed_run = `$^X $bin run --scenario $scenario --runs-dir $tmp --run-id $failed_run_id --runner missing 2>&1`;
 is $? >> 8, 2, 'creates failed run for reporting';
-like $failed_run, qr/unknown runner: missing/,
+like $failed_run, qr/unknown\ runner:\ missing/mx,
     'failed run reports runner error';
 
 my $failed_run_dir = File::Spec->catdir($tmp, $failed_run_id);
@@ -194,12 +194,12 @@ is $failed_report->{execution}{runner}, 'missing',
     'failed report records requested runner';
 is $failed_report->{diagnostics}{errors}[0]{code}, 'run_failed',
     'failed report records structured run failure';
-like $failed_report->{diagnostics}{errors}[0]{message}, qr/unknown runner: missing/,
+like $failed_report->{diagnostics}{errors}[0]{message}, qr/unknown\ runner:\ missing/mx,
     'failed report records run failure message';
 
 my $missing_report = `$^X $bin report --run-dir $tmp/missing-run 2>&1`;
 is $? >> 8, 2, 'report command rejects missing run directory';
-like $missing_report, qr/run directory does not exist/,
+like $missing_report, qr/run\ directory\ does\ not\ exist/mx,
     'report command explains missing run directory';
 
 done_testing;
@@ -226,6 +226,7 @@ sub _assert_common_report {
     ok exists $report->{extensions}, "$run_id report has extension point";
     ok $report->{human_summary}{headline},
         "$run_id report has human headline";
+  return;
 }
 
 sub _assert_artifact_hash {
@@ -237,6 +238,7 @@ sub _assert_artifact_hash {
         "$artifact->{id} artifact records size";
     is $artifact->{sha256}, _sha256_file($path),
         "$artifact->{id} artifact records sha256";
+  return;
 }
 
 sub _sha256_file {
@@ -254,7 +256,7 @@ sub _read_json {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return JSON::decode_json(<$fh>);
 }
 

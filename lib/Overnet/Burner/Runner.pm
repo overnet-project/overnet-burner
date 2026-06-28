@@ -18,7 +18,11 @@ sub load {
     my $module = $RUNNER_MODULE{$name}
         or die "unknown runner: $name\n";
 
-    eval "require $module; 1" or die $@;
+    eval {
+        (my $path = "$module.pm") =~ s{::}{/}gmx;
+        require $path;
+        1;
+    } or die $@;
 
     return $module->new(%args);
 }

@@ -181,6 +181,7 @@ sub _set_runner {
 
     $manifest->{runner} ||= {};
     $manifest->{runner}{name} = $name;
+  return;
 }
 
 sub _write_file {
@@ -189,6 +190,7 @@ sub _write_file {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} $content;
     close $fh or die "close $path: $!";
+  return;
 }
 
 sub _read_manifest {
@@ -205,13 +207,14 @@ sub _write_manifest {
         JSON->new->canonical(1)->pretty(1)->space_before(0)
             ->encode($manifest),
     );
+  return;
 }
 
 sub _read_json_file {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return JSON->new->decode(<$fh>);
 }
 
@@ -225,7 +228,7 @@ sub _validate_run_id {
     die "invalid run_id: use ASCII letters, digits, underscore, dot, or dash\n"
         unless defined $run_id
         && !ref $run_id
-        && $run_id =~ /\A[A-Za-z0-9_.-]+\z/
+        && $run_id =~ /\A[A-Za-z0-9_.-]+\z/mx
         && $run_id ne '.'
         && $run_id ne '..';
 
@@ -250,9 +253,10 @@ sub _host_facts {
 sub _repo_sha {
     my ($scenario_path) = @_;
     my $git_dir = dirname($scenario_path || getcwd());
+    my $missing;
 
     my $pid = open my $fh, '-|';
-    return undef unless defined $pid;
+    return $missing unless defined $pid;
     if ($pid == 0) {
         open STDERR, '>', File::Spec->devnull;
         exec 'git', '-C', $git_dir, 'rev-parse', '--verify', 'HEAD';
@@ -260,16 +264,16 @@ sub _repo_sha {
     }
 
     my $sha = <$fh>;
-    close $fh or return undef;
-    return undef unless defined $sha;
+    close $fh or return $missing;
+    return $missing unless defined $sha;
     chomp $sha;
-    return length($sha) ? $sha : undef;
+    return length($sha) ? $sha : $missing;
 }
 
 sub _rex_version {
     my $version = eval {
         require Rex;
-        return $Rex::VERSION;
+        $Rex::VERSION;
     };
 
     return $version;

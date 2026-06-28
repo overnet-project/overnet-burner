@@ -121,11 +121,11 @@ for my $artifact (@{ $example->{artifacts} }) {
     );
 }
 
-like $docs, qr/report\.json is the stable automation contract/,
+like $docs, qr/report\.json\ is\ the\ stable\ automation\ contract/mx,
     'docs define report.json as the automation contract';
-like $docs, qr/manifest\.json, plan\.json, runner\.jsonl, and metrics\.jsonl are evidence/,
+like $docs, qr/manifest\.json,\ plan\.json,\ runner\.jsonl,\ and\ metrics\.jsonl\ are\ evidence/mx,
     'docs distinguish internal evidence from the report contract';
-like $docs, qr/Breaking changes require a new report_version/,
+like $docs, qr/Breaking\ changes\ require\ a\ new\ report_version/mx,
     'docs define compatibility rules';
 
 done_testing;
@@ -134,7 +134,7 @@ sub _read_json {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return JSON::decode_json(<$fh>);
 }
 
@@ -142,7 +142,7 @@ sub _read_file {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return <$fh>;
 }
 
@@ -152,4 +152,5 @@ sub _assert_required {
     for my $field (@{$required}) {
         ok exists $object->{$field}, "$label has required field $field";
     }
+  return;
 }

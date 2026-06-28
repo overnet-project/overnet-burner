@@ -17,7 +17,7 @@ my $scenario = "$repo/scenarios/single-relay-baseline.yml";
 
 my $validate = `$^X $bin validate --scenario $scenario 2>&1`;
 is $?, 0, 'validate command exits successfully';
-like $validate, qr/^valid scenario: single-relay-baseline$/m,
+like $validate, qr/\Avalid\ scenario:\ single-relay-baseline\n?\z/xm,
     'validate command reports scenario name';
 
 my $plan = `$^X $bin plan --scenario $scenario 2>&1`;
@@ -40,7 +40,7 @@ my $tmp = tempdir(CLEANUP => 1);
 my $run_id = 'cli-run-001';
 my $init = `$^X $bin init-run --scenario $scenario --runs-dir $tmp --run-id $run_id 2>&1`;
 is $?, 0, 'init-run command exits successfully';
-like $init, qr{^created run: \Q$tmp/$run_id\E$}m,
+like $init, qr{\Acreated\ run:\ \Q$tmp/$run_id\E\n?\z}xm,
     'init-run command reports run directory';
 
 my $manifest_path = File::Spec->catfile($tmp, $run_id, 'manifest.json');
@@ -64,7 +64,7 @@ my $render_tmp = tempdir(CLEANUP => 1);
 my $render_id = 'cli-rex-render-001';
 my $render = `$^X $bin render-rex --scenario $scenario --runs-dir $render_tmp --run-id $render_id 2>&1`;
 is $?, 0, 'render-rex command exits successfully';
-like $render, qr{^rendered Rex bundle: \Q$render_tmp/$render_id/artifacts/rex\E$}m,
+like $render, qr{\Arendered\ Rex\ bundle:\ \Q$render_tmp/$render_id/artifacts/rex\E\n?\z}xm,
     'render-rex command reports bundle directory';
 
 my $render_run_dir = File::Spec->catdir($render_tmp, $render_id);
@@ -99,7 +99,7 @@ ok !-e File::Spec->catfile($render_run_dir, 'logs', 'runner.jsonl'),
 
 my $render_missing = `$^X $bin render-rex --runs-dir $render_tmp --run-id missing-scenario 2>&1`;
 is $? >> 8, 2, 'render-rex rejects missing scenario';
-like $render_missing, qr/--scenario is required/,
+like $render_missing, qr/--scenario\ is\ required/mx,
     'render-rex reports missing scenario';
 ok !-d File::Spec->catdir($render_tmp, 'missing-scenario'),
     'render-rex missing scenario does not create run directory';
@@ -107,7 +107,7 @@ ok !-d File::Spec->catdir($render_tmp, 'missing-scenario'),
 my $bad_tmp = tempdir(CLEANUP => 1);
 my $bad_init = `$^X $bin init-run --scenario $scenario --runs-dir $bad_tmp/runs --run-id ../escape 2>&1`;
 is $? >> 8, 2, 'init-run rejects invalid run id';
-like $bad_init, qr/\binvalid run_id\b/, 'init-run reports invalid run id';
+like $bad_init, qr/\binvalid\ run_id\b/mx, 'init-run reports invalid run id';
 ok !-d File::Spec->catdir($bad_tmp, 'escape'),
     'init-run does not write outside runs dir for invalid run id';
 
@@ -115,7 +115,7 @@ my $run_tmp = tempdir(CLEANUP => 1);
 my $run_command_id = 'cli-run-002';
 my $run = `$^X $bin run --scenario $scenario --runs-dir $run_tmp --run-id $run_command_id --runner noop 2>&1`;
 is $?, 0, 'run command exits successfully';
-like $run, qr{^completed run: \Q$run_tmp/$run_command_id\E$}m,
+like $run, qr{\Acompleted\ run:\ \Q$run_tmp/$run_command_id\E\n?\z}xm,
     'run command reports completed run directory';
 
 my $run_manifest_path = File::Spec->catfile($run_tmp, $run_command_id, 'manifest.json');
@@ -158,7 +158,7 @@ my $failed_tmp = tempdir(CLEANUP => 1);
 my $failed_id = 'cli-run-failed';
 my $failed = `$^X $bin run --scenario $scenario --runs-dir $failed_tmp --run-id $failed_id --runner missing 2>&1`;
 is $? >> 8, 2, 'run command fails for unknown runner';
-like $failed, qr/unknown runner: missing/, 'run command reports runner error';
+like $failed, qr/unknown\ runner:\ missing/mx, 'run command reports runner error';
 
 my $failed_manifest_path = File::Spec->catfile($failed_tmp, $failed_id, 'manifest.json');
 my $failed_manifest = _read_json($failed_manifest_path);
@@ -173,7 +173,7 @@ ok !exists $failed_manifest->{provider},
     'failed run manifest does not use ambiguous provider field';
 ok !exists $failed_manifest->{execution_provider},
     'failed run manifest does not use execution provider field';
-like $failed_manifest->{error}, qr/unknown runner: missing/,
+like $failed_manifest->{error}, qr/unknown\ runner:\ missing/mx,
     'failed run manifest records error';
 ok $failed_manifest->{timestamps}{finished_at},
     'failed run manifest records finish time';
@@ -184,6 +184,6 @@ sub _read_json {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return JSON::decode_json(<$fh>);
 }

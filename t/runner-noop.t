@@ -109,7 +109,7 @@ my $artifact_path = File::Spec->catfile(
     'noop-runner.json',
 );
 open my $artifact_fh, '<', $artifact_path or die "open $artifact_path: $!";
-local $/;
+local $/ = undef;
 my $artifact = JSON::decode_json(<$artifact_fh>);
 
 is_deeply $artifact, $summary, 'noop runner writes deterministic summary artifact';
@@ -124,6 +124,6 @@ my $unknown = eval {
     1;
 };
 ok !$unknown, 'rejects unknown runner';
-like $@, qr/unknown runner: missing/, 'reports unknown runner name';
+like $@, qr/unknown\ runner:\ missing/mx, 'reports unknown runner name';
 
 done_testing;

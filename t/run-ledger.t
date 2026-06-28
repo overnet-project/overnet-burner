@@ -51,7 +51,7 @@ ok -d File::Spec->catdir($run_dir, 'artifacts'), 'creates artifacts directory';
 my $manifest = do {
     open my $fh, '<', File::Spec->catfile($run_dir, 'manifest.json')
         or die "open manifest.json: $!";
-    local $/;
+    local $/ = undef;
     JSON::decode_json(<$fh>);
 };
 
@@ -71,13 +71,13 @@ ok !exists $manifest->{execution_provider},
     'manifest does not use execution provider field';
 is $manifest->{host_facts}{hostname}, 'builder-host', 'manifest records host facts';
 is $manifest->{repo_sha}, 'abc123', 'manifest records repo SHA';
-like $manifest->{perl_version}, qr/^5\./, 'manifest records Perl version';
+like $manifest->{perl_version}, qr/^5\./mx, 'manifest records Perl version';
 ok exists $manifest->{rex_version}, 'manifest has Rex version key';
 
 my $normalized = do {
     open my $fh, '<', File::Spec->catfile($run_dir, 'config.normalized.json')
         or die "open config.normalized.json: $!";
-    local $/;
+    local $/ = undef;
     <$fh>;
 };
 
@@ -87,7 +87,7 @@ is $normalized, Overnet::Burner::Config->normalized_json($scenario),
 my $plan_json = do {
     open my $fh, '<', File::Spec->catfile($run_dir, 'plan.json')
         or die "open plan.json: $!";
-    local $/;
+    local $/ = undef;
     <$fh>;
 };
 
@@ -112,7 +112,7 @@ my $bad_plan_created = eval {
 my $bad_plan_error = $@;
 
 ok !$bad_plan_created, 'rejects scenario that cannot produce a plan';
-like $bad_plan_error, qr/chaos\[0\] must be a mapping/,
+like $bad_plan_error, qr/chaos\[0\]\ must\ be\ a\ mapping/mx,
     'reports plan generation error before writing ledger';
 ok !-e File::Spec->catdir($bad_plan_tmp, 'runs', 'bad-plan'),
     'does not leave a partial run directory when plan generation fails';
@@ -142,7 +142,7 @@ for my $case (
     my $error = $@;
 
     ok !$created, "rejects $label";
-    like $error, qr/\binvalid run_id\b/, "reports invalid run id for $label";
+    like $error, qr/\binvalid\ run_id\b/mx, "reports invalid run id for $label";
     ok !-d File::Spec->catdir($case_tmp, 'escape'),
         "does not create traversal directory for $label";
 }

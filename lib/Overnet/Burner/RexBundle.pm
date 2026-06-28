@@ -288,6 +288,7 @@ sub _write_file {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} $content;
     close $fh or die "close $path: $!";
+  return;
 }
 
 1;

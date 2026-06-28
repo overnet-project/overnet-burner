@@ -71,7 +71,7 @@ YAML
 close $fh or die "close $invalid_path: $!";
 
 eval { Overnet::Burner::Config->load_file($invalid_path) };
-like $@, qr/missing required field: run\.seed/,
+like $@, qr/missing\ required\ field:\ run\.seed/mx,
     'invalid scenario fails validation';
 
 for my $case (
@@ -81,7 +81,7 @@ for my $case (
 - run
 - topology
 YAML
-        qr/root must be a mapping/,
+        qr/root\ must\ be\ a\ mapping/mx,
     ],
     [
         'run sequence',
@@ -94,7 +94,7 @@ topology:
 workload:
   publish_rate_per_second: 1
 YAML
-        qr/run must be a mapping/,
+        qr/run\ must\ be\ a\ mapping/mx,
     ],
     [
         'topology sequence',
@@ -107,7 +107,7 @@ topology: []
 workload:
   publish_rate_per_second: 1
 YAML
-        qr/topology must be a mapping/,
+        qr/topology\ must\ be\ a\ mapping/mx,
     ],
     [
         'workload sequence',
@@ -122,7 +122,7 @@ topology:
     provider: generic-relay
 workload: []
 YAML
-        qr/workload must be a mapping/,
+        qr/workload\ must\ be\ a\ mapping/mx,
     ],
     [
         'thresholds sequence',
@@ -139,7 +139,7 @@ workload:
   publish_rate_per_second: 1
 thresholds: []
 YAML
-        qr/thresholds must be a mapping/,
+        qr/thresholds\ must\ be\ a\ mapping/mx,
     ],
     [
         'object reads sequence',
@@ -156,7 +156,7 @@ workload:
   publish_rate_per_second: 1
   object_reads: []
 YAML
-        qr/workload\.object_reads must be a mapping/,
+        qr/workload\.object_reads\ must\ be\ a\ mapping/mx,
     ],
     [
         'chaos scalar entry',
@@ -174,12 +174,12 @@ workload:
 chaos:
   - 5
 YAML
-        qr/chaos\[0\] must be a mapping/,
+        qr/chaos\[0\]\ must\ be\ a\ mapping/mx,
     ],
 ) {
     my ($name, $yaml, $pattern) = @{$case};
     my $path = "$tmp/non-mapping-$name.yml";
-    $path =~ s/ /-/g;
+    $path =~ s/\ /-/gmx;
 
     _write_yaml($path, $yaml);
     eval { Overnet::Burner::Config->load_file($path) };
@@ -194,4 +194,5 @@ sub _write_yaml {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} $yaml;
     close $fh or die "close $path: $!";
+  return;
 }

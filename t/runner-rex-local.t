@@ -182,7 +182,7 @@ my $cli_tmp = tempdir(CLEANUP => 1);
 my $cli_run_id = 'cli-rex-local-001';
 my $cli_run = `$^X $bin run --scenario $scenario_path --runs-dir $cli_tmp --run-id $cli_run_id --runner rex-local 2>&1`;
 is $?, 0, 'CLI run --runner rex-local exits successfully';
-like $cli_run, qr{^completed run: \Q$cli_tmp/$cli_run_id\E$}m,
+like $cli_run, qr{\Acompleted\ run:\ \Q$cli_tmp/$cli_run_id\E\n?\z}xm,
     'CLI run reports completed rex-local run directory';
 
 my $cli_manifest = _read_json(
@@ -222,7 +222,7 @@ my $external_run_id = 'external-command-rex-local';
 my $external_run = `$^X $bin run --scenario $external_scenario --runs-dir $external_tmp/runs --run-id $external_run_id --runner rex-local 2>&1`;
 is $?, 0, 'rex-local run accepts external-command provider scenario';
 like $external_run,
-    qr{^completed run: \Q$external_tmp/runs/$external_run_id\E$}m,
+    qr{\Acompleted\ run:\ \Q$external_tmp/runs/$external_run_id\E\n?\z}xm,
     'rex-local completes external-command provider run';
 ok !-e $marker, 'rex-local does not execute provider command strings';
 
@@ -264,7 +264,7 @@ my $relative_runs = "relative-rex-local-$$";
     local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $relative_rex_log;
     my $relative_run = `$^X $bin run --scenario $scenario_path --runs-dir $relative_runs --run-id relative --runner rex-local 2>&1`;
     is $?, 0, 'CLI rex-local works with a relative runs-dir';
-    like $relative_run, qr{^completed run: \Q$relative_runs/relative\E$}m,
+    like $relative_run, qr{\Acompleted\ run:\ \Q$relative_runs/relative\E\n?\z}xm,
         'relative runs-dir run reports completed run directory';
 }
 _remove_tree($relative_runs);
@@ -274,7 +274,7 @@ local $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK} = 'warmup';
 my $failed_run_id = 'cli-rex-local-failed';
 my $failed_run = `$^X $bin run --scenario $scenario_path --runs-dir $failure_tmp --run-id $failed_run_id --runner rex-local 2>&1`;
 is $? >> 8, 2, 'CLI rex-local fails when a Rex task fails';
-like $failed_run, qr/Rex task command failed:/,
+like $failed_run, qr/Rex\ task\ command\ failed:/mx,
     'CLI rex-local reports Rex task failure';
 
 my $failed_manifest = _read_json(
@@ -284,7 +284,7 @@ is $failed_manifest->{status}, 'failed',
     'failed rex-local manifest records failed status';
 is $failed_manifest->{runner}{name}, 'rex-local',
     'failed rex-local manifest records runner';
-like $failed_manifest->{error}, qr/Rex task command failed:/,
+like $failed_manifest->{error}, qr/Rex\ task\ command\ failed:/mx,
     'failed rex-local manifest records Rex task error';
 is $failed_manifest->{rex_bundle}{path}, 'artifacts/rex',
     'failed rex-local manifest keeps rendered Rex bundle metadata';
@@ -378,6 +378,7 @@ sub _write_yaml {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} $yaml;
     close $fh or die "close $path: $!";
+  return;
 }
 
 sub _read_json {
@@ -408,7 +409,7 @@ sub _read_file {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return <$fh>;
 }
 
@@ -427,4 +428,5 @@ sub _remove_tree {
     }
 
     unlink $path or die "unlink $path: $!";
+  return;
 }

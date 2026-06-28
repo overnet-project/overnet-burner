@@ -51,7 +51,7 @@ for my $actor (
     @{ $plan_a->{query_readers} },
     @{ $plan_a->{object_readers} },
 ) {
-    ok $actor->{seed} =~ /\A\d+\z/, "$actor->{id} has deterministic actor seed";
+    ok $actor->{seed} =~ /\A\d+\z/mx, "$actor->{id} has deterministic actor seed";
     is $actor->{metric_stream}, "metrics/$actor->{id}.jsonl",
         "$actor->{id} records metric stream path";
 }
@@ -81,7 +81,7 @@ for my $actor_id (
     object-reader-001
     )
 ) {
-    ok $phase->{actor_seeds}{$actor_id} =~ /\A\d+\z/,
+    ok $phase->{actor_seeds}{$actor_id} =~ /\A\d+\z/mx,
         "phase has seed for $actor_id";
 }
 
@@ -139,7 +139,7 @@ is $chaos_plan->{chaos_hooks}[0]{action}, 'restart',
     'chaos hook records action';
 is $chaos_plan->{chaos_hooks}[0]{target}, 'relay-001',
     'chaos hook records target';
-ok $chaos_plan->{chaos_hooks}[0]{seed} =~ /\A\d+\z/,
+ok $chaos_plan->{chaos_hooks}[0]{seed} =~ /\A\d+\z/mx,
     'chaos hook has deterministic seed';
 
 my $json_a = Overnet::Burner::Plan->canonical_json($plan_a);

@@ -11,7 +11,7 @@ sub load_file {
     my ($class, $path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     my $text = <$fh>;
 
     my $config = eval {
@@ -158,7 +158,7 @@ sub _require_integer {
     my ($config, $path) = @_;
     my $value = _required_value($config, $path);
     die "invalid field: $path must be an integer\n"
-        if ref $value || !defined $value || "$value" !~ /^-?\d+\z/;
+        if ref $value || !defined $value || "$value" !~ /^-?\d+\z/mx;
     return $value;
 }
 
@@ -182,7 +182,7 @@ sub _require_nonnegative_number {
     die "invalid field: $path must be a non-negative number\n"
         if ref $value
         || !defined $value
-        || "$value" !~ /^-?(?:\d+(?:\.\d*)?|\.\d+)\z/
+        || "$value" !~ /^-?(?:\d+(?:\.\d*)?|\.\d+)\z/mx
         || $value < 0;
     return $value;
 }
@@ -198,9 +198,9 @@ sub _value_at {
     my ($config, $path) = @_;
     my $value = $config;
 
-    for my $part (split /\./, $path) {
-        return undef unless ref $value eq 'HASH';
-        return undef unless exists $value->{$part};
+    for my $part (split /\./mx, $path) {
+        return unless ref $value eq 'HASH';
+        return unless exists $value->{$part};
         $value = $value->{$part};
     }
 

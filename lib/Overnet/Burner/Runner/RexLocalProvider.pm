@@ -270,7 +270,7 @@ sub _read_json {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return JSON::decode_json(<$fh>);
 }
 

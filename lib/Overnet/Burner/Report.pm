@@ -432,7 +432,7 @@ sub _artifacts {
 
     for my $candidate (@candidates) {
         my ($id, $relative_path, $media_type, $role, $required) = @{$candidate};
-        my $path = _path($run_dir, split m{/}, $relative_path);
+        my $path = _path($run_dir, split m{/}mx, $relative_path);
         next unless -e $path;
         push @artifacts, _artifact(
             id            => $id,
@@ -518,20 +518,22 @@ sub _human_summary {
 
 sub _duration_ms {
     my ($started_at, $finished_at) = @_;
+    my $missing;
 
-    return undef unless defined $started_at && defined $finished_at;
+    return $missing unless defined $started_at && defined $finished_at;
     my $started = _parse_timestamp($started_at);
     my $finished = _parse_timestamp($finished_at);
-    return undef unless defined $started && defined $finished;
+    return $missing unless defined $started && defined $finished;
 
     return int(($finished - $started) * 1000);
 }
 
 sub _parse_timestamp {
     my ($timestamp) = @_;
+    my $missing;
 
-    return undef unless defined $timestamp
-        && $timestamp =~ /\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z\z/;
+    return $missing unless defined $timestamp
+        && $timestamp =~ /\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z\z/mx;
 
     return eval { timegm($6, $5, $4, $3, $2 - 1, $1) };
 }
@@ -540,14 +542,15 @@ sub _read_json_file {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return JSON::decode_json(<$fh>);
 }
 
 sub _read_optional_json_file {
     my ($path) = @_;
+    my $missing;
 
-    return undef unless -e $path;
+    return $missing unless -e $path;
     return _read_json_file($path);
 }
 
@@ -567,6 +570,7 @@ sub _write_file {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} $content;
     close $fh or die "close $path: $!";
+  return;
 }
 
 sub _sha256_file {

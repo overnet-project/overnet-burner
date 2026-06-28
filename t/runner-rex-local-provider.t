@@ -150,7 +150,7 @@ _write_yaml($failure_scenario, _external_scenario_yaml($failure_commands));
     local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $failure_rex_log;
     my $failed = `$^X $bin run --scenario $failure_scenario --runs-dir $failure_tmp/runs --run-id failure --runner rex-local-provider 2>&1`;
     is $? >> 8, 2, 'CLI provider runner fails when health fails';
-    like $failed, qr/provider command failed: relay-001 health/,
+    like $failed, qr/provider\ command\ failed:\ relay-001\ health/mx,
         'health failure is reported';
 }
 ok -e $failure_stop_marker,
@@ -191,7 +191,7 @@ _write_yaml($rex_failure_scenario, _external_scenario_yaml($rex_failure_commands
     local $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK} = 'warmup';
     my $failed = `$^X $bin run --scenario $rex_failure_scenario --runs-dir $rex_failure_tmp/runs --run-id rex-failure --runner rex-local-provider 2>&1`;
     is $? >> 8, 2, 'CLI provider runner fails when a Rex task fails';
-    like $failed, qr/Rex task command failed:/,
+    like $failed, qr/Rex\ task\ command\ failed:/mx,
         'Rex failure is reported';
 }
 ok -e $rex_failure_stop_marker,
@@ -227,7 +227,7 @@ _write_yaml($stop_failure_scenario, _external_scenario_yaml($stop_failure_comman
     local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $stop_failure_rex_log;
     my $failed = `$^X $bin run --scenario $stop_failure_scenario --runs-dir $stop_failure_tmp/runs --run-id stop-failure --runner rex-local-provider 2>&1`;
     is $? >> 8, 2, 'CLI provider runner fails when stop fails';
-    like $failed, qr/provider command failed: relay-001 stop/,
+    like $failed, qr/provider\ command\ failed:\ relay-001\ stop/mx,
         'stop failure is reported';
 }
 my $stop_failure_manifest = _read_json(
@@ -235,7 +235,7 @@ my $stop_failure_manifest = _read_json(
 );
 is $stop_failure_manifest->{status}, 'failed',
     'stop failure manifest records failed status';
-like $stop_failure_manifest->{error}, qr/provider command failed: relay-001 stop/,
+like $stop_failure_manifest->{error}, qr/provider\ command\ failed:\ relay-001\ stop/mx,
     'stop failure manifest records provider stop error';
 my $stop_failure_events = _read_jsonl(
     File::Spec->catfile($stop_failure_tmp, 'runs', 'stop-failure', 'logs', 'runner.jsonl'),
@@ -315,7 +315,7 @@ _write_yaml($cli_scenario, _external_scenario_yaml($cli_commands));
     local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $cli_rex_log;
     my $cli = `$^X $bin run --scenario $cli_scenario --runs-dir $cli_tmp/runs --run-id cli --runner rex-local-provider 2>&1`;
     is $?, 0, 'CLI run --runner rex-local-provider exits successfully';
-    like $cli, qr{^completed run: \Q$cli_tmp/runs/cli\E$}m,
+    like $cli, qr{\Acompleted\ run:\ \Q$cli_tmp/runs/cli\E\n?\z}xm,
         'CLI provider runner reports completed run directory';
 }
 my $cli_manifest = _read_json(
@@ -431,6 +431,7 @@ sub _write_yaml {
     open my $fh, '>', $path or die "open $path: $!";
     print {$fh} $yaml;
     close $fh or die "close $path: $!";
+  return;
 }
 
 sub _read_json {
@@ -461,6 +462,6 @@ sub _read_file {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return <$fh>;
 }

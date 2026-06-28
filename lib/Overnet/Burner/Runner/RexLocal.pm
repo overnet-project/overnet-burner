@@ -140,7 +140,7 @@ sub _assert_rex_task {
     my ($self, $rexfile_text, $task, $rexfile) = @_;
 
     die "Rex task not rendered in $rexfile: $task\n"
-        unless $rexfile_text =~ /\btask\s+['"]\Q$task\E['"]/;
+        unless $rexfile_text =~ /\btask\s+['"]\Q$task\E['"]/mx;
 
     return 1;
 }
@@ -185,7 +185,7 @@ sub _capture_command {
         }
     }
 
-    local $/;
+    local $/ = undef;
     my $output = <$fh>;
     my $ok = close $fh;
     my $status = $?;
@@ -209,7 +209,7 @@ sub _read_file {
     my ($path) = @_;
 
     open my $fh, '<', $path or die "open $path: $!";
-    local $/;
+    local $/ = undef;
     return <$fh>;
 }
 
