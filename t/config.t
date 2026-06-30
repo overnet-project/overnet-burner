@@ -3,39 +3,36 @@ use strictures 2;
 use File::Temp qw(tempdir);
 use FindBin;
 use JSON ();
-use Test::More;
+use Test2::V0;
 
 use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Config;
 
-my $repo = "$FindBin::Bin/..";
+my $repo          = "$FindBin::Bin/..";
 my $scenario_path = "$repo/scenarios/single-relay-baseline.yml";
 
 my $scenario = Overnet::Burner::Config->load_file($scenario_path);
 
-is $scenario->{run}{name}, 'single-relay-baseline', 'loads scenario name';
-is $scenario->{topology}{relays}{count}, 1, 'loads relay count';
-is $scenario->{topology}{relays}{provider}, 'generic-relay', 'loads provider name';
-is $scenario->{workload}{publish_rate_per_second}, 10, 'loads workload rate';
+is $scenario->{run}{name},                         'single-relay-baseline', 'loads scenario name';
+is $scenario->{topology}{relays}{count},           1,                       'loads relay count';
+is $scenario->{topology}{relays}{provider},        'generic-relay',         'loads provider name';
+is $scenario->{workload}{publish_rate_per_second}, 10,                      'loads workload rate';
 
 my $normalized_a = Overnet::Burner::Config->normalized_json($scenario);
-my $normalized_b = Overnet::Burner::Config->normalized_json(
-    Overnet::Burner::Config->load_file($scenario_path),
-);
+my $normalized_b = Overnet::Burner::Config->normalized_json(Overnet::Burner::Config->load_file($scenario_path),);
 
 is $normalized_a, $normalized_b, 'normalized config is deterministic';
 
 my $decoded = JSON::decode_json($normalized_a);
-is $decoded->{run}{seed}, 12345, 'normalized config keeps seed';
-is $decoded->{topology}{relays}{provider}, 'generic-relay',
-    'normalized config keeps provider';
+is $decoded->{run}{seed},                  12345,           'normalized config keeps seed';
+is $decoded->{topology}{relays}{provider}, 'generic-relay', 'normalized config keeps provider';
 
-my $tmp = tempdir(CLEANUP => 1);
+my $tmp                = tempdir(CLEANUP => 1);
 my $standard_yaml_path = "$tmp/standard-yaml.yml";
 
 open my $standard_fh, '>', $standard_yaml_path
-    or die "open $standard_yaml_path: $!";
+  or die "open $standard_yaml_path: $!";
 print {$standard_fh} <<'YAML';
 ---
 run:
@@ -52,8 +49,7 @@ YAML
 close $standard_fh or die "close $standard_yaml_path: $!";
 
 my $standard_yaml = Overnet::Burner::Config->load_file($standard_yaml_path);
-is $standard_yaml->{run}{seed}, 12345,
-    'loads standard YAML document markers and comments';
+is $standard_yaml->{run}{seed}, 12345, 'loads standard YAML document markers and comments';
 
 my $invalid_path = "$tmp/invalid.yml";
 
@@ -71,21 +67,20 @@ YAML
 close $fh or die "close $invalid_path: $!";
 
 eval { Overnet::Burner::Config->load_file($invalid_path) };
-like $@, qr/missing\ required\ field:\ run\.seed/mx,
-    'invalid scenario fails validation';
+like $@, qr/missing\ required\ field:\ run\.seed/mx, 'invalid scenario fails validation';
 
 for my $case (
-    [
-        'root sequence',
-        <<'YAML',
+  [
+    'root sequence',
+    <<'YAML',
 - run
 - topology
 YAML
-        qr/root\ must\ be\ a\ mapping/mx,
-    ],
-    [
-        'run sequence',
-        <<'YAML',
+    qr/root\ must\ be\ a\ mapping/mx,
+  ],
+  [
+    'run sequence',
+    <<'YAML',
 run: []
 topology:
   relays:
@@ -94,11 +89,11 @@ topology:
 workload:
   publish_rate_per_second: 1
 YAML
-        qr/run\ must\ be\ a\ mapping/mx,
-    ],
-    [
-        'topology sequence',
-        <<'YAML',
+    qr/run\ must\ be\ a\ mapping/mx,
+  ],
+  [
+    'topology sequence',
+    <<'YAML',
 run:
   name: broken
   duration: 60
@@ -107,11 +102,11 @@ topology: []
 workload:
   publish_rate_per_second: 1
 YAML
-        qr/topology\ must\ be\ a\ mapping/mx,
-    ],
-    [
-        'workload sequence',
-        <<'YAML',
+    qr/topology\ must\ be\ a\ mapping/mx,
+  ],
+  [
+    'workload sequence',
+    <<'YAML',
 run:
   name: broken
   duration: 60
@@ -122,11 +117,11 @@ topology:
     provider: generic-relay
 workload: []
 YAML
-        qr/workload\ must\ be\ a\ mapping/mx,
-    ],
-    [
-        'thresholds sequence',
-        <<'YAML',
+    qr/workload\ must\ be\ a\ mapping/mx,
+  ],
+  [
+    'thresholds sequence',
+    <<'YAML',
 run:
   name: broken
   duration: 60
@@ -139,11 +134,11 @@ workload:
   publish_rate_per_second: 1
 thresholds: []
 YAML
-        qr/thresholds\ must\ be\ a\ mapping/mx,
-    ],
-    [
-        'object reads sequence',
-        <<'YAML',
+    qr/thresholds\ must\ be\ a\ mapping/mx,
+  ],
+  [
+    'object reads sequence',
+    <<'YAML',
 run:
   name: broken
   duration: 60
@@ -156,11 +151,11 @@ workload:
   publish_rate_per_second: 1
   object_reads: []
 YAML
-        qr/workload\.object_reads\ must\ be\ a\ mapping/mx,
-    ],
-    [
-        'chaos scalar entry',
-        <<'YAML',
+    qr/workload\.object_reads\ must\ be\ a\ mapping/mx,
+  ],
+  [
+    'chaos scalar entry',
+    <<'YAML',
 run:
   name: broken
   duration: 60
@@ -174,25 +169,25 @@ workload:
 chaos:
   - 5
 YAML
-        qr/chaos\[0\]\ must\ be\ a\ mapping/mx,
-    ],
+    qr/chaos\[0\]\ must\ be\ a\ mapping/mx,
+  ],
 ) {
-    my ($name, $yaml, $pattern) = @{$case};
-    my $path = "$tmp/non-mapping-$name.yml";
-    $path =~ s/\ /-/gmx;
+  my ($name, $yaml, $pattern) = @{$case};
+  my $path = "$tmp/non-mapping-$name.yml";
+  $path =~ s/\ /-/gmx;
 
-    _write_yaml($path, $yaml);
-    eval { Overnet::Burner::Config->load_file($path) };
-    like $@, $pattern, "$name reports a clean mapping error";
+  _write_yaml($path, $yaml);
+  eval { Overnet::Burner::Config->load_file($path) };
+  like $@, $pattern, "$name reports a clean mapping error";
 }
 
 done_testing;
 
 sub _write_yaml {
-    my ($path, $yaml) = @_;
+  my ($path, $yaml) = @_;
 
-    open my $fh, '>', $path or die "open $path: $!";
-    print {$fh} $yaml;
-    close $fh or die "close $path: $!";
+  open my $fh, '>', $path or die "open $path: $!";
+  print {$fh} $yaml;
+  close $fh or die "close $path: $!";
   return;
 }

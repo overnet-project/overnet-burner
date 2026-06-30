@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 use strictures 2;
 
+use English qw(-no_match_vars);
 use FindBin;
 use Getopt::Long qw(GetOptionsFromArray);
 use lib "$FindBin::Bin/../lib";
@@ -11,232 +12,253 @@ use Overnet::Burner::Report;
 use Overnet::Burner::RexBundle;
 use Overnet::Burner::RunLedger;
 use Overnet::Burner::Runner;
+use Overnet::Burner::Util qw(checked_print);
 
-exit main(@ARGV) unless caller;
+our $VERSION = '0.001';
+
+if (!caller) {
+  exit main(@ARGV);
+}
 
 sub main {
-    my @args = @_;
-    my $command = shift @args || return _usage();
+  my @args    = @_;
+  my $command = shift @args || return _usage();
 
-    my $status = eval {
-        if ($command eq 'validate') {
-            return _validate(@args);
-        }
-        if ($command eq 'plan') {
-            return _plan(@args);
-        }
-        if ($command eq 'init-run') {
-            return _init_run(@args);
-        }
-        if ($command eq 'render-rex') {
-            return _render_rex(@args);
-        }
-        if ($command eq 'run') {
-            return _run(@args);
-        }
-        if ($command eq 'report') {
-            return _report(@args);
-        }
-
-        die "unknown command: $command\n";
-    };
-
-    if ($@) {
-        my $error = $@ || 'command failed';
-        chomp $error;
-        print STDERR "$error\n";
-        return 2;
+  my $status = eval {
+    if ($command eq 'validate') {
+      return _validate(@args);
+    }
+    if ($command eq 'plan') {
+      return _plan(@args);
+    }
+    if ($command eq 'init-run') {
+      return _init_run(@args);
+    }
+    if ($command eq 'render-rex') {
+      return _render_rex(@args);
+    }
+    if ($command eq 'run') {
+      return _run(@args);
+    }
+    if ($command eq 'report') {
+      return _report(@args);
     }
 
-    return $status;
+    die "unknown command: $command\n";
+  };
+
+  if ($EVAL_ERROR) {
+    my $error = $EVAL_ERROR || 'command failed';
+    chomp $error;
+    checked_print(\*STDERR, "$error\n");
+    return 2;
+  }
+
+  return $status;
 }
 
 sub _validate {
-    my @args = @_;
-    my $scenario_path;
+  my @args = @_;
+  my $scenario_path;
 
-    GetOptionsFromArray(
-        \@args,
-        'scenario=s' => \$scenario_path,
-    ) or return _usage();
+  GetOptionsFromArray(\@args, 'scenario=s' => \$scenario_path,)
+    or return _usage();
 
-    die "--scenario is required\n" unless $scenario_path;
-    die "unexpected arguments: @args\n" if @args;
+  if (!$scenario_path) {
+    die "--scenario is required\n";
+  }
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
 
-    my $scenario = Overnet::Burner::Config->load_file($scenario_path);
-    print "valid scenario: $scenario->{run}{name}\n";
+  my $scenario = Overnet::Burner::Config->load_file($scenario_path);
+  checked_print(\*STDOUT, "valid scenario: $scenario->{run}{name}\n");
 
-    return 0;
+  return 0;
 }
 
 sub _plan {
-    my @args = @_;
-    my $scenario_path;
+  my @args = @_;
+  my $scenario_path;
 
-    GetOptionsFromArray(
-        \@args,
-        'scenario=s' => \$scenario_path,
-    ) or return _usage();
+  GetOptionsFromArray(\@args, 'scenario=s' => \$scenario_path,)
+    or return _usage();
 
-    die "--scenario is required\n" unless $scenario_path;
-    die "unexpected arguments: @args\n" if @args;
+  if (!$scenario_path) {
+    die "--scenario is required\n";
+  }
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
 
-    my $scenario = Overnet::Burner::Config->load_file($scenario_path);
-    print Overnet::Burner::Plan->canonical_json(
-        Overnet::Burner::Plan->build($scenario),
-    );
+  my $scenario = Overnet::Burner::Config->load_file($scenario_path);
+  checked_print(\*STDOUT, Overnet::Burner::Plan->canonical_json(Overnet::Burner::Plan->build($scenario),),);
 
-    return 0;
+  return 0;
 }
 
 sub _init_run {
-    my @args = @_;
-    my $scenario_path;
-    my $runs_dir = 'runs';
-    my $run_id;
+  my @args = @_;
+  my $scenario_path;
+  my $runs_dir = 'runs';
+  my $run_id;
 
-    GetOptionsFromArray(
-        \@args,
-        'scenario=s' => \$scenario_path,
-        'runs-dir=s' => \$runs_dir,
-        'run-id=s'   => \$run_id,
-    ) or return _usage();
+  GetOptionsFromArray(
+    \@args,
+    'scenario=s' => \$scenario_path,
+    'runs-dir=s' => \$runs_dir,
+    'run-id=s'   => \$run_id,
+  ) or return _usage();
 
-    die "--scenario is required\n" unless $scenario_path;
-    die "unexpected arguments: @args\n" if @args;
+  if (!$scenario_path) {
+    die "--scenario is required\n";
+  }
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
 
-    my $scenario = Overnet::Burner::Config->load_file($scenario_path);
-    my $ledger = Overnet::Burner::RunLedger->create(
-        scenario      => $scenario,
-        scenario_path => $scenario_path,
-        runs_dir      => $runs_dir,
-        defined $run_id ? (run_id => $run_id) : (),
-    );
+  my $scenario = Overnet::Burner::Config->load_file($scenario_path);
+  my $ledger   = Overnet::Burner::RunLedger->create(
+    scenario      => $scenario,
+    scenario_path => $scenario_path,
+    runs_dir      => $runs_dir,
+    defined $run_id ? (run_id => $run_id) : (),
+  );
 
-    print "created run: $ledger->{run_dir}\n";
+  checked_print(\*STDOUT, "created run: $ledger->{run_dir}\n");
 
-    return 0;
+  return 0;
 }
 
 sub _render_rex {
-    my @args = @_;
-    my $scenario_path;
-    my $runs_dir = 'runs';
-    my $run_id;
+  my @args = @_;
+  my $scenario_path;
+  my $runs_dir = 'runs';
+  my $run_id;
 
-    GetOptionsFromArray(
-        \@args,
-        'scenario=s' => \$scenario_path,
-        'runs-dir=s' => \$runs_dir,
-        'run-id=s'   => \$run_id,
-    ) or return _usage();
+  GetOptionsFromArray(
+    \@args,
+    'scenario=s' => \$scenario_path,
+    'runs-dir=s' => \$runs_dir,
+    'run-id=s'   => \$run_id,
+  ) or return _usage();
 
-    die "--scenario is required\n" unless $scenario_path;
-    die "unexpected arguments: @args\n" if @args;
+  if (!$scenario_path) {
+    die "--scenario is required\n";
+  }
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
 
-    my $scenario = Overnet::Burner::Config->load_file($scenario_path);
-    my $ledger = Overnet::Burner::RunLedger->create(
-        scenario      => $scenario,
-        scenario_path => $scenario_path,
-        runs_dir      => $runs_dir,
-        defined $run_id ? (run_id => $run_id) : (),
-    );
-    my $plan = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
-    my $bundle = Overnet::Burner::RexBundle->render(
-        run_dir => $ledger->{run_dir},
-        plan    => $plan,
-    );
+  my $scenario = Overnet::Burner::Config->load_file($scenario_path);
+  my $ledger   = Overnet::Burner::RunLedger->create(
+    scenario      => $scenario,
+    scenario_path => $scenario_path,
+    runs_dir      => $runs_dir,
+    defined $run_id ? (run_id => $run_id) : (),
+  );
+  my $plan   = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
+  my $bundle = Overnet::Burner::RexBundle->render(
+    run_dir => $ledger->{run_dir},
+    plan    => $plan,
+  );
 
-    $ledger->record_rex_bundle(
-        relative_dir => $bundle->{relative_dir},
-        files        => $bundle->{files},
-    );
+  $ledger->record_rex_bundle(
+    relative_dir => $bundle->{relative_dir},
+    files        => $bundle->{files},
+  );
 
-    print "rendered Rex bundle: $ledger->{run_dir}/$bundle->{relative_dir}\n";
+  checked_print(\*STDOUT, "rendered Rex bundle: $ledger->{run_dir}/$bundle->{relative_dir}\n");
 
-    return 0;
+  return 0;
 }
 
 sub _run {
-    my @args = @_;
-    my $scenario_path;
-    my $runs_dir = 'runs';
-    my $run_id;
-    my $runner_name = 'noop';
+  my @args = @_;
+  my $scenario_path;
+  my $runs_dir = 'runs';
+  my $run_id;
+  my $runner_name = 'noop';
 
-    GetOptionsFromArray(
-        \@args,
-        'scenario=s' => \$scenario_path,
-        'runs-dir=s' => \$runs_dir,
-        'run-id=s'   => \$run_id,
-        'runner=s'   => \$runner_name,
-    ) or return _usage();
+  GetOptionsFromArray(
+    \@args,
+    'scenario=s' => \$scenario_path,
+    'runs-dir=s' => \$runs_dir,
+    'run-id=s'   => \$run_id,
+    'runner=s'   => \$runner_name,
+  ) or return _usage();
 
-    die "--scenario is required\n" unless $scenario_path;
-    die "unexpected arguments: @args\n" if @args;
+  if (!$scenario_path) {
+    die "--scenario is required\n";
+  }
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
 
-    my $scenario = Overnet::Burner::Config->load_file($scenario_path);
-    my $ledger = Overnet::Burner::RunLedger->create(
-        scenario      => $scenario,
-        scenario_path => $scenario_path,
-        runs_dir      => $runs_dir,
-        defined $run_id ? (run_id => $run_id) : (),
+  my $scenario = Overnet::Burner::Config->load_file($scenario_path);
+  my $ledger   = Overnet::Burner::RunLedger->create(
+    scenario      => $scenario,
+    scenario_path => $scenario_path,
+    runs_dir      => $runs_dir,
+    defined $run_id ? (run_id => $run_id) : (),
+  );
+
+  $ledger->mark_started(runner => $runner_name);
+
+  my $summary = eval {
+    my $plan   = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
+    my $runner = Overnet::Burner::Runner->load(
+      name    => $runner_name,
+      ledger  => $ledger,
+      plan    => $plan,
+      run_dir => $ledger->{run_dir},
     );
-
-    $ledger->mark_started(runner => $runner_name);
-
-    my $summary = eval {
-        my $plan = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
-        my $runner = Overnet::Burner::Runner->load(
-            name    => $runner_name,
-            ledger  => $ledger,
-            plan    => $plan,
-            run_dir => $ledger->{run_dir},
-        );
-        $runner->run_lifecycle;
-    };
-    if ($@) {
-        my $error = $@ || 'run failed';
-        chomp $error;
-        $ledger->finish(
-            status => 'failed',
-            runner => $runner_name,
-            error  => $error,
-        );
-        die "$error\n";
-    }
-
+    $runner->run_lifecycle;
+  };
+  if ($EVAL_ERROR) {
+    my $error = $EVAL_ERROR || 'run failed';
+    chomp $error;
     $ledger->finish(
-        status    => 'completed',
-        runner    => $runner_name,
-        lifecycle => $summary,
+      status => 'failed',
+      runner => $runner_name,
+      error  => $error,
     );
+    die "$error\n";
+  }
 
-    print "completed run: $ledger->{run_dir}\n";
+  $ledger->finish(
+    status    => 'completed',
+    runner    => $runner_name,
+    lifecycle => $summary,
+  );
 
-    return 0;
+  checked_print(\*STDOUT, "completed run: $ledger->{run_dir}\n");
+
+  return 0;
 }
 
 sub _report {
-    my @args = @_;
-    my $run_dir;
+  my @args = @_;
+  my $run_dir;
 
-    GetOptionsFromArray(
-        \@args,
-        'run-dir=s' => \$run_dir,
-    ) or return _usage();
+  GetOptionsFromArray(\@args, 'run-dir=s' => \$run_dir,)
+    or return _usage();
 
-    die "--run-dir is required\n" unless $run_dir;
-    die "unexpected arguments: @args\n" if @args;
+  if (!$run_dir) {
+    die "--run-dir is required\n";
+  }
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
 
-    my $path = Overnet::Burner::Report->write(run_dir => $run_dir);
-    print "wrote report: $path\n";
+  my $path = Overnet::Burner::Report->write_report(run_dir => $run_dir);
+  checked_print(\*STDOUT, "wrote report: $path\n");
 
-    return 0;
+  return 0;
 }
 
 sub _usage {
-    print STDERR <<'USAGE';
+  checked_print(\*STDERR, <<'USAGE');
 usage:
   overnet-burner validate --scenario scenarios/single-relay-baseline.yml
   overnet-burner plan --scenario scenarios/single-relay-baseline.yml
@@ -245,5 +267,5 @@ usage:
   overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop|rex-local|rex-local-provider]
   overnet-burner report --run-dir runs/RUN_ID
 USAGE
-    return 2;
+  return 2;
 }
