@@ -207,8 +207,7 @@ sub _capture_command {
     return $output;
   }
 
-  my $exit_code = $status >> 8;
-  my $error     = "Rex task command failed: $command->[0] exited with status $exit_code";
+  my $error = "Rex task command failed: $command->[0] " . _child_status_detail($status);
   if (!defined $output) {
     $output = q{};
   }
@@ -217,6 +216,16 @@ sub _capture_command {
     $error .= ": $output";
   }
   croak "$error\n";
+}
+
+sub _child_status_detail {
+  my ($status) = @_;
+
+  if ($status & 127) {
+    return 'ended by signal ' . ($status & 127);
+  }
+
+  return 'exited with status ' . ($status >> 8);
 }
 
 sub _read_json {

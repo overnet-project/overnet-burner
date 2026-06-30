@@ -240,6 +240,23 @@ is [map {"$_->{rex_task}:$_->{status}"} @failed_rex_events],
   ],
   'runner log records failed Rex task and stops later tasks';
 
+my $signal_tmp      = tempdir(CLEANUP => 1);
+my $signal_fake_rex = _write_fake_rex($signal_tmp);
+my $signal_rex_log  = File::Spec->catfile($signal_tmp, 'fake-rex.log');
+{
+  local $ENV{OVERNET_BURNER_REX}          = $signal_fake_rex;
+  local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $signal_rex_log;
+  local $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK};
+  local $ENV{OVERNET_BURNER_TEST_REX_SIGNAL_TASK} = 'warmup';
+  delete $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK};
+  my $signal_run_id = 'cli-rex-local-signaled';
+  my $signal_run =
+    `$^X $bin run --scenario $scenario_path --runs-dir $signal_tmp --run-id $signal_run_id --runner rex-local 2>&1`;
+  is $? >> 8, 2, 'CLI rex-local fails when a Rex task is killed by a signal';
+  like $signal_run,   qr/Rex\ task\ command\ failed:.*ended\ by\ signal/mxs, 'signal failure reports a signal';
+  unlike $signal_run, qr/exited\ with\ status\ 0/mxs, 'signal failure is not reported as exit status zero';
+}
+
 done_testing;
 
 sub _write_fake_rex {
@@ -265,6 +282,12 @@ my $fail_task = $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK};
 if (defined $fail_task && @ARGV && $ARGV[-1] eq $fail_task) {
     print STDERR "fake rex failed task: $fail_task\n";
     exit 42;
+}
+my $signal_task = $ENV{OVERNET_BURNER_TEST_REX_SIGNAL_TASK};
+if (defined $signal_task && @ARGV && $ARGV[-1] eq $signal_task) {
+    print STDERR "fake rex signaled task: $signal_task\n";
+    kill 'TERM', $$;
+    exit 70;
 }
 print "fake rex: @ARGV\n";
 exit 0;

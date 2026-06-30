@@ -5,6 +5,7 @@ use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
 use JSON ();
+use JSON::Schema::Modern;
 use Test2::V0;
 
 use lib "$FindBin::Bin/../lib";
@@ -12,6 +13,7 @@ use lib "$FindBin::Bin/../lib";
 my $repo      = "$FindBin::Bin/..";
 my $bin       = "$repo/bin/overnet-burner";
 my $scenario  = "$repo/scenarios/single-relay-baseline.yml";
+my $schema    = _read_json(File::Spec->catfile($repo, 'schemas', 'report-v1.schema.json'),);
 my $schema_id = 'https://overnet-project.org/schemas/overnet-burner/report-v1.schema.json';
 
 my $tmp = tempdir(CLEANUP => 1);
@@ -165,6 +167,7 @@ done_testing;
 sub _assert_common_report {
   my ($report, $run_id) = @_;
 
+  _assert_schema_valid($report, $run_id);
   is $report->{report_version}, 1,          "$run_id report uses v1";
   is $report->{schema},         $schema_id, "$run_id report records schema id";
   ok $report->{generated_at}, "$run_id report records generated timestamp";
@@ -178,6 +181,15 @@ sub _assert_common_report {
   ok exists $report->{environment}{rex_version},    "$run_id report records Rex version";
   ok exists $report->{extensions},                  "$run_id report has extension point";
   ok $report->{human_summary}{headline},            "$run_id report has human headline";
+  return;
+}
+
+sub _assert_schema_valid {
+  my ($report, $run_id) = @_;
+
+  my $result = JSON::Schema::Modern->new->evaluate($report, $schema);
+  ok $result->valid, "$run_id report validates against report-v1 schema"
+    or diag JSON->new->canonical(1)->pretty(1)->encode($result->TO_JSON);
   return;
 }
 

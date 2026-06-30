@@ -2,9 +2,14 @@ use strictures 2;
 
 use ExtUtils::MakeMaker;
 
+our $VERSION = '0.001';
+
 WriteMakefile(
   NAME               => 'Overnet::Burner',
-  VERSION            => '0.001',
+  VERSION            => $VERSION,
+  AUTHOR             => 'Nicholas B. Hubbard <nicholashubbard@posteo.net>',
+  ABSTRACT           => 'Rex-based scalable Overnet system-test harness',
+  LICENSE            => 'gpl_3',
   MIN_PERL_VERSION   => '5.040',
   EXE_FILES          => ['bin/overnet-burner'],
   CONFIGURE_REQUIRES => {
@@ -16,5 +21,14 @@ WriteMakefile(
     'Rex'        => 0,
     'strictures' => 2,
     'YAML::PP'   => 0,
+  },
+  TEST_REQUIRES => {
+    'JSON::Schema::Modern' => 0,
+  },
+  META_MERGE => {
+    resources => {
+      repository => 'https://github.com/overnet-project/overnet-burner',
+      bugtracker => 'https://github.com/overnet-project/overnet-burner/issues',
+    },
   },
 );

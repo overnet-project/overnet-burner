@@ -9,17 +9,22 @@ use Test2::V0;
 my $repo_root   = File::Spec->catdir($FindBin::Bin, File::Spec->updir);
 my $makefile_pl = File::Spec->catfile($repo_root, 'Makefile.PL');
 my $cpanfile    = File::Spec->catfile($repo_root, 'cpanfile');
+my $license     = File::Spec->catfile($repo_root, 'LICENSE');
 
 ok -f $makefile_pl, 'Makefile.PL exists'
   or bail_out('Makefile.PL is required');
 ok -f $cpanfile, 'cpanfile exists'
   or bail_out('cpanfile is required');
+ok -f $license, 'LICENSE exists';
 
 my $args = _capture_makefile_args($makefile_pl);
-is $args->{NAME},             'Overnet::Burner',      'distribution name';
-is $args->{VERSION},          '0.001',                'distribution version';
-is $args->{MIN_PERL_VERSION}, '5.040',                'minimum Perl version';
-is $args->{EXE_FILES},        ['bin/overnet-burner'], 'installable CLI is explicit';
+is $args->{NAME},             'Overnet::Burner',                                  'distribution name';
+is $args->{VERSION},          '0.001',                                            'distribution version';
+is $args->{AUTHOR},           'Nicholas B. Hubbard <nicholashubbard@posteo.net>', 'author';
+is $args->{ABSTRACT},         'Rex-based scalable Overnet system-test harness',   'abstract';
+is $args->{LICENSE},          'gpl_3',                                            'license';
+is $args->{MIN_PERL_VERSION}, '5.040',                                            'minimum Perl version';
+is $args->{EXE_FILES},        ['bin/overnet-burner'],                             'installable CLI is explicit';
 is(
   $args->{CONFIGURE_REQUIRES},
   {
@@ -37,6 +42,23 @@ is(
     'YAML::PP'   => 0,
   },
   'runtime prerequisites are explicit',
+);
+is(
+  $args->{TEST_REQUIRES},
+  {
+    'JSON::Schema::Modern' => 0,
+  },
+  'test prerequisites are explicit',
+);
+is(
+  $args->{META_MERGE},
+  {
+    resources => {
+      repository => 'https://github.com/overnet-project/overnet-burner',
+      bugtracker => 'https://github.com/overnet-project/overnet-burner/issues',
+    },
+  },
+  'metadata resources point at the public repo',
 );
 
 my $cpanfile_content = _read_file($cpanfile);
