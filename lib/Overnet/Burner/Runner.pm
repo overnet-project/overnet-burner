@@ -1,6 +1,7 @@
 package Overnet::Burner::Runner;
 
 use strictures 2;
+use Moo;
 
 use Carp    qw(croak);
 use English qw(-no_match_vars);
@@ -10,6 +11,22 @@ use JSON ();
 use Overnet::Burner::Util qw(json_text write_file);
 
 our $VERSION = '0.001';
+
+has name => (is => 'ro',);
+has ledger => (
+  is     => 'ro',
+  reader => '_ledger',
+);
+has plan => (
+  is     => 'ro',
+  reader => '_plan',
+);
+has run_dir => (
+  is     => 'ro',
+  reader => '_run_dir',
+);
+
+no Moo;
 
 my %RUNNER_MODULE = (
   noop                 => 'Overnet::Burner::Runner::Noop',
@@ -36,27 +53,28 @@ sub load {
   return $module->new(%args);
 }
 
-sub new {
-  my ($class, %args) = @_;
+sub BUILDARGS {
+  my ($class, @args) = @_;
+  my %args = _constructor_args_hash(@args);
 
   my $name    = $args{name}    || croak "runner name is required\n";
   my $ledger  = $args{ledger}  || croak "ledger is required\n";
   my $plan    = $args{plan}    || croak "plan is required\n";
   my $run_dir = $args{run_dir} || croak "run_dir is required\n";
 
-  my $self = bless {
+  return {
     name    => $name,
     ledger  => $ledger,
     plan    => $plan,
     run_dir => $run_dir,
-  }, $class;
-
-  return $self;
+  };
 }
 
-sub name {
-  my ($self) = @_;
-  return $self->{name};
+sub _constructor_args_hash {
+  my (@args) = @_;
+  return %{$args[0]} if @args == 1 && ref($args[0]) eq 'HASH';
+  return @args       if @args % 2 == 0;
+  die "constructor arguments must be a hash or hash reference\n";
 }
 
 sub run_lifecycle {

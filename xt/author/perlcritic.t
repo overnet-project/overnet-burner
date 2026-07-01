@@ -8,4 +8,4 @@ use Test::Perl::Critic (
   -only     => 1,
 );
 
-all_critic_ok('bin', 'lib');
+all_critic_ok();

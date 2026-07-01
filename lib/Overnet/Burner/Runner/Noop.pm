@@ -1,10 +1,13 @@
 package Overnet::Burner::Runner::Noop;
 
 use strictures 2;
+use Moo;
 
-use parent 'Overnet::Burner::Runner';
+extends 'Overnet::Burner::Runner';
 
 our $VERSION = '0.001';
+
+no Moo;
 
 sub prepare { return 1 }
 sub start   { return 1 }

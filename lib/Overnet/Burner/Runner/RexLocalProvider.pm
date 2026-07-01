@@ -1,8 +1,9 @@
 package Overnet::Burner::Runner::RexLocalProvider;
 
 use strictures 2;
+use Moo;
 
-use parent 'Overnet::Burner::Runner::RexLocal';
+extends 'Overnet::Burner::Runner::RexLocal';
 
 use Carp       qw(croak);
 use English    qw(-no_match_vars);
@@ -13,6 +14,8 @@ use JSON ();
 use Overnet::Burner::Util qw(checked_print read_json_file);
 
 our $VERSION = '0.001';
+
+no Moo;
 
 sub prepare {
   my ($self) = @_;

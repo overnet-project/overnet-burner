@@ -37,6 +37,7 @@ is(
   $args->{PREREQ_PM},
   {
     'JSON'       => 0,
+    'Moo'        => 0,
     'Rex'        => 0,
     'strictures' => 2,
     'YAML::PP'   => 0,

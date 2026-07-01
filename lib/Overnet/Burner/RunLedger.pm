@@ -1,6 +1,7 @@
 package Overnet::Burner::RunLedger;
 
 use strictures 2;
+use Moo;
 
 use Carp           qw(croak);
 use Cwd            qw(getcwd);
@@ -20,6 +21,21 @@ use Overnet::Burner::Plan;
 use Overnet::Burner::Util qw(json_text read_json_file write_file checked_close);
 
 our $VERSION = '0.001';
+
+has run_id => (
+  is     => 'ro',
+  reader => '_run_id',
+);
+has run_dir => (
+  is     => 'ro',
+  reader => '_run_dir',
+);
+has now => (
+  is     => 'ro',
+  reader => '_now',
+);
+
+no Moo;
 
 sub create {
   my ($class, %args) = @_;
@@ -88,11 +104,11 @@ sub create {
 
   write_file(File::Spec->catfile($run_dir, 'manifest.json'), json_text($manifest),);
 
-  return bless {
+  return $class->new(
     run_id  => $run_id,
     run_dir => $run_dir,
     now     => $now,
-  }, $class;
+  );
 }
 
 sub load_plan {

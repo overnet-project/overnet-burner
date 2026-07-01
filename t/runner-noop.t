@@ -47,6 +47,16 @@ my $runner = Overnet::Burner::Runner->load(
 
 is $runner->name, 'noop', 'loads noop runner by name';
 
+my $base_runner = Overnet::Burner::Runner->new(
+  {
+    name    => 'noop',
+    ledger  => $ledger,
+    plan    => $plan,
+    run_dir => $ledger->{run_dir},
+  }
+);
+isa_ok $base_runner, ['Overnet::Burner::Runner'], 'base runner hashref constructor';
+
 my $summary = $runner->run_lifecycle;
 
 is $summary->{runner}, 'noop', 'summary records runner name';
