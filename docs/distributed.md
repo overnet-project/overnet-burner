@@ -114,9 +114,11 @@ convention in [workers.md](workers.md) already anticipates.
 
 ## Open Questions
 
-- Worker provisioning: push the Perl reference workers, or require a
-  pre-provisioned `overnet-burner-worker` on each host (likely both, with
-  the pre-provisioned path preferred for non-Perl workers)?
+- Worker provisioning is designed separately in
+  [provisioning.md](provisioning.md), which generalizes this document's
+  `hosts` sketch into tmt-style provision methods (`local`, `connect`,
+  `container`, `virtual`) behind a uniform guest contract; its `connect`
+  method subsumes the host inventory described above.
 - Live progress: whether the controller should sample remote metric
   streams mid-run for operator feedback, and how to do that without
   perturbing the workload.
