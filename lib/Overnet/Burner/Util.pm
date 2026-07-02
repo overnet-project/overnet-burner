@@ -5,7 +5,7 @@ use strictures 2;
 use Carp     qw(croak);
 use English  qw(-no_match_vars);
 use Exporter qw(import);
-use JSON     ();
+use JSON::PP ();
 
 our $VERSION   = '0.001';
 our @EXPORT_OK = qw(
@@ -21,12 +21,12 @@ our @EXPORT_OK = qw(
 
 sub json_text {
   my ($value) = @_;
-  return JSON->new->canonical(1)->pretty(1)->space_before(0)->encode($value);
+  return JSON::PP->new->canonical(1)->pretty(1)->space_before(0)->encode($value);
 }
 
 sub clone_json {
   my ($value) = @_;
-  return JSON::decode_json(JSON->new->canonical(1)->encode($value));
+  return JSON::PP::decode_json(JSON::PP->new->canonical(1)->encode($value));
 }
 
 sub checked_print {
@@ -55,7 +55,7 @@ sub read_file {
 
 sub read_json_file {
   my ($path) = @_;
-  return JSON::decode_json(read_file($path));
+  return JSON::PP::decode_json(read_file($path));
 }
 
 sub read_jsonl_file {
@@ -66,7 +66,7 @@ sub read_jsonl_file {
 
   open my $fh, '<', $path
     or croak "open $path: $OS_ERROR\n";
-  my @records = map { JSON::decode_json($_) } <$fh>;
+  my @records = map { JSON::PP::decode_json($_) } <$fh>;
   checked_close($fh, $path);
   return \@records;
 }

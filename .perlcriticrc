@@ -200,7 +200,7 @@ severity   = 5
 
 [Perl::Critic::Policy::Modules::ProhibitEvilModules]
 severity   = 5
-modules    = Class::ISA Pod::Plainer Shell Switch JSON::PP {Use JSON () instead} JSON::XS {Use JSON () instead}
+modules    = Class::ISA Pod::Plainer Shell Switch JSON::XS {Use JSON (), or JSON::PP where canonical artifact bytes must not depend on the installed backend}
 
 [Perl::Critic::Policy::Modules::ProhibitExcessMainComplexity]
 severity   = 5
