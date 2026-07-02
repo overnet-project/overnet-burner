@@ -142,6 +142,14 @@ sub _worker_actors {
   return map { @{$plan->{$_} || []} } qw(subscribers query_readers object_readers publishers);
 }
 
+sub _assigned_relays {
+  my ($endpoints, $ordinal) = @_;
+
+  my $rotation = (($ordinal || 1) - 1) % @{$endpoints};
+
+  return [@{$endpoints}[$rotation .. $#{$endpoints}], @{$endpoints}[0 .. $rotation - 1]];
+}
+
 sub _relay_endpoints {
   my ($self) = @_;
 
@@ -176,7 +184,7 @@ sub _launch_worker {
     duration_seconds => $self->{plan}{run}{duration_seconds},
     metric_stream    => $actor->{metric_stream},
     ready_file       => File::Spec->catfile('workers', $actor_id, 'ready'),
-    endpoints        => {relays => $args{endpoints}},
+    endpoints        => {relays => _assigned_relays($args{endpoints}, $actor->{ordinal})},
     workload         => $self->{plan}{workload}{phases}[0] || {},
   };
   my $input_path = File::Spec->catfile($worker_dir, 'input.json');

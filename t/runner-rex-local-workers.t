@@ -84,6 +84,33 @@ subtest 'workers runner launches contract workers and collects streams' => sub {
   is $by_status{skipped_no_worker}, undef, 'every current plan role has a reference worker';
 };
 
+subtest 'workers are assigned relays round-robin' => sub {
+  my $scenario_multi = _write_scenario(
+    "$tmp/multi-relay.yml",
+    relays_count => 2,
+    relays_extra => "    endpoints:\n      - ws://127.0.0.1:58881\n      - ws://127.0.0.1:58882",
+    publishers   => 2,
+    subscribers  => 1,
+  );
+
+  my $run_id = 'workers-run-multi-001';
+  my $output =
+    `$^X $bin run --scenario $scenario_multi --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
+  is $?, 0, 'multi-relay run completes' or diag($output);
+
+  my $run_dir  = File::Spec->catdir($tmp, 'runs', $run_id);
+  my %expected = (
+    'publisher-001'  => ['ws://127.0.0.1:58881', 'ws://127.0.0.1:58882'],
+    'publisher-002'  => ['ws://127.0.0.1:58882', 'ws://127.0.0.1:58881'],
+    'subscriber-001' => ['ws://127.0.0.1:58881', 'ws://127.0.0.1:58882'],
+  );
+  for my $actor_id (sort keys %expected) {
+    my $input = _read_json(File::Spec->catfile($run_dir, 'workers', $actor_id, 'input.json'));
+    is $input->{endpoints}{relays}, $expected{$actor_id},
+      "$actor_id gets its assigned relay first and every endpoint after";
+  }
+};
+
 subtest 'a failing worker fails the run' => sub {
   local $ENV{OVERNET_BURNER_TEST_WORKER_FAIL} = 1;
   my $run_id = 'workers-run-fail-001';
@@ -370,6 +397,7 @@ done_testing;
 
 sub _write_scenario {
   my ($path, %args) = @_;
+  my $relays_count   = delete $args{relays_count} // 1;
   my $relays_extra   = delete $args{relays_extra} // q{};
   my $publishers     = delete $args{publishers};
   my $subscribers    = delete $args{subscribers};
@@ -382,7 +410,7 @@ run:
   seed: 12345
 topology:
   relays:
-    count: 1
+    count: $relays_count
     provider: generic-relay
 $relays_extra
   publishers:

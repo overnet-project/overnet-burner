@@ -49,11 +49,21 @@ other environment variables.
 | `duration_seconds` | non-negative number | yes | How long the workload phase runs |
 | `metric_stream` | non-empty string | yes | Metric stream path, relative to `run_dir` |
 | `ready_file` | non-empty string | yes | Readiness marker path, relative to `run_dir` |
-| `endpoints` | object | yes | Service endpoints; `endpoints.relays` is an array of relay URLs |
+| `endpoints` | object | yes | Service endpoints; `endpoints.relays` is an array of relay URLs, assigned relay first |
 | `workload` | object | yes | Role-specific workload parameters from the plan |
 
 Unknown additional fields are compatible v1 extensions; workers MUST ignore
 fields they do not understand.
+
+### Relay Assignment
+
+`endpoints.relays` lists every relay endpoint of the run, ordered so the
+worker's **assigned** relay comes first. A worker that talks to a single
+relay MUST use the first entry; a worker MAY use the remaining entries as
+additional targets if its role calls for it. The runner assigns relays
+deterministically — round-robin over the run's relay endpoints by the
+actor's ordinal — so multi-relay scenarios spread workers across relays
+reproducibly.
 
 ## Determinism
 
