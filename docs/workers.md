@@ -104,15 +104,45 @@ collected streams into the run's aggregated `metrics.jsonl`. The
 executable in any language can serve as the worker. Actor roles without a
 worker are recorded as explicitly skipped.
 
+## Fanout Timing
+
+Fanout latency spans two processes, so it needs a shared convention:
+
+- A publisher SHOULD stamp each published event's body with `sent_at`, the
+  publish wall-clock time in **milliseconds** since the Unix epoch
+  (fractional milliseconds allowed), taken immediately before handing the
+  event to the relay connection.
+- A subscriber measures `subscription_fanout` as its receive time minus the
+  event's `sent_at` stamp, clamped to zero. The metric event SHOULD carry
+  `event_id`, `subscription_id`, and `relay_url`.
+- Events without a numeric `sent_at` stamp are observed but MUST NOT be
+  measured — a fanout latency that guesses its own start time is a lie.
+- Stored-event replay delivered before the subscription's replay boundary
+  (`EOSE` on Nostr relays) is `subscription_replay`, never
+  `subscription_fanout`; a subscriber MUST NOT count replayed events as
+  live fanout.
+
+The measurement compares clocks across processes. On a single host it is
+trustworthy; in distributed mode it is only as good as the clock
+synchronization between the publishing and subscribing hosts, and reports
+over distributed runs should treat small fanout latencies accordingly.
+
 ## Reference Workers
 
 | Role | Implementation |
 |---|---|
 | `publisher` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Publisher` |
+| `subscriber` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Subscriber` |
 
 The reference publisher derives a stable Nostr identity from
 `seed`/`worker_id`, publishes valid native Overnet events (kind 7800 with the
-required core tags) at `workload.publish_rate_per_second`, waits for each
-relay acknowledgment, and emits one `publish` metric event per attempt —
-`success` on acceptance, `error` with the relay's reason on rejection or
-timeout.
+required core tags, body stamped with `sent_at`) at
+`workload.publish_rate_per_second`, waits for each relay acknowledgment, and
+emits one `publish` metric event per attempt — `success` on acceptance,
+`error` with the relay's reason on rejection or timeout.
+
+The reference subscriber subscribes to the first relay endpoint with
+`workload.subscription_filters`, writes its readiness marker only after the
+stored-event replay boundary (`EOSE`), and emits one `subscription_fanout`
+metric event per stamped live event under the fanout timing convention
+above.

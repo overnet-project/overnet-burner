@@ -3,63 +3,27 @@ package Overnet::Burner::Worker::Publisher;
 use strictures 2;
 use Moo;
 
+extends 'Overnet::Burner::Worker';
+
 use AnyEvent;
 use Carp qw(croak);
 use Crypt::PK::ECC;
 use Digest::SHA qw(sha256_hex);
 use English     qw(-no_match_vars);
-use File::Spec;
-use JSON ();
+use JSON        ();
 use Net::Nostr::Client;
 use Net::Nostr::Key;
-use POSIX qw(strftime);
-use Sys::Hostname;
 use Time::HiRes qw(sleep time);
-
-use Overnet::Burner::Metrics;
-use Overnet::Burner::Util qw(checked_close checked_print write_file);
 
 our $VERSION = '0.001';
 
 my $JSON            = JSON->new->utf8->canonical;
 my $PUBLISH_TIMEOUT = 5;
 
-has input => (is => 'ro');
-
 no Moo;
 
-sub BUILDARGS {
-  my ($class, @args) = @_;
-  my %args = _constructor_args_hash(@args);
-
-  my $input = $args{input};
-  if (ref($input) ne 'HASH') {
-    croak "input must be a hash reference\n";
-  }
-  for my $field (qw(input_version run_id run_dir worker_id role seed duration_seconds metric_stream ready_file)) {
-    if (!defined $input->{$field}) {
-      croak "input.$field is required\n";
-    }
-  }
-  if ($input->{input_version} ne '1') {
-    croak "input.input_version must be 1\n";
-  }
-  if ($input->{role} ne 'publisher') {
-    croak "input.role must be publisher\n";
-  }
-  my $relays = ref($input->{endpoints}) eq 'HASH' ? $input->{endpoints}{relays} : undef;
-  if (!(ref($relays) eq 'ARRAY' && @{$relays} && !ref($relays->[0]) && length $relays->[0])) {
-    croak "input.endpoints.relays must name at least one relay\n";
-  }
-
-  return {input => $input};
-}
-
-sub _constructor_args_hash {
-  my (@args) = @_;
-  return %{$args[0]} if @args == 1 && ref($args[0]) eq 'HASH';
-  return @args       if @args % 2 == 0;
-  die "constructor arguments must be a hash or hash reference\n";
+sub expected_role {
+  return 'publisher';
 }
 
 sub derive_key {
@@ -85,12 +49,8 @@ sub run {
 
   my $input = $self->input;
   my $key   = $self->derive_key($input->{seed}, $input->{worker_id});
-  my $host  = hostname;
 
-  my $stream_path = File::Spec->catfile($input->{run_dir}, $input->{metric_stream});
-  open my $stream, '>>', $stream_path
-    or croak "open $stream_path: $OS_ERROR\n";
-  $stream->autoflush(1);
+  $self->open_metric_stream;
 
   my %pending;
   my $client = Net::Nostr::Client->new;
@@ -105,7 +65,7 @@ sub run {
   );
   $client->connect($input->{endpoints}{relays}[0]);
 
-  write_file(File::Spec->catfile($input->{run_dir}, $input->{ready_file}), q{});
+  $self->write_ready_file;
 
   my $stop = 0;
   local $SIG{TERM} = sub { $stop = 1 };
@@ -135,15 +95,13 @@ sub run {
     $self->_publish_once(
       client   => $client,
       key      => $key,
-      stream   => $stream,
-      host     => $host,
       pending  => \%pending,
       sequence => $sequence,
     );
   }
 
   $client->disconnect;
-  checked_close($stream, $stream_path);
+  $self->close_metric_stream;
 
   return;
 }
@@ -160,6 +118,7 @@ sub _publish_once {
         body       => {
           text     => "overnet-burner publish $args{sequence}",
           sequence => $args{sequence},
+          sent_at  => time * 1000,
         },
       }
     ),
@@ -191,29 +150,20 @@ sub _publish_once {
   my ($accepted, $message) = @{$waiter->recv};
   my $finished_at = time;
 
-  my %metric = (
-    metric_version => 1,
-    run_id         => $input->{run_id},
-    worker_id      => $input->{worker_id},
-    host           => $args{host},
-    role           => $input->{role},
-    operation      => 'publish',
-    started_at     => _iso($started_at),
-    finished_at    => _iso($finished_at),
-    duration_ms    => ($finished_at - $started_at) * 1000,
-    status         => $accepted ? 'success' : 'error',
-    event_id       => $event->id,
-    relay_url      => $input->{endpoints}{relays}[0],
+  $self->emit_metric(
+    operation   => 'publish',
+    started_at  => $self->iso_timestamp($started_at),
+    finished_at => $self->iso_timestamp($finished_at),
+    duration_ms => ($finished_at - $started_at) * 1000,
+    status      => $accepted ? 'success' : 'error',
+    event_id    => $event->id,
+    relay_url   => $input->{endpoints}{relays}[0],
+    (
+      $accepted
+      ? ()
+      : (error => defined $message && length $message ? $message : 'publish rejected')
+    ),
   );
-  if (!$accepted) {
-    $metric{error} = defined $message && length $message ? $message : 'publish rejected';
-  }
-
-  my ($ok, $rule_error) = Overnet::Burner::Metrics->validate_event(\%metric);
-  if (!$ok) {
-    croak "publisher produced an invalid metric event: $rule_error\n";
-  }
-  checked_print($args{stream}, $JSON->encode(\%metric) . "\n");
 
   return;
 }
@@ -222,14 +172,6 @@ sub _workload_object_id {
   my ($self) = @_;
   my $input = $self->input;
   return "burner-$input->{run_id}-$input->{worker_id}";
-}
-
-sub _iso {
-  my ($epoch)   = @_;
-  my $whole     = int $epoch;
-  my $millis    = int(($epoch - $whole) * 1000);
-  my $formatted = strftime('%Y-%m-%dT%H:%M:%S', gmtime $whole);
-  return sprintf '%s.%03dZ', $formatted, $millis;
 }
 
 1;
@@ -253,20 +195,17 @@ Version 0.001.
 
 This module is the Perl reference implementation of the C<publisher> role
 under the worker contract in F<docs/workers.md>. It derives a deterministic
-Nostr identity from the run seed and worker id, publishes valid native
-Overnet events to the first configured relay endpoint at the configured
-rate, waits for each relay acknowledgment, and appends one C<publish>
-metric event per attempt to its assigned stream under the contract in
-F<docs/METRICS.md>. Workers in other languages are equally valid; the
-contract documents are normative.
+Nostr identity from its seed and worker id, publishes valid native Overnet
+events to the first configured relay endpoint at the configured rate, waits
+for each relay acknowledgment, and emits one C<publish> metric event per
+attempt. Each published event's body carries a millisecond-resolution
+C<sent_at> stamp so subscriber workers can measure live fanout latency.
+Workers in other languages are equally valid; the contract documents are
+normative.
 
 =head1 SUBROUTINES/METHODS
 
-=head2 new
-
-Public API entry point.
-
-=head2 input
+=head2 expected_role
 
 Public API entry point.
 

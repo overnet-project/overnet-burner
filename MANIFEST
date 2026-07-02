@@ -27,7 +27,9 @@ lib/Overnet/Burner/Runner/RexLocalProvider.pm
 lib/Overnet/Burner/Runner/RexLocalWorkers.pm
 lib/Overnet/Burner/TopologyProvider.pm
 lib/Overnet/Burner/Util.pm
+lib/Overnet/Burner/Worker.pm
 lib/Overnet/Burner/Worker/Publisher.pm
+lib/Overnet/Burner/Worker/Subscriber.pm
 LICENSE
 Makefile.PL
 MANIFEST			This list of files
@@ -54,6 +56,7 @@ t/runner-rex-local-workers.t
 t/runner-rex-local.t
 t/topology-provider-external-command.t
 t/worker-publisher.t
+t/worker-subscriber.t
 xt/author/perlcritic.t
 xt/author/pod-coverage.t
 xt/author/pod-syntax.t

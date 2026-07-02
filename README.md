@@ -55,12 +55,13 @@ Implemented so far:
 - Rex bundle rendering and the noop / rex-local runners
 - report v1 generation with schema, artifacts, and threshold records
 - the metric event contract with summarization and real threshold evaluation
-- the worker contract and the reference publisher worker
+- the worker contract and the reference publisher and subscriber workers,
+  including live fanout measurement
 - the rex-local-workers runner: end-to-end local runs with real workers
 
 In progress, in proposal order:
 
-- subscriber and reader reference workers
+- reader reference workers (query and object reads)
 - chaos subsystem and distributed scale mode
 
 ## Testing

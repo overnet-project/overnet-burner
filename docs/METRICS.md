@@ -76,7 +76,9 @@ these well-known names:
 
 - `publish` — event publication round trip
 - `subscription_replay` — stored-event replay delivery
-- `subscription_fanout` — live delivery to an existing subscription
+- `subscription_fanout` — live delivery to an existing subscription;
+  `duration_ms` follows the fanout timing convention in
+  [workers.md](workers.md)
 - `query` — filter query round trip
 - `object_read` — derived object read
 - `sync_round` — one negentropy reconciliation round
