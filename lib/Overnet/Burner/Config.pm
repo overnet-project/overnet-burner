@@ -78,6 +78,7 @@ sub validate {
   _require_positive_integer($config, 'topology.relays.count');
   _require_string($config, 'topology.relays.provider');
   Overnet::Burner::TopologyProvider->from_relay_config($config->{topology}{relays},);
+  _validate_relay_endpoints($config);
   _require_nonnegative_number($config, 'workload.publish_rate_per_second');
 
   for my $path (
@@ -154,6 +155,31 @@ sub _require_array_of_mappings {
   }
 
   return $value;
+}
+
+sub _validate_relay_endpoints {
+  my ($config) = @_;
+
+  my $relays = $config->{topology}{relays};
+  if (!exists $relays->{endpoints}) {
+    return 1;
+  }
+
+  my $endpoints = $relays->{endpoints};
+  if (ref($endpoints) ne 'ARRAY') {
+    croak "topology.relays.endpoints must be an array\n";
+  }
+  for my $index (0 .. $#{$endpoints}) {
+    my $endpoint = $endpoints->[$index];
+    if (!(defined $endpoint && !ref($endpoint) && length $endpoint)) {
+      croak "topology.relays.endpoints[$index] must be a non-empty string\n";
+    }
+  }
+  if (@{$endpoints} != $relays->{count}) {
+    croak "topology.relays.endpoints must list one endpoint per relay\n";
+  }
+
+  return 1;
 }
 
 sub _require_string {

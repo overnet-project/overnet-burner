@@ -102,6 +102,15 @@ is [map { $_->{id} } @{$multi_plan->{publishers}}],
   [qw(publisher-001 publisher-002)],
   'plan expands multiple publishers';
 
+my $with_endpoints = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
+$with_endpoints->{topology}{relays}{count}     = 2;
+$with_endpoints->{topology}{relays}{endpoints} = ['ws://127.0.0.1:7001', 'ws://127.0.0.1:7002'];
+my $endpoint_plan = Overnet::Burner::Plan->build($with_endpoints);
+is [map { $_->{endpoint} } @{$endpoint_plan->{relays}}],
+  ['ws://127.0.0.1:7001', 'ws://127.0.0.1:7002'],
+  'relay actors carry their scenario endpoints in ordinal order';
+ok !exists $plan_a->{relays}[0]{endpoint}, 'relay actors omit endpoint when the scenario declares none';
+
 my $chaos = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
 $chaos->{chaos} = [
   {

@@ -92,6 +92,18 @@ continues.
 Standard output and standard error are free-form diagnostics; the runner
 captures them under `logs/`.
 
+## Runner Integration
+
+The `rex-local-workers` runner launches one worker process per plan actor
+whose role has a reference worker, writes each actor's input document under
+`workers/<worker-id>/input.json`, sequences readiness (subscribers and
+readers before publishers), waits for orderly exits, and concatenates the
+collected streams into the run's aggregated `metrics.jsonl`. The
+`OVERNET_BURNER_WORKER` environment variable overrides the worker command
+(default: the installed `overnet-burner-worker`), so any contract-compliant
+executable in any language can serve as the worker. Actor roles without a
+worker are recorded as explicitly skipped.
+
 ## Reference Workers
 
 | Role | Implementation |

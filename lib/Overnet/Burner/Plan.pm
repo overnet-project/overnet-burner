@@ -29,6 +29,12 @@ sub build {
       ),
     },
   );
+  my $relay_endpoints = $scenario->{topology}{relays}{endpoints};
+  if (ref($relay_endpoints) eq 'ARRAY') {
+    for my $relay (@relays) {
+      $relay->{endpoint} = $relay_endpoints->[$relay->{ordinal} - 1];
+    }
+  }
   my @publishers = _actors(
     scenario => $scenario,
     field    => 'publishers',

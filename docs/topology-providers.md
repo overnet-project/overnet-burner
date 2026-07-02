@@ -41,3 +41,27 @@ It reads `start`, `health`, and `stop` commands from the rendered
 `logs/provider/`, records command events in `logs/runner.jsonl`, and attempts
 `stop` cleanup for relays whose `start` command completed before a later
 failure.
+
+## Relay Endpoints
+
+Scenarios that launch workers declare the client-facing endpoint of each
+relay, since only the scenario author knows the addresses their provider
+commands bind:
+
+```yaml
+topology:
+  relays:
+    count: 1
+    provider: external-command
+    command:
+      start: ...
+      health: ...
+      stop: ...
+    endpoints:
+      - ws://127.0.0.1:7777
+```
+
+`endpoints` is optional, but when present it must list exactly one non-empty
+endpoint per relay, in relay ordinal order. Plans copy each endpoint onto its
+relay actor, and worker input documents receive the full list under
+`endpoints.relays`.

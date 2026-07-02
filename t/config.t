@@ -181,6 +181,97 @@ YAML
   like $@, $pattern, "$name reports a clean mapping error";
 }
 
+subtest 'topology.relays.endpoints are validated when present' => sub {
+  my $valid = "$tmp/relay-endpoints-valid.yml";
+  _write_yaml($valid, <<'YAML');
+run:
+  name: endpoints-valid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 2
+    provider: generic-relay
+    endpoints:
+      - ws://127.0.0.1:7001
+      - ws://127.0.0.1:7002
+  publishers:
+    count: 1
+  subscribers:
+    count: 0
+  query_readers:
+    count: 0
+  object_readers:
+    count: 0
+workload:
+  publish_rate_per_second: 1
+YAML
+  my $config = Overnet::Burner::Config->load_file($valid);
+  is $config->{topology}{relays}{endpoints}, ['ws://127.0.0.1:7001', 'ws://127.0.0.1:7002'], 'valid endpoints load';
+  my $normalized = JSON::decode_json(Overnet::Burner::Config->normalized_json($config));
+  is $normalized->{topology}{relays}{endpoints}, ['ws://127.0.0.1:7001', 'ws://127.0.0.1:7002'],
+    'normalized config preserves endpoints';
+
+  my @rejections = (
+    ['non-array',     "endpoints: ws://one",        qr/topology\.relays\.endpoints\ must\ be\ an\ array/mx],
+    ['empty-entry',   "endpoints:\n      - ''",     qr/endpoints\[0\]\ must\ be\ a\ non-empty\ string/mx],
+    ['mapping-entry', "endpoints:\n      - {u: x}", qr/endpoints\[0\]\ must\ be\ a\ non-empty\ string/mx],
+  );
+  for my $case (@rejections) {
+    my ($name, $endpoints_yaml, $pattern) = @{$case};
+    my $path = "$tmp/relay-endpoints-$name.yml";
+    _write_yaml($path, <<"YAML");
+run:
+  name: endpoints-invalid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+    $endpoints_yaml
+  publishers:
+    count: 1
+  subscribers:
+    count: 0
+  query_readers:
+    count: 0
+  object_readers:
+    count: 0
+workload:
+  publish_rate_per_second: 1
+YAML
+    eval { Overnet::Burner::Config->load_file($path) };
+    like $@, $pattern, "$name endpoints are rejected";
+  }
+
+  my $mismatch = "$tmp/relay-endpoints-mismatch.yml";
+  _write_yaml($mismatch, <<'YAML');
+run:
+  name: endpoints-mismatch
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 2
+    provider: generic-relay
+    endpoints:
+      - ws://127.0.0.1:7001
+  publishers:
+    count: 1
+  subscribers:
+    count: 0
+  query_readers:
+    count: 0
+  object_readers:
+    count: 0
+workload:
+  publish_rate_per_second: 1
+YAML
+  eval { Overnet::Burner::Config->load_file($mismatch) };
+  like $@, qr/one\ endpoint\ per\ relay/mx, 'endpoint count must match relay count';
+};
+
 done_testing;
 
 sub _write_yaml {

@@ -32,6 +32,7 @@ my %RUNNER_MODULE = (
   noop                 => 'Overnet::Burner::Runner::Noop',
   'rex-local'          => 'Overnet::Burner::Runner::RexLocal',
   'rex-local-provider' => 'Overnet::Burner::Runner::RexLocalProvider',
+  'rex-local-workers'  => 'Overnet::Burner::Runner::RexLocalWorkers',
 );
 
 sub load {

@@ -56,10 +56,10 @@ Implemented so far:
 - report v1 generation with schema, artifacts, and threshold records
 - the metric event contract with summarization and real threshold evaluation
 - the worker contract and the reference publisher worker
+- the rex-local-workers runner: end-to-end local runs with real workers
 
 In progress, in proposal order:
 
-- runner orchestration of workers (launch, readiness sequencing, collection)
 - subscriber and reader reference workers
 - chaos subsystem and distributed scale mode
 
