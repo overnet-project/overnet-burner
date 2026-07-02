@@ -7,6 +7,7 @@ bin/overnet-burner
 bin/overnet-burner-worker
 cpanfile
 docs/chaos.md
+docs/distributed.md
 docs/METRICS.md
 docs/PROPOSAL.md
 docs/REPORT.md

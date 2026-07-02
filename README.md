@@ -64,7 +64,8 @@ Implemented so far:
 
 In progress, in proposal order:
 
-- distributed scale mode
+- distributed scale mode (design proposal in
+  [docs/distributed.md](docs/distributed.md))
 
 ## Testing
 
