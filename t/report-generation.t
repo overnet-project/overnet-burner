@@ -82,9 +82,9 @@ is $noop_report->{workload}{phases}[0]{publish_rate_per_second}, 10,  'noop repo
 is $noop_report->{workload}{phases}[0]{object_reads_per_second}, 1,   'noop report records object read rate';
 is $noop_report->{metrics}{collected},                  JSON::false,  'noop report records no metrics collected';
 is $noop_report->{metrics}{reason},                     'smoke_only', 'noop report explains missing metrics';
-is $noop_report->{metrics}{streams}{expected},          5,            'noop report records expected metric streams';
+is $noop_report->{metrics}{streams}{expected},          4,            'noop report records expected metric streams';
 is $noop_report->{metrics}{streams}{seen},              0,            'noop report records no seen metric streams';
-is scalar @{$noop_report->{metrics}{streams}{missing}}, 5,            'noop report records missing metric streams';
+is scalar @{$noop_report->{metrics}{streams}{missing}}, 4,            'noop report records missing metric streams';
 is [map {"$_->{id}:$_->{status}:$_->{reason}"} @{$noop_report->{thresholds}}],
   [
   'error_rate_max:not_evaluated:no_metrics', 'publish_p99_ms:not_evaluated:no_metrics',
@@ -176,16 +176,18 @@ subtest 'collected metrics are summarized and a failed threshold fails the run' 
       _metric_event(operation => 'subscription_fanout', role => 'subscriber', duration_ms => 100),
       _metric_event(operation => 'subscription_fanout', role => 'subscriber', duration_ms => 200),
     ],
-    'query-reader-001'  => [_metric_event(operation => 'query',       role => 'query_reader',  duration_ms => 50)],
+    'query-reader-001' => [
+      _metric_event(operation => 'query', role => 'query_reader', duration_ms => 50),
+      _metric_event(operation => 'query', role => 'query_reader', duration_ms => 60),
+    ],
     'object-reader-001' => [_metric_event(operation => 'object_read', role => 'object_reader', duration_ms => 60)],
-    'relay-001'         => [_metric_event(operation => 'observe',     role => 'relay',         duration_ms => 1)],
   );
 
   my $report = _regenerated_report($run_dir);
 
   is $report->{metrics}{collected},     JSON::true, 'metrics are collected when all streams exist';
   is $report->{metrics}{reason},        'none',     'collected metrics need no excuse';
-  is $report->{metrics}{streams}{seen}, 5,          'all five streams are seen';
+  is $report->{metrics}{streams}{seen}, 4,          'every declared worker stream is seen';
   is $report->{metrics}{operations}{publish},
     {
     count         => 5,
@@ -215,7 +217,6 @@ subtest 'passing thresholds yield a performance_passed verdict' => sub {
     'subscriber-001' => [_metric_event(operation => 'subscription_fanout', role => 'subscriber', duration_ms => 100)],
     'query-reader-001'  => [_metric_event(operation => 'query',       role => 'query_reader',  duration_ms => 50)],
     'object-reader-001' => [_metric_event(operation => 'object_read', role => 'object_reader', duration_ms => 60)],
-    'relay-001'         => [_metric_event(operation => 'observe',     role => 'relay',         duration_ms => 1)],
   );
 
   my $report = _regenerated_report($run_dir);
@@ -239,7 +240,6 @@ subtest 'a threshold without its metric is inconclusive' => sub {
     'subscriber-001'    => [_metric_event(operation => 'noop_probe',  role => 'subscriber',    duration_ms => 1)],
     'query-reader-001'  => [_metric_event(operation => 'query',       role => 'query_reader',  duration_ms => 50)],
     'object-reader-001' => [_metric_event(operation => 'object_read', role => 'object_reader', duration_ms => 60)],
-    'relay-001'         => [_metric_event(operation => 'observe',     role => 'relay',         duration_ms => 1)],
   );
 
   my $report = _regenerated_report($run_dir);
@@ -260,7 +260,6 @@ subtest 'a corrupt metric stream is surfaced instead of summarized around' => su
     'subscriber-001' => [_metric_event(operation   => 'subscription_fanout', role => 'subscriber', duration_ms => 100)],
     'query-reader-001'  => [_metric_event(operation => 'query',       role => 'query_reader',  duration_ms => 50)],
     'object-reader-001' => [_metric_event(operation => 'object_read', role => 'object_reader', duration_ms => 60)],
-    'relay-001'         => [_metric_event(operation => 'observe',     role => 'relay',         duration_ms => 1)],
   );
 
   open my $fh, '>>', File::Spec->catfile($run_dir, 'metrics', 'publisher-001.jsonl') or die "append: $!";

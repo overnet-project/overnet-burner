@@ -105,8 +105,46 @@ sub validate {
   _require_hash($config, 'workload.object_reads');
   _require_nonnegative_number($config, 'workload.object_reads.rate_per_second');
   _validate_object_read_references($config);
-  _require_array_of_mappings($config, 'chaos');
+  _validate_chaos($config);
   _require_hash($config, 'thresholds');
+
+  return 1;
+}
+
+sub _validate_chaos {
+  my ($config) = @_;
+
+  my %actions     = map { $_ => 1 } qw(restart start stop);
+  my $duration    = $config->{run}{duration};
+  my $relay_count = $config->{topology}{relays}{count};
+  my $hooks       = _require_array_of_mappings($config, 'chaos');
+
+  for my $index (0 .. $#{$hooks}) {
+    my $hook = $hooks->[$index];
+
+    my $at = $hook->{at};
+    if (ref $at || !defined $at || "$at" !~ /\A\d+\z/mxs) {
+      croak "chaos[$index].at must be a non-negative integer\n";
+    }
+    if ($at >= $duration) {
+      croak "chaos[$index].at must be inside the run duration (0 <= at < $duration)\n";
+    }
+
+    my $action = $hook->{action};
+    if (!(defined $action && !ref($action) && $actions{$action})) {
+      croak "chaos[$index].action must be one of restart, start, stop\n";
+    }
+
+    my $target = $hook->{target};
+    my ($ordinal) =
+      defined $target && !ref($target) ? $target =~ /\Arelay:([1-9][0-9]*)\z/mxs : ();
+    if (!defined $ordinal) {
+      croak "chaos[$index].target must name a configured relay as relay:<ordinal>\n";
+    }
+    if ($ordinal > $relay_count) {
+      croak "chaos[$index].target must name a configured relay ($target of $relay_count)\n";
+    }
+  }
 
   return 1;
 }

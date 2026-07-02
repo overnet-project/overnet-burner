@@ -42,7 +42,19 @@ for my $actor (
   @{$plan_a->{query_readers}}, @{$plan_a->{object_readers}},
 ) {
   ok $actor->{seed} =~ /\A\d+\z/mx, "$actor->{id} has deterministic actor seed";
+}
+
+for my $actor (
+  @{$plan_a->{publishers}},
+  @{$plan_a->{subscribers}},
+  @{$plan_a->{query_readers}},
+  @{$plan_a->{object_readers}},
+) {
   is $actor->{metric_stream}, "metrics/$actor->{id}.jsonl", "$actor->{id} records metric stream path";
+}
+
+for my $actor (@{$plan_a->{relays}}) {
+  ok !exists $actor->{metric_stream}, "$actor->{id} declares no metric stream it cannot produce";
 }
 
 is scalar @{$plan_a->{workload}{phases}}, 1, 'plan creates a default workload phase';
@@ -73,7 +85,6 @@ my %streams = map { $_->{actor_id} => $_ }
   grep { exists $_->{actor_id} } @{$plan_a->{metric_streams}};
 for my $actor_id (
   qw(
-  relay-001
   publisher-001
   subscriber-001
   query-reader-001
@@ -82,6 +93,7 @@ for my $actor_id (
 ) {
   is $streams{$actor_id}{path}, "metrics/$actor_id.jsonl", "metric stream exists for $actor_id";
 }
+ok !exists $streams{'relay-001'}, 'plan declares no relay metric stream';
 
 is $plan_a->{chaos_hooks}, [], 'plan includes empty chaos hook list';
 
@@ -117,7 +129,7 @@ $chaos->{chaos} = [
   {
     at     => 15,
     action => 'restart',
-    target => 'relay-001',
+    target => 'relay:1',
   },
 ];
 my $chaos_plan = Overnet::Burner::Plan->build($chaos);
@@ -125,7 +137,7 @@ is scalar @{$chaos_plan->{chaos_hooks}},      1,           'plan expands chaos h
 is $chaos_plan->{chaos_hooks}[0]{id},         'chaos-001', 'chaos hook has stable id';
 is $chaos_plan->{chaos_hooks}[0]{at_seconds}, 15,          'chaos hook records scheduled time';
 is $chaos_plan->{chaos_hooks}[0]{action},     'restart',   'chaos hook records action';
-is $chaos_plan->{chaos_hooks}[0]{target},     'relay-001', 'chaos hook records target';
+is $chaos_plan->{chaos_hooks}[0]{target},     'relay:1',   'chaos hook records target';
 ok $chaos_plan->{chaos_hooks}[0]{seed} =~ /\A\d+\z/mx, 'chaos hook has deterministic seed';
 
 my $json_a = Overnet::Burner::Plan->canonical_json($plan_a);

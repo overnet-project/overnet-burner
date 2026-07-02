@@ -182,11 +182,12 @@ sub _topology_provider_command_relays {
 sub _run_topology_provider_command {
   my ($self, %args) = @_;
 
-  my $actor_id         = $args{actor_id} || croak "actor_id is required\n";
-  my $kind             = $args{kind}     || croak "provider command kind is required\n";
-  my $command          = $args{command}  || croak "provider command is required\n";
-  my $relative_stdout  = File::Spec->catfile('logs', 'provider', "$actor_id-$kind.stdout",);
-  my $relative_stderr  = File::Spec->catfile('logs', 'provider', "$actor_id-$kind.stderr",);
+  my $actor_id         = $args{actor_id}  || croak "actor_id is required\n";
+  my $kind             = $args{kind}      || croak "provider command kind is required\n";
+  my $command          = $args{command}   || croak "provider command is required\n";
+  my $log_label        = $args{log_label} || "$actor_id-$kind";
+  my $relative_stdout  = File::Spec->catfile('logs', 'provider', "$log_label.stdout",);
+  my $relative_stderr  = File::Spec->catfile('logs', 'provider', "$log_label.stderr",);
   my $provider_log_dir = File::Spec->catdir($self->{run_dir}, 'logs', 'provider',);
 
   if (!-d $provider_log_dir) {
@@ -199,6 +200,7 @@ sub _run_topology_provider_command {
     command      => $command,
     stdout_path  => $relative_stdout,
     stderr_path  => $relative_stderr,
+    exists $args{phase} ? (phase => $args{phase}) : (),
   );
 
   $self->_record_topology_provider_event(%event_base, status => 'started');
@@ -240,7 +242,7 @@ sub _record_topology_provider_event {
   $self->{ledger}->append_runner_event(
     {
       runner       => $self->name,
-      phase        => $args{command_kind} eq 'stop' ? 'stop' : 'start',
+      phase        => $args{phase} || ($args{command_kind} eq 'stop' ? 'stop' : 'start'),
       actor_id     => $args{actor_id},
       command_kind => $args{command_kind},
       status       => $args{status},

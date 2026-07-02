@@ -114,10 +114,10 @@ is $relay_config->{actor}{id},                'relay-001',     'per-actor config
 is $relay_config->{actor}{role},              'relay',         'per-actor config records actor role';
 is $relay_config->{actor}{topology_provider}, 'generic-relay', 'per-actor config records topology provider';
 ok !exists $relay_config->{actor}{provider}, 'per-actor config does not use ambiguous provider field';
-is $relay_config->{host_id},                      'host-001',                'per-actor config records host';
-is $relay_config->{metric_stream},                'metrics/relay-001.jsonl', 'per-actor config records metric stream';
-is $relay_config->{env}{OVERNET_BURNER_ACTOR_ID}, 'relay-001',               'per-actor config includes actor env';
-is $relay_config->{env}{OVERNET_BURNER_ROLE},     'relay',                   'per-actor config includes role env';
+is $relay_config->{host_id}, 'host-001', 'per-actor config records host';
+ok !exists $relay_config->{metric_stream}, 'relay actor config declares no metric stream';
+is $relay_config->{env}{OVERNET_BURNER_ACTOR_ID}, 'relay-001', 'per-actor config includes actor env';
+is $relay_config->{env}{OVERNET_BURNER_ROLE},     'relay',     'per-actor config includes role env';
 is $relay_config->{env}{OVERNET_BURNER_TOPOLOGY_PROVIDER}, 'generic-relay',
   'per-actor config keeps topology provider distinct from Rex';
 
@@ -147,14 +147,13 @@ is $chaos_hooks, {hooks => []}, 'chaos schedule is rendered';
 my $collection = _read_json(File::Spec->catfile($bundle_dir, 'artifact-collection.json'));
 is [map { $_->{actor_id} } @{$collection->{metric_streams}}], [
   qw(
-    relay-001
     publisher-001
     subscriber-001
     query-reader-001
     object-reader-001
   )
   ],
-  'artifact collection plan records metric streams';
+  'artifact collection plan records worker metric streams';
 
 my $rexfile = _read_file(File::Spec->catfile($bundle_dir, 'Rexfile'));
 like $rexfile,   qr/^\#\ Generated\ by\ overnet-burner\ Rex\ bundle\ renderer\./mx, 'Rexfile is clearly generated';

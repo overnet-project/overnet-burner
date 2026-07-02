@@ -38,6 +38,7 @@ sub prepare {
   $self->SUPER::prepare;
   $self->{worker_results} = [];
   $self->{worker_pids}    = {};
+  $self->{chaos_results}  = [];
 
   return 1;
 }
@@ -46,6 +47,8 @@ sub observe {
   my ($self) = @_;
 
   $self->SUPER::observe;
+
+  my $chaos_hooks = $self->_resolve_chaos_hooks;
 
   my @actors = $self->_worker_actors;
   my %by_role;
@@ -62,26 +65,28 @@ sub observe {
   }
 
   my @launchable = map { @{$by_role{$_} || []} } map { @{$_} } @LAUNCH_WAVES;
-  if (!@launchable) {
+  if (!@launchable && !@{$chaos_hooks}) {
     return 1;
   }
 
-  my $endpoints = $self->_relay_endpoints;
-  if (!@{$endpoints}) {
-    croak "topology.relays.endpoints is required to launch workers\n";
+  if (@launchable) {
+    my $endpoints = $self->_relay_endpoints;
+    if (!@{$endpoints}) {
+      croak "topology.relays.endpoints is required to launch workers\n";
+    }
+
+    for my $wave (@LAUNCH_WAVES) {
+      my @wave_actors = map { @{$by_role{$_} || []} } @{$wave};
+      for my $actor (@wave_actors) {
+        $self->_launch_worker(actor => $actor, endpoints => $endpoints);
+      }
+      for my $actor (@wave_actors) {
+        $self->_await_worker_ready($actor);
+      }
+    }
   }
 
-  for my $wave (@LAUNCH_WAVES) {
-    my @wave_actors = map { @{$by_role{$_} || []} } @{$wave};
-    for my $actor (@wave_actors) {
-      $self->_launch_worker(actor => $actor, endpoints => $endpoints);
-    }
-    for my $actor (@wave_actors) {
-      $self->_await_worker_ready($actor);
-    }
-  }
-
-  $self->_await_worker_exits;
+  $self->_await_worker_exits($chaos_hooks);
 
   return 1;
 }
@@ -123,7 +128,11 @@ sub collect {
 sub summary_fields {
   my ($self) = @_;
 
-  return ($self->SUPER::summary_fields, worker_results => $self->{worker_results} || [],);
+  return (
+    $self->SUPER::summary_fields,
+    worker_results => $self->{worker_results} || [],
+    chaos_results  => $self->{chaos_results}  || [],
+  );
 }
 
 sub _worker_actors {
@@ -228,10 +237,23 @@ sub _await_worker_ready {
 }
 
 sub _await_worker_exits {
-  my ($self) = @_;
+  my ($self, $chaos_hooks) = @_;
 
-  my $deadline = time + $self->{plan}{run}{duration_seconds} + $EXIT_GRACE_SECONDS;
-  $self->_reap_until($deadline);
+  my $window_start = time;
+  my $deadline     = $window_start + $self->{plan}{run}{duration_seconds} + $EXIT_GRACE_SECONDS;
+  my @pending      = @{$chaos_hooks || []};
+
+  while ((%{$self->{worker_pids}} || @pending) && time < $deadline) {
+    my $progressed = $self->_reap_pass;
+    while (@pending && time - $window_start >= $pending[0]{hook}{at_seconds}) {
+      my $entry = shift @pending;
+      $self->_execute_chaos_hook(%{$entry}, window_start => $window_start);
+      $progressed = 1;
+    }
+    if (!$progressed) {
+      sleep 0.05;
+    }
+  }
 
   if (%{$self->{worker_pids}}) {
     for my $actor_id (sort keys %{$self->{worker_pids}}) {
@@ -244,6 +266,11 @@ sub _await_worker_exits {
       kill 'KILL', $self->{worker_pids}{$actor_id};
     }
     $self->_reap_until(time + $KILL_GRACE_SECONDS);
+  }
+
+  if (@pending) {
+    my $described = join ', ', map { $_->{hook}{id} } @pending;
+    croak "chaos hook $described did not fire within the run window\n";
   }
 
   my @failed = grep { !defined $_->{exit_code} || $_->{exit_code} != 0 } @{$self->{worker_results}};
@@ -259,20 +286,27 @@ sub _reap_until {
   my ($self, $deadline) = @_;
 
   while (%{$self->{worker_pids}} && time < $deadline) {
-    my $reaped = 0;
-    for my $actor_id (sort keys %{$self->{worker_pids}}) {
-      my $pid = $self->{worker_pids}{$actor_id};
-      if (waitpid($pid, WNOHANG) == $pid) {
-        $self->_reap_worker($actor_id, $CHILD_ERROR);
-        $reaped = 1;
-      }
-    }
-    if (!$reaped) {
+    if (!$self->_reap_pass) {
       sleep 0.05;
     }
   }
 
   return 1;
+}
+
+sub _reap_pass {
+  my ($self) = @_;
+
+  my $reaped = 0;
+  for my $actor_id (sort keys %{$self->{worker_pids}}) {
+    my $pid = $self->{worker_pids}{$actor_id};
+    if (waitpid($pid, WNOHANG) == $pid) {
+      $self->_reap_worker($actor_id, $CHILD_ERROR);
+      $reaped = 1;
+    }
+  }
+
+  return $reaped;
 }
 
 sub _reap_worker {
@@ -287,6 +321,102 @@ sub _reap_worker {
   );
   push @{$self->{worker_results}}, \%result;
   $self->_record_worker_event(%result);
+
+  return 1;
+}
+
+sub _resolve_chaos_hooks {
+  my ($self) = @_;
+
+  my @hooks = sort { $a->{at_seconds} <=> $b->{at_seconds} || $a->{ordinal} <=> $b->{ordinal} }
+    @{$self->{plan}{chaos_hooks} || []};
+  if (!@hooks) {
+    return [];
+  }
+
+  my %provider_relays = map { $_->{actor_id} => $_ } $self->_topology_provider_command_relays;
+  my @resolved;
+  for my $hook (@hooks) {
+    my ($ordinal) = $hook->{target} =~ /\Arelay:([0-9]+)\z/mxs;
+    my $actor_id  = defined $ordinal  ? sprintf('relay-%03d', $ordinal) : undef;
+    my $relay     = defined $actor_id ? $provider_relays{$actor_id}     : undef;
+    if (!$relay) {
+      croak "chaos hook $hook->{id} targets $hook->{target}," . " which has no topology provider lifecycle commands\n";
+    }
+    push @resolved, {hook => $hook, actor_id => $actor_id, relay => $relay};
+  }
+
+  return \@resolved;
+}
+
+sub _execute_chaos_hook {
+  my ($self, %args) = @_;
+
+  my ($hook, $actor_id, $relay) = @args{qw(hook actor_id relay)};
+  my $started_at = time;
+  my %base       = (
+    hook_id        => $hook->{id},
+    action         => $hook->{action},
+    target         => $hook->{target},
+    actor_id       => $actor_id,
+    at_seconds     => 0 + $hook->{at_seconds},
+    offset_seconds => 0 + sprintf('%.3f', $started_at - $args{window_start}),
+  );
+
+  $self->_record_chaos_event(%base, status => 'started');
+
+  my @steps =
+      $hook->{action} eq 'restart' ? qw(stop start health)
+    : $hook->{action} eq 'start'   ? qw(start health)
+    :                                qw(stop);
+  my $ok = eval {
+    for my $step (@steps) {
+      $self->_run_topology_provider_command(
+        actor_id  => $actor_id,
+        kind      => $step,
+        command   => $relay->{lifecycle}{$step}{command},
+        phase     => 'observe',
+        log_label => "$hook->{id}-$actor_id-$step",
+      );
+      if ($step eq 'stop') {
+        $self->{topology_provider_started}{$actor_id} = 0;
+      }
+      if ($step eq 'start') {
+        $self->{topology_provider_started}{$actor_id} = 1;
+        $self->{topology_provider_needs_stop} = 1;
+      }
+    }
+    1;
+  };
+  my $duration_ms = int((time - $started_at) * 1000 + 0.5);
+
+  if (!$ok) {
+    my $error = $EVAL_ERROR || 'chaos hook failed';
+    chomp $error;
+    my %failed = (%base, status => 'failed', duration_ms => $duration_ms, error => $error);
+    push @{$self->{chaos_results}}, \%failed;
+    $self->_record_chaos_event(%failed);
+    croak "chaos hook $hook->{id} ($hook->{action} $hook->{target}) failed: $error\n";
+  }
+
+  my %completed = (%base, status => 'completed', duration_ms => $duration_ms);
+  push @{$self->{chaos_results}}, \%completed;
+  $self->_record_chaos_event(%completed);
+
+  return 1;
+}
+
+sub _record_chaos_event {
+  my ($self, %args) = @_;
+
+  $self->{ledger}->append_runner_event(
+    {
+      runner     => $self->name,
+      phase      => 'observe',
+      event_kind => 'chaos_hook',
+      %args,
+    }
+  );
 
   return 1;
 }
@@ -322,6 +452,12 @@ publishers), waits for orderly exits within the run duration plus grace,
 and concatenates the collected metric streams into the run's aggregated
 C<metrics.jsonl> artifact. Actor roles without a reference worker are
 recorded as explicitly skipped.
+
+It also executes the plan's chaos hooks under the contract in
+F<docs/chaos.md>: once every worker is ready the workload window opens, and
+each hook fires at its scheduled offset by running the target relay's
+topology provider lifecycle commands, recorded as C<chaos_hook> ledger
+events. A hook that cannot execute fails the run.
 
 =head1 VERSION
 

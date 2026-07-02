@@ -105,6 +105,114 @@ subtest 'workers require declared relay endpoints' => sub {
   like $output, qr/topology\.relays\.endpoints/mx, 'failure names the missing scenario field';
 };
 
+subtest 'chaos hooks fire during the workload window' => sub {
+  my $provider_log   = File::Spec->catfile($tmp, 'chaos-provider.log');
+  my $scenario_chaos = "$tmp/chaos.yml";
+  _write_yaml($scenario_chaos, <<"YAML");
+run:
+  name: workers-chaos
+  duration: 3
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: external-command
+    command:
+      start: "echo start >> $provider_log"
+      health: "echo health >> $provider_log"
+      stop: "echo stop >> $provider_log"
+    endpoints:
+      - ws://127.0.0.1:59999
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 5
+chaos:
+  - at: 1
+    action: restart
+    target: relay:1
+thresholds:
+  error_rate_max: 0.5
+YAML
+
+  my $run_id = 'workers-chaos-001';
+  my $output =
+    `$^X $bin run --scenario $scenario_chaos --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
+  is $?, 0, 'chaos run completes' or diag($output);
+
+  my $run_dir = File::Spec->catdir($tmp, 'runs', $run_id);
+
+  my @provider_ops = grep {length} split /\n/, _slurp($provider_log);
+  is \@provider_ops, [qw(start health stop start health stop)],
+    'provider saw the initial start, the chaos restart, and the teardown stop';
+
+  my @chaos_events =
+    grep { ($_->{event_kind} || q{}) eq 'chaos_hook' } @{_read_jsonl("$run_dir/logs/runner.jsonl")};
+  is [map {"$_->{hook_id}:$_->{status}"} @chaos_events], ['chaos-001:started', 'chaos-001:completed'],
+    'ledger records the chaos hook lifecycle';
+  is $chaos_events[1]{action},   'restart',   'chaos event records the action';
+  is $chaos_events[1]{target},   'relay:1',   'chaos event records the target';
+  is $chaos_events[1]{actor_id}, 'relay-001', 'chaos event resolves the relay actor';
+  ok $chaos_events[1]{offset_seconds} >= 1, 'hook fired no earlier than scheduled'
+    or diag($chaos_events[1]{offset_seconds});
+  ok defined $chaos_events[1]{duration_ms} && $chaos_events[1]{duration_ms} >= 0, 'chaos event records its duration';
+
+  my $report_out = `$^X $bin report --run-dir $run_dir 2>&1`;
+  is $?, 0, 'report generates for the chaos run' or diag($report_out);
+  my $report = _read_json(File::Spec->catfile($run_dir, 'report.json'));
+  is $report->{chaos}{hooks_executed},   1,           'report counts the executed hook';
+  is $report->{chaos}{hooks}[0]{status}, 'completed', 'report records the hook as completed';
+  ok $report->{chaos}{hooks}[0]{started_at} && $report->{chaos}{hooks}[0]{finished_at},
+    'report carries real hook timings';
+  is $report->{run}{verdict},      'chaos_passed', 'passing thresholds under chaos give a chaos verdict';
+  is $report->{run}{result_class}, 'chaos',        'the run is classified as a chaos experiment';
+};
+
+subtest 'a failing chaos hook fails the run' => sub {
+  my $counter        = File::Spec->catfile($tmp, 'chaos-start-count');
+  my $scenario_chaos = "$tmp/chaos-fail.yml";
+  _write_yaml($scenario_chaos, <<"YAML");
+run:
+  name: workers-chaos-fail
+  duration: 2
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: external-command
+    command:
+      start: "n=\$(cat $counter 2>/dev/null || echo 0); n=\$((n+1)); echo \$n > $counter; [ \$n -le 1 ]"
+      health: "true"
+      stop: "true"
+    endpoints:
+      - ws://127.0.0.1:59999
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 5
+chaos:
+  - at: 0
+    action: start
+    target: relay:1
+YAML
+
+  my $run_id = 'workers-chaos-fail-001';
+  my $output =
+    `$^X $bin run --scenario $scenario_chaos --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
+  isnt $?, 0, 'run fails when a chaos hook cannot execute';
+  like $output, qr/chaos\ hook\ chaos-001/mx, 'failure names the chaos hook';
+
+  my $run_dir  = File::Spec->catdir($tmp, 'runs', $run_id);
+  my $manifest = _read_json(File::Spec->catfile($run_dir, 'manifest.json'));
+  is $manifest->{status}, 'failed', 'manifest records the failure';
+
+  my @chaos_events =
+    grep { ($_->{event_kind} || q{}) eq 'chaos_hook' } @{_read_jsonl("$run_dir/logs/runner.jsonl")};
+  my ($failed) = grep { $_->{status} eq 'failed' } @chaos_events;
+  ok $failed, 'ledger records the failed chaos hook';
+  like $failed->{error}, qr/provider\ command\ failed/mx, 'failed hook carries the provider error';
+};
+
 subtest 'end to end: real relay, real publisher, real metrics' => sub {
   my $port      = _free_port();
   my $relay_pid = File::Spec->catfile($tmp, 'relay.pid');

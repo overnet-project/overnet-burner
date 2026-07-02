@@ -231,6 +231,86 @@ workload:
 YAML
     qr/workload\.object_reads\.objects\[0\]\.id\ must\ be\ a\ non-empty\ string/mx,
   ],
+  [
+    'chaos hook with unknown action',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+chaos:
+  - at: 10
+    action: melt
+    target: relay:1
+YAML
+    qr/chaos\[0\]\.action\ must\ be\ one\ of\ restart,\ start,\ stop/mx,
+  ],
+  [
+    'chaos hook scheduled past the run duration',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+chaos:
+  - at: 60
+    action: restart
+    target: relay:1
+YAML
+    qr/chaos\[0\]\.at\ must\ be\ inside\ the\ run\ duration/mx,
+  ],
+  [
+    'chaos hook targeting a relay that does not exist',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+chaos:
+  - at: 10
+    action: restart
+    target: relay:2
+YAML
+    qr/chaos\[0\]\.target\ must\ name\ a\ configured\ relay/mx,
+  ],
+  [
+    'chaos hook with a malformed target',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+chaos:
+  - at: 10
+    action: restart
+    target: relay-001
+YAML
+    qr/chaos\[0\]\.target\ must\ name\ a\ configured\ relay\ as\ relay:<ordinal>/mx,
+  ],
 ) {
   my ($name, $yaml, $pattern) = @{$case};
   my $path = "$tmp/non-mapping-$name.yml";
@@ -240,6 +320,34 @@ YAML
   eval { Overnet::Burner::Config->load_file($path) };
   like $@, $pattern, "$name reports a clean mapping error";
 }
+
+subtest 'valid chaos hooks load' => sub {
+  my $path = "$tmp/chaos-valid.yml";
+  _write_yaml($path, <<'YAML');
+run:
+  name: chaos-valid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 2
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+chaos:
+  - at: 10
+    action: restart
+    target: relay:2
+  - at: 20
+    action: stop
+    target: relay:1
+YAML
+  my $config = Overnet::Burner::Config->load_file($path);
+  is scalar @{$config->{chaos}},  2,         'chaos hooks load';
+  is $config->{chaos}[0]{target}, 'relay:2', 'chaos target is preserved';
+};
 
 subtest 'topology.relays.endpoints are validated when present' => sub {
   my $valid = "$tmp/relay-endpoints-valid.yml";

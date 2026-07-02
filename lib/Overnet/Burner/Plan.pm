@@ -107,12 +107,12 @@ sub _actors {
     my $id = sprintf('%s-%03d', $prefix, $ordinal);
     push @actors,
       {
-      id            => $id,
-      name          => $id,
-      role          => $role,
-      ordinal       => $ordinal,
-      seed          => _seed($scenario, "actor:$id"),
-      metric_stream => "metrics/$id.jsonl",
+      id      => $id,
+      name    => $id,
+      role    => $role,
+      ordinal => $ordinal,
+      seed    => _seed($scenario, "actor:$id"),
+      $role eq 'relay' ? () : (metric_stream => "metrics/$id.jsonl"),
       %{$extra},
       };
   }
@@ -146,6 +146,9 @@ sub _metric_streams {
   my @streams;
 
   for my $actor (@actors) {
+    if (!defined $actor->{metric_stream}) {
+      next;
+    }
     push @streams,
       {
       id       => "metric-stream-$actor->{id}",

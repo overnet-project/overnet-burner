@@ -161,6 +161,11 @@ verdict follows from metrics and thresholds:
 | All configured thresholds evaluated and passed | `performance_passed` | `performance` |
 | Metrics collected, no thresholds configured | `smoke_passed` | `orchestration` |
 
+When the run executed chaos hooks (`chaos.hooks_executed > 0`), the
+threshold-driven rows above are judged as a chaos experiment instead:
+`chaos_failed`, `inconclusive_partial_run`, or `chaos_passed`, with result
+class `chaos`. See [chaos.md](chaos.md).
+
 ## Artifacts
 
 Every artifact reference includes:

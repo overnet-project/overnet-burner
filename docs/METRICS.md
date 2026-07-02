@@ -19,10 +19,14 @@ A representative sample stream is provided at:
 examples/metric-events-v1-sample.jsonl
 ```
 
-Run plans assign each actor one stream file under the run directory, declared
-in `plan.json` as `metric_streams` (for example
-`metrics/publisher-001.jsonl`). The run-root `metrics.jsonl` artifact is the
-concatenation of all streams, produced during collection.
+Run plans assign each worker actor one stream file under the run directory,
+declared in `plan.json` as `metric_streams` (for example
+`metrics/publisher-001.jsonl`). Relay actors declare no stream: they are
+managed by topology providers and nothing produces relay-side metrics yet,
+and a plan must not promise evidence that nothing emits — `collected` in the
+report is only true when every declared stream exists. Relay-side streams
+will be declared once relay observation exists. The run-root `metrics.jsonl`
+artifact is the concatenation of all streams, produced during collection.
 
 ## Encoding
 

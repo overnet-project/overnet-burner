@@ -293,10 +293,9 @@
     "collected": false,
     "reason": "smoke_only",
     "streams": {
-      "expected": 5,
+      "expected": 4,
       "seen": 0,
       "missing": [
-        "metrics/relay-001.jsonl",
         "metrics/publisher-001.jsonl",
         "metrics/subscriber-001.jsonl",
         "metrics/query-reader-001.jsonl",

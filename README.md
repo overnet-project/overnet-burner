@@ -59,10 +59,12 @@ Implemented so far:
   and object reader workers, covering publish, live fanout, query, and
   derived object read measurement
 - the rex-local-workers runner: end-to-end local runs with real workers
+- scheduled chaos hooks executed through topology provider lifecycle
+  commands, judged as chaos experiments in the report
 
 In progress, in proposal order:
 
-- chaos subsystem and distributed scale mode
+- distributed scale mode
 
 ## Testing
 

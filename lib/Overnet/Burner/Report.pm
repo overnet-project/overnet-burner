@@ -52,11 +52,12 @@ sub build {
 
   my ($metrics, $summary, $metrics_error) = _metrics($run_dir, $plan, $manifest);
   my $thresholds = _thresholds($config, $metrics, $manifest, $summary);
+  my $chaos      = _chaos($plan, $events);
   my $report     = {
     report_version => 1,
     schema         => $SCHEMA_ID,
     generated_at   => $now->(),
-    run            => _run($manifest, $metrics, $thresholds),
+    run            => _run($manifest, $metrics, $thresholds, $chaos),
     scenario       => _scenario($manifest, $plan),
     environment    => _environment($manifest),
     topology       => _topology($manifest, $plan, $inventory),
@@ -64,7 +65,7 @@ sub build {
     workload       => _workload($plan),
     metrics        => $metrics,
     thresholds     => $thresholds,
-    chaos          => _chaos($plan, $events),
+    chaos          => $chaos,
     artifacts      => _artifacts($run_dir),
     diagnostics    => _diagnostics($manifest, $metrics, $metrics_error),
     human_summary  => _human_summary($manifest, $metrics, $thresholds),
@@ -93,10 +94,10 @@ sub canonical_json {
 }
 
 sub _run {
-  my ($manifest, $metrics, $thresholds) = @_;
+  my ($manifest, $metrics, $thresholds, $chaos) = @_;
 
   my $status = $manifest->{status} || 'created';
-  my ($verdict, $result_class) = _verdict_and_result_class($manifest, $metrics, $thresholds);
+  my ($verdict, $result_class) = _verdict_and_result_class($manifest, $metrics, $thresholds, $chaos);
 
   return {
     id           => $manifest->{run_id},
@@ -111,7 +112,7 @@ sub _run {
 }
 
 sub _verdict_and_result_class {
-  my ($manifest, $metrics, $thresholds) = @_;
+  my ($manifest, $metrics, $thresholds, $chaos) = @_;
 
   my $status = $manifest->{status} || 'created';
   if ($status eq 'created' || $status eq 'running') {
@@ -127,6 +128,8 @@ sub _verdict_and_result_class {
     return ('not_evaluated', 'none');
   }
 
+  my $chaos_run = ($chaos->{hooks_executed} || 0) > 0;
+
   if (!$metrics->{collected}) {
     if (($metrics->{reason} || q{}) eq 'configuration_error') {
       return ('inconclusive_no_metrics', 'performance');
@@ -139,13 +142,13 @@ sub _verdict_and_result_class {
   my @evaluated = grep { $_->{status} eq 'passed' || $_->{status} eq 'failed' } @{$thresholds};
 
   if (@failed) {
-    return ('performance_failed', 'performance');
+    return $chaos_run ? qw(chaos_failed chaos) : qw(performance_failed performance);
   }
   if (@missing) {
-    return ('inconclusive_partial_run', 'performance');
+    return ('inconclusive_partial_run', $chaos_run ? 'chaos' : 'performance');
   }
   if (@evaluated) {
-    return ('performance_passed', 'performance');
+    return $chaos_run ? qw(chaos_passed chaos) : qw(performance_passed performance);
   }
 
   return ('smoke_passed', 'orchestration');
@@ -514,24 +517,66 @@ sub _threshold_holds {
 
 sub _chaos {
   my ($plan, $events) = @_;
-  my @hooks = map {
-    {
-      id                   => $_->{id},
-      action               => $_->{action},
-      target               => $_->{target},
-      status               => 'not_evaluated',
-      scheduled_at_seconds => 0 + ($_->{at_seconds} || 0),
-      started_at           => undef,
-      finished_at          => undef,
-      duration_ms          => undef,
-      error                => undef,
+
+  my ($started, $finished) = _chaos_hook_events($events);
+
+  my @hooks;
+  my $executed = 0;
+  for my $hook (@{$plan->{chaos_hooks} || []}) {
+    my $row = _chaos_hook_row($hook, $started->{$hook->{id}}, $finished->{$hook->{id}});
+    if ($row->{status} eq 'completed') {
+      $executed++;
     }
-  } @{$plan->{chaos_hooks} || []};
+    push @hooks, $row;
+  }
 
   return {
     hooks_configured => scalar @hooks,
-    hooks_executed   => 0,
+    hooks_executed   => $executed,
     hooks            => \@hooks,
+  };
+}
+
+sub _chaos_hook_events {
+  my ($events) = @_;
+
+  my (%started, %finished);
+  for my $event (@{$events || []}) {
+    if (($event->{event_kind} || q{}) ne 'chaos_hook' || !$event->{hook_id}) {
+      next;
+    }
+    if ($event->{status} eq 'started') {
+      $started{$event->{hook_id}} = $event;
+    } elsif ($event->{status} eq 'completed' || $event->{status} eq 'failed') {
+      $finished{$event->{hook_id}} = $event;
+    }
+  }
+
+  return (\%started, \%finished);
+}
+
+sub _chaos_hook_row {
+  my ($hook, $started, $finished) = @_;
+
+  my $status =
+      $finished ? $finished->{status}
+    : $started  ? 'failed'
+    :             'not_evaluated';
+  my $error =
+      $finished && defined $finished->{error} ? $finished->{error}
+    : $started  && !$finished                 ? 'hook never finished'
+    :                                           undef;
+
+  return {
+    id                   => $hook->{id},
+    action               => $hook->{action},
+    target               => $hook->{target},
+    status               => $status,
+    scheduled_at_seconds => 0 + ($hook->{at_seconds} || 0),
+    started_at           => $started                                      ? $started->{timestamp}        : undef,
+    finished_at          => $finished                                     ? $finished->{timestamp}       : undef,
+    duration_ms          => $finished && defined $finished->{duration_ms} ? 0 + $finished->{duration_ms} : undef,
+    error                => $error,
   };
 }
 

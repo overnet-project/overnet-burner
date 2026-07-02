@@ -134,10 +134,10 @@ sub _actor_config {
   my ($plan, $actor) = @_;
 
   return {
-    actor         => _clone($actor),
-    env           => _actor_env($plan, $actor),
-    host_id       => 'host-001',
-    metric_stream => $actor->{metric_stream},
+    actor   => _clone($actor),
+    env     => _actor_env($plan, $actor),
+    host_id => 'host-001',
+    exists $actor->{metric_stream} ? (metric_stream => $actor->{metric_stream}) : (),
   };
 }
 
