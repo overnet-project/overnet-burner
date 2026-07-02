@@ -189,7 +189,7 @@ sub _assert_schema_valid {
 
   my $result = JSON::Schema::Modern->new->evaluate($report, $schema);
   ok $result->valid, "$run_id report validates against report-v1 schema"
-    or diag JSON->new->canonical(1)->pretty(1)->encode($result->TO_JSON);
+    or diag(JSON->new->canonical(1)->pretty(1)->encode($result->TO_JSON));
   return;
 }
 
