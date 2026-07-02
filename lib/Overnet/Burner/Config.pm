@@ -63,8 +63,11 @@ sub normalize {
   $copy->{workload}{subscription_filters} ||= [];
   $copy->{workload}{query_filters}        ||= [];
   $copy->{workload}{object_reads}         ||= {};
-  $copy->{chaos}                          ||= [];
-  $copy->{thresholds}                     ||= {};
+  if (!exists $copy->{workload}{query_rate_per_second}) {
+    $copy->{workload}{query_rate_per_second} = 1;
+  }
+  $copy->{chaos}      ||= [];
+  $copy->{thresholds} ||= {};
 
   return $copy;
 }
@@ -80,6 +83,7 @@ sub validate {
   Overnet::Burner::TopologyProvider->from_relay_config($config->{topology}{relays},);
   _validate_relay_endpoints($config);
   _require_nonnegative_number($config, 'workload.publish_rate_per_second');
+  _require_nonnegative_number($config, 'workload.query_rate_per_second');
 
   for my $path (
     qw(

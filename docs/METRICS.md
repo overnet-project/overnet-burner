@@ -79,7 +79,8 @@ these well-known names:
 - `subscription_fanout` — live delivery to an existing subscription;
   `duration_ms` follows the fanout timing convention in
   [workers.md](workers.md)
-- `query` — filter query round trip
+- `query` — filter query round trip; `duration_ms` follows the query timing
+  convention in [workers.md](workers.md)
 - `object_read` — derived object read
 - `sync_round` — one negentropy reconciliation round
 

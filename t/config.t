@@ -49,7 +49,9 @@ YAML
 close $standard_fh or die "close $standard_yaml_path: $!";
 
 my $standard_yaml = Overnet::Burner::Config->load_file($standard_yaml_path);
-is $standard_yaml->{run}{seed}, 12345, 'loads standard YAML document markers and comments';
+is $standard_yaml->{run}{seed},                       12345, 'loads standard YAML document markers and comments';
+is $standard_yaml->{workload}{query_rate_per_second}, 1,     'workload query rate defaults to one per second';
+is $scenario->{workload}{query_rate_per_second},      1,     'baseline scenario gets the default query rate';
 
 my $invalid_path = "$tmp/invalid.yml";
 
@@ -170,6 +172,23 @@ chaos:
   - 5
 YAML
     qr/chaos\[0\]\ must\ be\ a\ mapping/mx,
+  ],
+  [
+    'negative query rate',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+  query_rate_per_second: -1
+YAML
+    qr/workload\.query_rate_per_second\ must\ be\ a\ non-negative\ number/mx,
   ],
 ) {
   my ($name, $yaml, $pattern) = @{$case};

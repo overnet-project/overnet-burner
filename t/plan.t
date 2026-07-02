@@ -52,6 +52,7 @@ is $phase->{name},                    'main',                                   
 is $phase->{start_seconds},           0,                                           'phase starts at zero';
 is $phase->{duration_seconds},        60,                                          'phase uses scenario duration';
 is $phase->{publish_rate_per_second}, 10,                                          'phase records publish rate';
+is $phase->{query_rate_per_second},   1,                                           'phase records the query rate';
 is $phase->{subscription_filters},    $scenario->{workload}{subscription_filters}, 'phase records subscription filters';
 is $phase->{query_filters},           $scenario->{workload}{query_filters},        'phase records query filters';
 is $phase->{object_reads},            $scenario->{workload}{object_reads},         'phase records object read workload';

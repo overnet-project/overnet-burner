@@ -127,12 +127,32 @@ trustworthy; in distributed mode it is only as good as the clock
 synchronization between the publishing and subscribing hosts, and reports
 over distributed runs should treat small fanout latencies accordingly.
 
+## Query Timing
+
+A `query` is one filter-query round trip measured on a single clock, so it
+needs no cross-process convention:
+
+- A query reader issues the workload's `query_filters` as one request and
+  measures from sending the request to receiving the stored-result boundary
+  (`EOSE` on Nostr relays).
+- `result_count` on the metric event is the number of stored events
+  delivered before the boundary.
+- Deliveries after the boundary are live subscription traffic, not query
+  results; the reader MUST end the query at the boundary (close the
+  subscription) rather than let live events stretch its duration.
+- A request that never reaches the boundary within the reader's timeout is
+  a metric event with `status: "error"`, and the reader continues.
+
+Query readers pace themselves with `workload.query_rate_per_second`
+(default `1`), analogous to `workload.publish_rate_per_second`.
+
 ## Reference Workers
 
 | Role | Implementation |
 |---|---|
 | `publisher` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Publisher` |
 | `subscriber` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Subscriber` |
+| `query_reader` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::QueryReader` |
 
 The reference publisher derives a stable Nostr identity from
 `seed`/`worker_id`, publishes valid native Overnet events (kind 7800 with the
@@ -146,3 +166,8 @@ The reference subscriber subscribes to the first relay endpoint with
 stored-event replay boundary (`EOSE`), and emits one `subscription_fanout`
 metric event per stamped live event under the fanout timing convention
 above.
+
+The reference query reader issues `workload.query_filters` against the first
+relay endpoint at `workload.query_rate_per_second` and emits one `query`
+metric event per request under the query timing convention above — `success`
+with `result_count` at the stored-result boundary, `error` on timeout.

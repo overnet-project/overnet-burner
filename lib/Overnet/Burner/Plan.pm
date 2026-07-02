@@ -133,6 +133,7 @@ sub _default_phase {
     start_seconds           => 0,
     duration_seconds        => 0 + $scenario->{run}{duration},
     publish_rate_per_second => 0 + $scenario->{workload}{publish_rate_per_second},
+    query_rate_per_second   => 0 + $scenario->{workload}{query_rate_per_second},
     subscription_filters    => _clone($scenario->{workload}{subscription_filters}),
     query_filters           => _clone($scenario->{workload}{query_filters}),
     object_reads            => _clone($scenario->{workload}{object_reads}),

@@ -28,10 +28,11 @@ local $ENV{OVERNET_BURNER_WORKER}       = "$^X $fake_worker";
 
 my $scenario = _write_scenario(
   "$tmp/workers.yml",
-  relays_extra  => "    endpoints:\n      - ws://127.0.0.1:59999",
-  publishers    => 1,
-  subscribers   => 1,
-  query_readers => 1,
+  relays_extra   => "    endpoints:\n      - ws://127.0.0.1:59999",
+  publishers     => 1,
+  subscribers    => 1,
+  query_readers  => 1,
+  object_readers => 1,
 );
 
 subtest 'workers runner launches contract workers and collects streams' => sub {
@@ -64,20 +65,23 @@ subtest 'workers runner launches contract workers and collects streams' => sub {
   is $stream->[0]{worker_id}, 'publisher-001', 'metric event names the worker';
 
   my $aggregated = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics.jsonl'));
-  is scalar @{$aggregated}, 2, 'collect concatenated both worker streams into metrics.jsonl';
+  is scalar @{$aggregated}, 3, 'collect concatenated every worker stream into metrics.jsonl';
 
   ok -f File::Spec->catfile($run_dir, 'logs', 'workers', 'publisher-001.stdout'), 'worker stdout is captured';
 
   my @events = grep { ($_->{event_kind} || q{}) eq 'worker' } @{_read_jsonl("$run_dir/logs/runner.jsonl")};
   my %by_status;
   push @{$by_status{$_->{status}}}, $_ for @events;
-  is [map { $_->{actor_id} } @{$by_status{launched}}], ['subscriber-001', 'publisher-001'],
-    'runner launched subscribers before publishers';
-  is [map { $_->{actor_id} } @{$by_status{ready}}], ['subscriber-001', 'publisher-001'],
-    'runner observed subscriber readiness before launching the publisher';
+  is [map { $_->{actor_id} } @{$by_status{launched}}],
+    ['subscriber-001', 'query-reader-001', 'publisher-001'],
+    'runner launched subscribers and readers before publishers';
+  is [map { $_->{actor_id} } @{$by_status{ready}}],
+    ['subscriber-001', 'query-reader-001', 'publisher-001'],
+    'runner observed first-wave readiness before launching the publisher';
   is [sort map {"$_->{actor_id}:$_->{exit_code}"} @{$by_status{exited}}],
-    ['publisher-001:0', 'subscriber-001:0'], 'runner reaped both worker exits';
-  is [map { $_->{actor_id} } @{$by_status{skipped_no_worker}}], ['query-reader-001'],
+    ['publisher-001:0', 'query-reader-001:0', 'subscriber-001:0'],
+    'runner reaped every worker exit';
+  is [map { $_->{actor_id} } @{$by_status{skipped_no_worker}}], ['object-reader-001'],
     'roles without a reference worker are skipped explicitly';
 };
 
@@ -135,12 +139,15 @@ topology:
   subscribers:
     count: 1
   query_readers:
-    count: 0
+    count: 1
   object_readers:
     count: 0
 workload:
   publish_rate_per_second: 5
+  query_rate_per_second: 5
   subscription_filters:
+    - kinds: [7800]
+  query_filters:
     - kinds: [7800]
 YAML
 
@@ -169,21 +176,34 @@ YAML
   my @unknown_ids   = grep { !$published_ids{$_->{event_id}} } @{$fanout};
   is \@unknown_ids, [], 'every fanout metric names an event the publisher actually published';
 
+  my $queries =
+    Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics', 'query-reader-001.jsonl'));
+  ok @{$queries} >= 1, 'real query reader measured queries' or diag(scalar @{$queries});
+
+  my @bad_queries =
+    grep { $_->{operation} ne 'query' || $_->{status} ne 'success' } @{$queries};
+  is \@bad_queries, [], 'query metrics are successful query events';
+
+  my @bad_result_counts =
+    grep { !defined $_->{result_count} || $_->{result_count} > @{$stream} } @{$queries};
+  is \@bad_result_counts, [], 'no query claims more stored events than were published';
+
   my $report_out = `$^X $bin report --run-dir $run_dir 2>&1`;
   is $?, 0, 'report generates for the end-to-end run';
   my $report = _read_json(File::Spec->catfile($run_dir, 'report.json'));
   is $report->{run}{status}, 'completed', 'end-to-end run completed';
-  ok $report->{metrics}{streams}{seen} >= 2, 'report sees the publisher and subscriber streams';
+  ok $report->{metrics}{streams}{seen} >= 3, 'report sees every collected worker stream';
 };
 
 done_testing;
 
 sub _write_scenario {
   my ($path, %args) = @_;
-  my $relays_extra  = delete $args{relays_extra} // q{};
-  my $publishers    = delete $args{publishers};
-  my $subscribers   = delete $args{subscribers};
-  my $query_readers = delete $args{query_readers} // 0;
+  my $relays_extra   = delete $args{relays_extra} // q{};
+  my $publishers     = delete $args{publishers};
+  my $subscribers    = delete $args{subscribers};
+  my $query_readers  = delete $args{query_readers}  // 0;
+  my $object_readers = delete $args{object_readers} // 0;
   _write_yaml($path, <<"YAML");
 run:
   name: workers-runner
@@ -201,7 +221,7 @@ $relays_extra
   query_readers:
     count: $query_readers
   object_readers:
-    count: 0
+    count: $object_readers
 workload:
   publish_rate_per_second: 5
 YAML
