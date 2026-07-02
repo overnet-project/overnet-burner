@@ -162,7 +162,178 @@ my $missing_report = `$^X $bin report --run-dir $tmp/missing-run 2>&1`;
 is $? >> 8, 2, 'report command rejects missing run directory';
 like $missing_report, qr/run\ directory\ does\ not\ exist/mx, 'report command explains missing run directory';
 
+subtest 'collected metrics are summarized and a failed threshold fails the run' => sub {
+  my $run_dir = _run_with_metric_streams(
+    'report-metrics-fail-001',
+    'publisher-001' => [
+      _metric_event(duration_ms => 10),
+      _metric_event(duration_ms => 20),
+      _metric_event(duration_ms => 30),
+      _metric_event(duration_ms => 40),
+      _metric_event(duration_ms => 500, status => 'error', error => 'publish timed out'),
+    ],
+    'subscriber-001' => [
+      _metric_event(operation => 'subscription_fanout', role => 'subscriber', duration_ms => 100),
+      _metric_event(operation => 'subscription_fanout', role => 'subscriber', duration_ms => 200),
+    ],
+    'query-reader-001'  => [_metric_event(operation => 'query',       role => 'query_reader',  duration_ms => 50)],
+    'object-reader-001' => [_metric_event(operation => 'object_read', role => 'object_reader', duration_ms => 60)],
+    'relay-001'         => [_metric_event(operation => 'observe',     role => 'relay',         duration_ms => 1)],
+  );
+
+  my $report = _regenerated_report($run_dir);
+
+  is $report->{metrics}{collected},     JSON::true, 'metrics are collected when all streams exist';
+  is $report->{metrics}{reason},        'none',     'collected metrics need no excuse';
+  is $report->{metrics}{streams}{seen}, 5,          'all five streams are seen';
+  is $report->{metrics}{operations}{publish},
+    {
+    count         => 5,
+    success_count => 4,
+    error_count   => 1,
+    error_rate    => 0.2,
+    latency_ms    => {min => 10, p50 => 20, p90 => 40, p95 => 40, p99 => 40, max => 40, mean => 25},
+    },
+    'publish operation summary matches the streams';
+
+  my %thresholds = map { $_->{id} => $_ } @{$report->{thresholds}};
+  is $thresholds{publish_p99_ms}{status},             'passed', 'publish p99 threshold passes';
+  is $thresholds{publish_p99_ms}{observed_value},     40,       'publish p99 records observed value';
+  is $thresholds{publish_p99_ms}{reason},             'none',   'evaluated threshold needs no excuse';
+  is $thresholds{subscription_fanout_p99_ms}{status}, 'passed', 'fanout p99 threshold passes';
+  is $thresholds{error_rate_max}{status},             'failed', 'error rate threshold fails';
+  is $thresholds{error_rate_max}{observed_value},     0.1,      'error rate threshold records overall rate';
+
+  is $report->{run}{verdict},      'performance_failed', 'failed threshold fails the run verdict';
+  is $report->{run}{result_class}, 'performance',        'evaluated thresholds classify the run as performance';
+};
+
+subtest 'passing thresholds yield a performance_passed verdict' => sub {
+  my $run_dir = _run_with_metric_streams(
+    'report-metrics-pass-001',
+    'publisher-001'  => [map { _metric_event(duration_ms => 10 + $_) } 1 .. 5],
+    'subscriber-001' => [_metric_event(operation => 'subscription_fanout', role => 'subscriber', duration_ms => 100)],
+    'query-reader-001'  => [_metric_event(operation => 'query',       role => 'query_reader',  duration_ms => 50)],
+    'object-reader-001' => [_metric_event(operation => 'object_read', role => 'object_reader', duration_ms => 60)],
+    'relay-001'         => [_metric_event(operation => 'observe',     role => 'relay',         duration_ms => 1)],
+  );
+
+  my $report = _regenerated_report($run_dir);
+
+  my %thresholds = map { $_->{id} => $_->{status} } @{$report->{thresholds}};
+  is \%thresholds,
+    {
+    publish_p99_ms             => 'passed',
+    subscription_fanout_p99_ms => 'passed',
+    error_rate_max             => 'passed',
+    },
+    'all thresholds pass';
+  is $report->{run}{verdict},      'performance_passed', 'clean thresholds pass the run verdict';
+  is $report->{run}{result_class}, 'performance',        'run is classified as performance';
+};
+
+subtest 'a threshold without its metric is inconclusive' => sub {
+  my $run_dir = _run_with_metric_streams(
+    'report-metrics-missing-001',
+    'publisher-001'     => [map { _metric_event(duration_ms => 10 + $_) } 1 .. 5],
+    'subscriber-001'    => [_metric_event(operation => 'noop_probe',  role => 'subscriber',    duration_ms => 1)],
+    'query-reader-001'  => [_metric_event(operation => 'query',       role => 'query_reader',  duration_ms => 50)],
+    'object-reader-001' => [_metric_event(operation => 'object_read', role => 'object_reader', duration_ms => 60)],
+    'relay-001'         => [_metric_event(operation => 'observe',     role => 'relay',         duration_ms => 1)],
+  );
+
+  my $report = _regenerated_report($run_dir);
+
+  my %thresholds = map { $_->{id} => $_ } @{$report->{thresholds}};
+  is $thresholds{subscription_fanout_p99_ms}{status}, 'not_evaluated',  'missing metric is not evaluated';
+  is $thresholds{subscription_fanout_p99_ms}{reason}, 'metric_missing', 'missing metric names the reason';
+  is $thresholds{publish_p99_ms}{status},             'passed',         'present metrics still evaluate';
+  is $report->{run}{verdict}, 'inconclusive_partial_run',
+    'a configured threshold without its metric makes the run inconclusive';
+  is $report->{run}{result_class}, 'performance', 'inconclusive threshold runs stay performance-classified';
+};
+
+subtest 'a corrupt metric stream is surfaced instead of summarized around' => sub {
+  my $run_dir = _run_with_metric_streams(
+    'report-metrics-corrupt-001',
+    'publisher-001'  => [_metric_event(duration_ms => 10)],
+    'subscriber-001' => [_metric_event(operation   => 'subscription_fanout', role => 'subscriber', duration_ms => 100)],
+    'query-reader-001'  => [_metric_event(operation => 'query',       role => 'query_reader',  duration_ms => 50)],
+    'object-reader-001' => [_metric_event(operation => 'object_read', role => 'object_reader', duration_ms => 60)],
+    'relay-001'         => [_metric_event(operation => 'observe',     role => 'relay',         duration_ms => 1)],
+  );
+
+  open my $fh, '>>', File::Spec->catfile($run_dir, 'metrics', 'publisher-001.jsonl') or die "append: $!";
+  print {$fh} "not json\n" or die "print: $!";
+  close $fh                or die "close: $!";
+
+  my $report = _regenerated_report($run_dir);
+
+  is $report->{metrics}{collected},      JSON::false,           'corrupt streams do not count as collected';
+  is $report->{metrics}{reason},         'configuration_error', 'corrupt streams are named a configuration error';
+  is $report->{metrics}{operations}, {}, 'no summaries are produced from corrupt streams';
+  is $report->{run}{verdict},            'inconclusive_no_metrics', 'corrupt metrics make the run inconclusive';
+  my %thresholds = map { $_->{id} => $_ } @{$report->{thresholds}};
+  is $thresholds{publish_p99_ms}{status}, 'not_evaluated',       'thresholds are not evaluated on corrupt metrics';
+  is $thresholds{publish_p99_ms}{reason}, 'configuration_error', 'threshold reason names the configuration error';
+};
+
 done_testing;
+
+sub _metric_event {
+  my (%overrides) = @_;
+  my %event = (
+    metric_version => 1,
+    run_id         => 'run-metrics',
+    worker_id      => 'publisher-001',
+    host           => 'host-test',
+    role           => 'publisher',
+    operation      => 'publish',
+    started_at     => '2026-07-02T18:00:00Z',
+    finished_at    => '2026-07-02T18:00:00.010Z',
+    duration_ms    => 10,
+    status         => 'success',
+    %overrides,
+  );
+  return \%event;
+}
+
+sub _run_with_metric_streams {
+  my ($run_id, %streams_by_actor) = @_;
+
+  my $run = `$^X $bin run --scenario $scenario --runs-dir $tmp --run-id $run_id --runner noop 2>&1`;
+  is $?, 0, "$run_id run completes";
+  my $run_dir = File::Spec->catdir($tmp, $run_id);
+
+  my $metrics_dir = File::Spec->catdir($run_dir, 'metrics');
+  mkdir $metrics_dir or die "mkdir $metrics_dir: $!";
+
+  my $json       = JSON->new->canonical(1);
+  my $aggregated = q{};
+  for my $actor (sort keys %streams_by_actor) {
+    my $content = join q{}, map { $json->encode($_) . "\n" } @{$streams_by_actor{$actor}};
+    _write_text(File::Spec->catfile($metrics_dir, "$actor.jsonl"), $content);
+    $aggregated .= $content;
+  }
+  _write_text(File::Spec->catfile($run_dir, 'metrics.jsonl'), $aggregated);
+
+  return $run_dir;
+}
+
+sub _regenerated_report {
+  my ($run_dir) = @_;
+  my $output = `$^X $bin report --run-dir $run_dir 2>&1`;
+  is $?, 0, 'report command succeeds' or diag($output);
+  return _read_json(File::Spec->catfile($run_dir, 'report.json'));
+}
+
+sub _write_text {
+  my ($path, $content) = @_;
+  open my $fh, '>', $path or die "open $path: $!";
+  print {$fh} $content or die "print $path: $!";
+  close $fh            or die "close $path: $!";
+  return;
+}
 
 sub _assert_common_report {
   my ($report, $run_id) = @_;

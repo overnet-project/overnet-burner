@@ -1,0 +1,112 @@
+# overnet-burner Metric Event Contract
+
+Metric events are the language-neutral measurement records of a run. Any
+worker, in any language, can participate in a run by appending metric events
+to its assigned stream file. The burner never requires workers to link
+against burner code; this document and the schema are the contract.
+
+## Files
+
+The v1 contract is defined by:
+
+```text
+schemas/metric-event-v1.schema.json
+```
+
+A representative sample stream is provided at:
+
+```text
+examples/metric-events-v1-sample.jsonl
+```
+
+Run plans assign each actor one stream file under the run directory, declared
+in `plan.json` as `metric_streams` (for example
+`metrics/publisher-001.jsonl`). The run-root `metrics.jsonl` artifact is the
+concatenation of all streams, produced during collection.
+
+## Encoding
+
+- UTF-8, no byte-order mark.
+- One JSON object per line, `\n` line endings (JSONL).
+- Writers append complete lines only; a truncated final line invalidates the
+  stream.
+
+## Versioning
+
+Every event carries:
+
+```json
+{ "metric_version": 1 }
+```
+
+Compatible v1 changes may add new optional core fields and new
+operation-specific fields. Changes that remove, rename, or re-type a core
+field, change the meaning or units of an existing field, or change
+summarization semantics require a new metric version.
+
+## Core Fields
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `metric_version` | integer `1` | yes | Contract version |
+| `run_id` | non-empty string | yes | Run this event belongs to |
+| `worker_id` | non-empty string | yes | Emitting actor id (for example `publisher-001`) |
+| `host` | non-empty string | yes | Host the worker ran on |
+| `role` | non-empty string | yes | Worker role (for example `publisher`) |
+| `operation` | non-empty string | yes | Measured operation name |
+| `started_at` | RFC 3339 UTC string | yes | Operation start |
+| `finished_at` | RFC 3339 UTC string | yes | Operation end |
+| `duration_ms` | non-negative number | yes | Authoritative operation duration |
+| `status` | `"success"` or `"error"` | yes | Operation outcome |
+| `error` | non-empty string | no | Failure reason; only meaningful with `status: "error"` |
+
+Timestamps MUST use the UTC `Z` form (`2026-07-02T18:00:00Z`, fractional
+seconds allowed). `duration_ms` is authoritative for latency analysis;
+consumers MUST NOT derive durations by subtracting timestamps.
+
+Events MAY carry additional operation-specific members (for example
+`event_id`, `relay_url`, `subscription_id`, `filter_hash`, `result_count`,
+`http_status`, `rejection_reason`). Operation-specific members MUST NOT
+redefine core field names and SHOULD use `snake_case`.
+
+## Well-Known Operations
+
+The `operation` vocabulary is open, but summaries and thresholds reference
+these well-known names:
+
+- `publish` — event publication round trip
+- `subscription_replay` — stored-event replay delivery
+- `subscription_fanout` — live delivery to an existing subscription
+- `query` — filter query round trip
+- `object_read` — derived object read
+- `sync_round` — one negentropy reconciliation round
+
+New operation names are compatible additions; they appear in summaries
+automatically.
+
+## Summarization
+
+Report generation summarizes metric events with these normative rules:
+
+- Events from all streams of a run are grouped by `operation`.
+- `count`, `success_count`, and `error_count` count events by `status`;
+  `error_rate` is `error_count / count`.
+- `latency_ms` summaries (`min`, `p50`, `p90`, `p95`, `p99`, `max`, `mean`)
+  are computed over the `duration_ms` of **successful** events only. Error
+  frequency is reported by `error_rate`, not blended into latency. When an
+  operation has no successful events every latency member is `null`.
+- Percentiles use the nearest-rank method: for percentile `p` over `n`
+  ascending-sorted samples, the value at 1-based index `ceil(p / 100 * n)`.
+- `overall.error_rate` is total `error_count` over total `count` across all
+  operations.
+- Summarization is deterministic: identical streams produce identical
+  summaries.
+
+A malformed stream (invalid JSON line or an event that fails schema
+validation) makes the run's metrics untrustworthy; report generation must
+surface that instead of summarizing around it.
+
+## Out Of Scope For v1
+
+Host resource samples (CPU, RSS, file descriptors, disk, network) are not
+part of the v1 operation-event contract and will be specified separately.

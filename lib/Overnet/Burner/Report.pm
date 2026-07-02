@@ -10,6 +10,7 @@ use JSON        ();
 use POSIX       qw(strftime);
 use Time::Local qw(timegm);
 
+use Overnet::Burner::Metrics;
 use Overnet::Burner::Util qw(checked_close json_text read_json_file read_jsonl_file write_file);
 
 our $VERSION = '0.001';
@@ -49,23 +50,24 @@ sub build {
   my $events    = _read_jsonl_file(_path($run_dir, 'logs', 'runner.jsonl'));
   my $inventory = _read_optional_json_file(_path($run_dir, 'artifacts', 'rex', 'inventory', 'hosts.json'),);
 
-  my $metrics = _metrics($run_dir, $plan, $manifest);
-  my $report  = {
+  my ($metrics, $summary, $metrics_error) = _metrics($run_dir, $plan, $manifest);
+  my $thresholds = _thresholds($config, $metrics, $manifest, $summary);
+  my $report     = {
     report_version => 1,
     schema         => $SCHEMA_ID,
     generated_at   => $now->(),
-    run            => _run($manifest),
+    run            => _run($manifest, $metrics, $thresholds),
     scenario       => _scenario($manifest, $plan),
     environment    => _environment($manifest),
     topology       => _topology($manifest, $plan, $inventory),
     execution      => _execution($manifest, $events),
     workload       => _workload($plan),
     metrics        => $metrics,
-    thresholds     => _thresholds($config, $metrics, $manifest),
+    thresholds     => $thresholds,
     chaos          => _chaos($plan, $events),
     artifacts      => _artifacts($run_dir),
-    diagnostics    => _diagnostics($manifest, $metrics),
-    human_summary  => _human_summary($manifest, $metrics),
+    diagnostics    => _diagnostics($manifest, $metrics, $metrics_error),
+    human_summary  => _human_summary($manifest, $metrics, $thresholds),
     extensions     => {},
   };
 
@@ -91,44 +93,62 @@ sub canonical_json {
 }
 
 sub _run {
-  my ($manifest) = @_;
+  my ($manifest, $metrics, $thresholds) = @_;
 
   my $status = $manifest->{status} || 'created';
+  my ($verdict, $result_class) = _verdict_and_result_class($manifest, $metrics, $thresholds);
 
   return {
     id           => $manifest->{run_id},
     status       => $status,
-    verdict      => _verdict($manifest),
-    result_class => (
-      $status eq 'created' || $status eq 'running'
-      ? 'none'
-      : 'orchestration'
-    ),
-    created_at  => $manifest->{timestamps}{created_at}  || undef,
-    started_at  => $manifest->{timestamps}{started_at}  || undef,
-    finished_at => $manifest->{timestamps}{finished_at} || undef,
-    duration_ms => _duration_ms($manifest->{timestamps}{started_at}, $manifest->{timestamps}{finished_at},),
+    verdict      => $verdict,
+    result_class => $result_class,
+    created_at   => $manifest->{timestamps}{created_at}  || undef,
+    started_at   => $manifest->{timestamps}{started_at}  || undef,
+    finished_at  => $manifest->{timestamps}{finished_at} || undef,
+    duration_ms  => _duration_ms($manifest->{timestamps}{started_at}, $manifest->{timestamps}{finished_at},),
   };
 }
 
-sub _verdict {
-  my ($manifest) = @_;
+sub _verdict_and_result_class {
+  my ($manifest, $metrics, $thresholds) = @_;
 
   my $status = $manifest->{status} || 'created';
   if ($status eq 'created' || $status eq 'running') {
-    return 'not_evaluated';
+    return ('not_evaluated', 'none');
   }
   if ($status eq 'aborted') {
-    return 'aborted';
+    return ('aborted', 'orchestration');
   }
   if ($status eq 'failed') {
-    return 'orchestration_failed';
+    return ('orchestration_failed', 'orchestration');
   }
-  if ($status eq 'completed') {
-    return 'smoke_passed';
+  if ($status ne 'completed') {
+    return ('not_evaluated', 'none');
   }
 
-  return 'not_evaluated';
+  if (!$metrics->{collected}) {
+    if (($metrics->{reason} || q{}) eq 'configuration_error') {
+      return ('inconclusive_no_metrics', 'performance');
+    }
+    return ('smoke_passed', 'orchestration');
+  }
+
+  my @failed    = grep { $_->{status} eq 'failed' } @{$thresholds};
+  my @missing   = grep { ($_->{reason} || q{}) eq 'metric_missing' } @{$thresholds};
+  my @evaluated = grep { $_->{status} eq 'passed' || $_->{status} eq 'failed' } @{$thresholds};
+
+  if (@failed) {
+    return ('performance_failed', 'performance');
+  }
+  if (@missing) {
+    return ('inconclusive_partial_run', 'performance');
+  }
+  if (@evaluated) {
+    return ('performance_passed', 'performance');
+  }
+
+  return ('smoke_passed', 'orchestration');
 }
 
 sub _scenario {
@@ -373,22 +393,43 @@ sub _metrics {
     }
   }
 
-  my $collected = @streams && $seen == @streams ? JSON::true : JSON::false;
+  my $collected = @streams && $seen == @streams ? 1 : 0;
 
-  return {
-    collected => $collected,
-    reason    => $collected ? 'none' : (($manifest->{status} || q{}) eq 'failed' ? 'run_failed' : 'smoke_only'),
+  my $summary;
+  my $metrics_error;
+  if ($collected) {
+    eval {
+      $summary = Overnet::Burner::Metrics->summarize_stream_files($run_dir, \@streams);
+      1;
+    } or do {
+      $metrics_error = $EVAL_ERROR || 'metric stream summarization failed';
+      chomp $metrics_error;
+      $summary   = undef;
+      $collected = 0;
+    };
+  }
+
+  my $reason =
+      $collected     ? 'none'
+    : $metrics_error ? 'configuration_error'
+    : (($manifest->{status} || q{}) eq 'failed' ? 'run_failed' : 'smoke_only');
+
+  my $section = {
+    collected => $collected ? JSON::true : JSON::false,
+    reason    => $reason,
     streams   => {
       expected => scalar @streams,
       seen     => $seen,
       missing  => \@missing,
     },
-    operations => {},
+    operations => $summary ? $summary->{operations} : {},
   };
+
+  return ($section, $summary, $metrics_error);
 }
 
 sub _thresholds {
-  my ($config, $metrics, $manifest) = @_;
+  my ($config, $metrics, $manifest, $summary) = @_;
   my $thresholds = $config->{thresholds} || {};
   my @records;
 
@@ -399,22 +440,76 @@ sub _thresholds {
       comparator => '<=',
       unit       => undef,
       };
-    push @records,
-      {
+
+    my $threshold_record = {
       id               => $id,
-      status           => $metrics->{collected} ? 'planned' : 'not_evaluated',
       metric           => $spec->{metric},
       comparator       => $spec->{comparator},
       configured_value => $thresholds->{$id},
       observed_value   => undef,
       unit             => $spec->{unit},
-      reason           => $metrics->{collected}
-      ? 'none'
-      : (($manifest->{status} || q{}) eq 'failed' ? 'run_failed' : 'no_metrics'),
-      };
+    };
+
+    if (!$metrics->{collected}) {
+      $threshold_record->{status} = 'not_evaluated';
+      $threshold_record->{reason} =
+          ($metrics->{reason}  || q{}) eq 'configuration_error' ? 'configuration_error'
+        : ($manifest->{status} || q{}) eq 'failed'              ? 'run_failed'
+        :                                                         'no_metrics';
+    } else {
+      my $observed = _resolve_metric_path($summary, $spec->{metric});
+      if (defined $observed) {
+        $threshold_record->{observed_value} = 0 + $observed;
+        $threshold_record->{status} =
+          _threshold_holds($spec->{comparator}, $observed, $thresholds->{$id}) ? 'passed' : 'failed';
+        $threshold_record->{reason} = 'none';
+      } else {
+        $threshold_record->{status} = 'not_evaluated';
+        $threshold_record->{reason} = 'metric_missing';
+      }
+    }
+
+    push @records, $threshold_record;
   }
 
   return \@records;
+}
+
+sub _resolve_metric_path {
+  my ($summary, $metric) = @_;
+
+  return if !$summary || !defined $metric;
+
+  my @segments = split /[.]/mxs, $metric;
+  return if !@segments;
+
+  my $node;
+  if ($segments[0] eq 'overall') {
+    shift @segments;
+    $node = $summary->{overall};
+  } else {
+    my $operation = shift @segments;
+    $node = $summary->{operations}{$operation};
+  }
+
+  for my $segment (@segments) {
+    return if ref($node) ne 'HASH' || !exists $node->{$segment};
+    $node = $node->{$segment};
+  }
+
+  return (defined $node && !ref $node) ? $node : undef;
+}
+
+sub _threshold_holds {
+  my ($comparator, $observed, $configured) = @_;
+
+  return $observed <= $configured if $comparator eq q{<=};
+  return $observed < $configured  if $comparator eq q{<};
+  return $observed >= $configured if $comparator eq q{>=};
+  return $observed > $configured  if $comparator eq q{>};
+  return $observed == $configured if $comparator eq q{==};
+  return $observed != $configured if $comparator eq q{!=};
+  croak "unsupported threshold comparator: $comparator\n";
 }
 
 sub _chaos {
@@ -492,7 +587,7 @@ sub _artifact {
 }
 
 sub _diagnostics {
-  my ($manifest, $metrics) = @_;
+  my ($manifest, $metrics, $metrics_error) = @_;
   my @errors;
   my @warnings;
 
@@ -506,7 +601,19 @@ sub _diagnostics {
       };
   }
 
-  if (($manifest->{status} || q{}) eq 'completed' && !$metrics->{collected}) {
+  if ($metrics_error) {
+    push @errors,
+      {
+      severity => 'error',
+      code     => 'metrics_configuration_error',
+      message  => $metrics_error,
+      source   => 'metrics',
+      };
+  }
+
+  if ( ($manifest->{status} || q{}) eq 'completed'
+    && !$metrics->{collected}
+    && ($metrics->{reason} || q{}) eq 'smoke_only') {
     push @warnings,
       {
       severity => 'warning',
@@ -523,7 +630,7 @@ sub _diagnostics {
 }
 
 sub _human_summary {
-  my ($manifest, $metrics) = @_;
+  my ($manifest, $metrics, $thresholds) = @_;
 
   if (($manifest->{status} || q{}) eq 'failed') {
     return {
@@ -533,6 +640,12 @@ sub _human_summary {
   }
 
   if (!$metrics->{collected}) {
+    if (($metrics->{reason} || q{}) eq 'configuration_error') {
+      return {
+        headline        => 'Metric streams were present but invalid; the run is inconclusive.',
+        important_notes => ['Fix the metric streams before trusting anything in this run directory.',],
+      };
+    }
     return {
       headline        => 'Orchestration smoke completed; no real Overnet workload metrics were collected.',
       important_notes => [
@@ -542,9 +655,21 @@ sub _human_summary {
     };
   }
 
+  my @failed  = grep { $_->{status} eq 'failed' } @{$thresholds};
+  my @missing = grep { ($_->{reason} || q{}) eq 'metric_missing' } @{$thresholds};
+  my @notes;
+  if (@failed) {
+    push @notes, 'Failed thresholds: ' . join(q{, }, map { $_->{id} } @failed) . q{.};
+  }
+  if (@missing) {
+    push @notes, 'Thresholds without metrics: ' . join(q{, }, map { $_->{id} } @missing) . q{.};
+  }
+
   return {
-    headline        => 'Run completed and metrics were collected.',
-    important_notes => [],
+    headline => @failed
+    ? 'Run completed and at least one performance threshold failed.'
+    : 'Run completed and metrics were collected.',
+    important_notes => \@notes,
   };
 }
 

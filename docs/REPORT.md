@@ -110,6 +110,14 @@ must be represented explicitly instead of hidden behind a generic success flag.
 
 `metrics` summarizes raw metric streams. It must not embed every sample.
 
+Raw metric streams follow the language-neutral contract in
+[METRICS.md](METRICS.md), which also defines the normative summarization
+rules (grouping by operation, error accounting, nearest-rank percentiles,
+and latency computed over successful operations only). `metrics.collected`
+is true only when every stream declared by the plan exists, is non-empty,
+and parses cleanly; a present-but-invalid stream is reported as
+`reason: "configuration_error"` and no summaries are produced from it.
+
 Thresholds are independent structured records. Each threshold has a stable id,
 machine-readable status, configured value, observed value, unit, and reason.
 
@@ -122,6 +130,36 @@ When no metrics exist, thresholds should use:
   "reason": "no_metrics"
 }
 ```
+
+### Threshold Registry
+
+Scenario threshold ids map to summarized metrics as follows:
+
+| Threshold id | Metric | Comparator | Unit |
+|---|---|---|---|
+| `publish_p99_ms` | `publish.latency_ms.p99` | `<=` | `ms` |
+| `subscription_fanout_p99_ms` | `subscription_fanout.latency_ms.p99` | `<=` | `ms` |
+| `error_rate_max` | `overall.error_rate` | `<=` | `ratio` |
+
+Metric paths resolve into the summarized metrics: `overall.*` resolves into
+the run-wide counters, and any other first segment names an operation
+summary. A configured threshold whose metric is absent from the collected
+summaries is reported as `status: "not_evaluated"` with
+`reason: "metric_missing"`.
+
+### Verdict Derivation
+
+For a run whose machinery completed (`run.status` is `completed`), the
+verdict follows from metrics and thresholds:
+
+| Condition | Verdict | Result class |
+|---|---|---|
+| Metrics not collected (smoke) | `smoke_passed` | `orchestration` |
+| Metric streams present but invalid | `inconclusive_no_metrics` | `performance` |
+| Any threshold `failed` | `performance_failed` | `performance` |
+| No failure, but a configured threshold's metric is missing | `inconclusive_partial_run` | `performance` |
+| All configured thresholds evaluated and passed | `performance_passed` | `performance` |
+| Metrics collected, no thresholds configured | `smoke_passed` | `orchestration` |
 
 ## Artifacts
 
