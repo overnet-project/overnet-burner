@@ -59,12 +59,16 @@ sub normalize {
     }
   }
 
-  $copy->{workload}                       ||= {};
-  $copy->{workload}{subscription_filters} ||= [];
-  $copy->{workload}{query_filters}        ||= [];
-  $copy->{workload}{object_reads}         ||= {};
+  $copy->{workload}                        ||= {};
+  $copy->{workload}{subscription_filters}  ||= [];
+  $copy->{workload}{query_filters}         ||= [];
+  $copy->{workload}{object_reads}          ||= {};
+  $copy->{workload}{object_reads}{objects} ||= [];
   if (!exists $copy->{workload}{query_rate_per_second}) {
     $copy->{workload}{query_rate_per_second} = 1;
+  }
+  if (!exists $copy->{workload}{object_reads}{rate_per_second}) {
+    $copy->{workload}{object_reads}{rate_per_second} = 1;
   }
   $copy->{chaos}      ||= [];
   $copy->{thresholds} ||= {};
@@ -99,8 +103,26 @@ sub validate {
   _require_array($config, 'workload.subscription_filters');
   _require_array($config, 'workload.query_filters');
   _require_hash($config, 'workload.object_reads');
+  _require_nonnegative_number($config, 'workload.object_reads.rate_per_second');
+  _validate_object_read_references($config);
   _require_array_of_mappings($config, 'chaos');
   _require_hash($config, 'thresholds');
+
+  return 1;
+}
+
+sub _validate_object_read_references {
+  my ($config) = @_;
+
+  my $objects = _require_array_of_mappings($config, 'workload.object_reads.objects');
+  for my $index (0 .. $#{$objects}) {
+    for my $field (qw(type id)) {
+      my $value = $objects->[$index]{$field};
+      if (!(defined $value && !ref($value) && length $value)) {
+        croak "workload.object_reads.objects[$index].$field must be a non-empty string\n";
+      }
+    }
+  }
 
   return 1;
 }

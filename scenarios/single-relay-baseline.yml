@@ -25,7 +25,10 @@ workload:
     - kinds: [37800]
       limit: 100
   object_reads:
-    count_per_second: 1
+    rate_per_second: 1
+    objects:
+      - type: chat.channel
+        id: "irc:local:#overnet"
 
 thresholds:
   publish_p99_ms: 250

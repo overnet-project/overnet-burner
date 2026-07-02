@@ -146,6 +146,32 @@ needs no cross-process convention:
 Query readers pace themselves with `workload.query_rate_per_second`
 (default `1`), analogous to `workload.publish_rate_per_second`.
 
+## Object Reads
+
+An `object_read` is one request against the relay's derived-object read
+surface — for Overnet relays, the HTTP endpoint defined by the relay
+specification's Derived Object Reads section — measured as a request round
+trip on a single clock:
+
+- The read origin is derived from the relay endpoint by replacing the `ws`
+  scheme with `http` (`wss` with `https`), because the relay specification
+  places the object read endpoint on the same relay origin.
+- `workload.object_reads.objects` lists the object references to read, each
+  a mapping with non-empty `type` and `id` strings; readers cycle through
+  them in order. `workload.object_reads.rate_per_second` (default `1`)
+  paces the reads.
+- A fulfilled read (HTTP `200`) is a metric event with `status: "success"`.
+  A structured relay refusal (the relay specification's object read error
+  table: `invalid`, `unauthorized`, `payment_required`, `policy_denied`,
+  `not_found`, `unsupported`, `unavailable`) is a metric event with
+  `status: "error"` carrying the relay's `error.code`, and the reader
+  continues — refusals are behavior of the system under test, not worker
+  failures.
+- Object read metric events SHOULD carry `object_type`, `object_id`, and,
+  for responses the relay actually produced, `http_status`.
+- An endpoint that is unreachable before the workload starts is a fatal
+  worker failure per Exit Semantics, not a metric.
+
 ## Reference Workers
 
 | Role | Implementation |
@@ -153,6 +179,7 @@ Query readers pace themselves with `workload.query_rate_per_second`
 | `publisher` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Publisher` |
 | `subscriber` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Subscriber` |
 | `query_reader` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::QueryReader` |
+| `object_reader` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::ObjectReader` |
 
 The reference publisher derives a stable Nostr identity from
 `seed`/`worker_id`, publishes valid native Overnet events (kind 7800 with the
@@ -171,3 +198,10 @@ The reference query reader issues `workload.query_filters` against the first
 relay endpoint at `workload.query_rate_per_second` and emits one `query`
 metric event per request under the query timing convention above — `success`
 with `result_count` at the stored-result boundary, `error` on timeout.
+
+The reference object reader cycles through `workload.object_reads.objects`
+against the first relay endpoint's derived origin at
+`workload.object_reads.rate_per_second` and emits one `object_read` metric
+event per request under the object read convention above. It requires a
+relay that implements the Overnet derived-object read endpoint; a plain
+Nostr relay does not provide one.

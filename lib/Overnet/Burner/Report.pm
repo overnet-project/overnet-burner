@@ -364,7 +364,7 @@ sub _workload {
       start_seconds             => 0 + $_->{start_seconds},
       duration_seconds          => 0 + $_->{duration_seconds},
       publish_rate_per_second   => 0 + $_->{publish_rate_per_second},
-      object_reads_per_second   => 0 + ($_->{object_reads}{count_per_second} || 0),
+      object_reads_per_second   => 0 + ($_->{object_reads}{rate_per_second} || 0),
       subscription_filter_count => scalar @{$_->{subscription_filters} || []},
       query_filter_count        => scalar @{$_->{query_filters}        || []},
       actor_seeds               => $_->{actor_seeds} || {},

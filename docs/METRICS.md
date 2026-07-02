@@ -81,7 +81,8 @@ these well-known names:
   [workers.md](workers.md)
 - `query` — filter query round trip; `duration_ms` follows the query timing
   convention in [workers.md](workers.md)
-- `object_read` — derived object read
+- `object_read` — derived object read; `duration_ms` follows the object
+  read convention in [workers.md](workers.md)
 - `sync_round` — one negentropy reconciliation round
 
 New operation names are compatible additions; they appear in summaries

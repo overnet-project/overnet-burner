@@ -21,9 +21,10 @@ our $VERSION = '0.001';
 no Moo;
 
 my %WORKER_ROLES = (
-  publisher    => 1,
-  subscriber   => 1,
-  query_reader => 1,
+  publisher     => 1,
+  subscriber    => 1,
+  query_reader  => 1,
+  object_reader => 1,
 );
 my @LAUNCH_WAVES = ([qw(subscriber query_reader object_reader)], [qw(publisher)],);
 
@@ -360,9 +361,9 @@ No known incompatibilities are documented.
 
 =head1 BUGS AND LIMITATIONS
 
-Only the C<publisher>, C<subscriber>, and C<query_reader> roles have
-reference workers so far; other roles are skipped with an explicit runner
-event.
+All current plan actor roles have reference workers. If a plan ever carries
+an actor role without one, that actor is skipped with an explicit runner
+event rather than silently ignored.
 
 =head1 AUTHOR
 

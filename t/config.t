@@ -52,6 +52,10 @@ my $standard_yaml = Overnet::Burner::Config->load_file($standard_yaml_path);
 is $standard_yaml->{run}{seed},                       12345, 'loads standard YAML document markers and comments';
 is $standard_yaml->{workload}{query_rate_per_second}, 1,     'workload query rate defaults to one per second';
 is $scenario->{workload}{query_rate_per_second},      1,     'baseline scenario gets the default query rate';
+is $standard_yaml->{workload}{object_reads}, {rate_per_second => 1, objects => []},
+  'workload object reads default to one per second over no objects';
+is $scenario->{workload}{object_reads}{objects}, [{type => 'chat.channel', id => 'irc:local:#overnet'}],
+  'baseline scenario keeps its object read references';
 
 my $invalid_path = "$tmp/invalid.yml";
 
@@ -189,6 +193,43 @@ workload:
   query_rate_per_second: -1
 YAML
     qr/workload\.query_rate_per_second\ must\ be\ a\ non-negative\ number/mx,
+  ],
+  [
+    'negative object read rate',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+  object_reads:
+    rate_per_second: -1
+YAML
+    qr/workload\.object_reads\.rate_per_second\ must\ be\ a\ non-negative\ number/mx,
+  ],
+  [
+    'object read reference without id',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+  object_reads:
+    objects:
+      - type: chat.channel
+YAML
+    qr/workload\.object_reads\.objects\[0\]\.id\ must\ be\ a\ non-empty\ string/mx,
   ],
 ) {
   my ($name, $yaml, $pattern) = @{$case};
