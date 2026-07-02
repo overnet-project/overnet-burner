@@ -1,0 +1,54 @@
+use strictures 2;
+
+use File::Spec;
+use FindBin;
+use Test2::V0;
+
+my $root = File::Spec->catdir($FindBin::Bin, '..');
+
+my %gitignore =
+  map { $_ => 1 } _read_lines(File::Spec->catfile($root, '.gitignore'));
+my %manifest_skip =
+  map { $_ => 1 } _read_lines(File::Spec->catfile($root, 'MANIFEST.SKIP'));
+
+for my $line (
+  qw(
+  runs/
+  .factory/
+  .plx/
+  local/
+  _eumm/
+  blib/
+  Makefile
+  MYMETA.json
+  MYMETA.yml
+  pm_to_blib
+  pm_to_blib.ts
+  .DS_Store
+  *.swp
+  *~
+  *.orig
+  *.rej
+  )
+) {
+  ok $gitignore{$line}, ".gitignore includes $line";
+}
+
+for my $line (
+  '^\.git/',         '^\.factory/',   '^\.plx/',               '^runs/',
+  '^local/',         '^_eumm/',       '^blib/',                '^Makefile$',
+  '^MYMETA\.json$',  '^MYMETA\.yml$', '^pm_to_blib(?:\.ts)?$', '(?:^|/)\.DS_Store$',
+  '(?:^|/).*\.swp$', '(?:^|/).*~$',   '(?:^|/).*\.orig$',      '(?:^|/).*\.rej$',
+) {
+  ok $manifest_skip{$line}, "MANIFEST.SKIP includes $line";
+}
+
+done_testing;
+
+sub _read_lines {
+  my ($path) = @_;
+  open my $fh, '<', $path or die "open $path: $!";
+  chomp(my @lines = <$fh>);
+  close $fh or die "close $path: $!";
+  return grep { length && $_ !~ /\A\#/mx } @lines;
+}
