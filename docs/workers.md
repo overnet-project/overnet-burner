@@ -79,6 +79,25 @@ Failures of the system under test are not worker failures: a rejected or
 timed-out operation is a metric event with `status: "error"`, and the worker
 continues.
 
+## Connection Loss
+
+Losing the connection to the system under test mid-workload is behavior of
+the system under test, not a worker failure:
+
+- A worker SHOULD record operations affected by a lost connection as metric
+  events with `status: "error"` and attempt to re-establish its connection
+  for the remainder of the workload window, rather than exiting non-zero.
+- An endpoint that cannot be reached before the workload starts remains a
+  fatal worker failure per Exit Semantics; resilience applies only after
+  the worker was once operational.
+- A subscriber that reconnects MUST re-establish its replay boundary: after
+  resubscribing it MUST treat deliveries as stored replay until the next
+  boundary (`EOSE`) and MUST NOT measure them as live fanout. A replayed
+  stamped event measured against its original `sent_at` would fabricate an
+  enormous fanout latency. Events published while the subscriber was
+  disconnected are therefore replayed, not measured — the metric stream
+  records what was actually observed live.
+
 ## Exit Semantics
 
 - Exit code `0`: orderly completion — the workload duration elapsed, or the

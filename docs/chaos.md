@@ -85,8 +85,11 @@ experiment that actually ran.
 
 ## Limitations
 
-Reference workers do not yet reconnect after losing a relay connection, so
-chaos actions that sever active worker connections can turn into worker
-failures rather than measured degradation. Scenarios that restart the only
-relay while publishers are mid-workload measure that limitation as much as
-they measure the relay.
+The reference publisher and subscriber reconnect after losing a relay
+connection under the worker contract's Connection Loss rules, so a relay
+restart shows up as error metrics during the outage followed by recovery,
+not as worker death. Two honest gaps remain: operations in flight when the
+connection drops are resolved by the worker's operation timeout, so a
+single outage can stall a publisher for up to that timeout; and events
+published while a subscriber was disconnected are replayed rather than
+measured, so fanout coverage has a hole exactly the width of the outage.

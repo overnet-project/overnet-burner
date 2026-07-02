@@ -213,6 +213,70 @@ YAML
   like $failed->{error}, qr/provider\ command\ failed/mx, 'failed hook carries the provider error';
 };
 
+subtest 'chaos end to end: a real relay restart is measured, not fatal' => sub {
+  my $port      = _free_port();
+  my $relay_pid = File::Spec->catfile($tmp, 'chaos-e2e-relay.pid');
+  my $start     = "$^X -MNet::Nostr::Relay -e 'Net::Nostr::Relay->new->run(q(127.0.0.1), $port)' "
+    . "> /dev/null 2>&1 & echo \$! > $relay_pid";
+  my $health =
+      "$^X -MIO::Socket::INET -e '"
+    . 'for (1 .. 100) { exit 0 if IO::Socket::INET->new(PeerAddr => q(127.0.0.1), PeerPort => '
+    . $port
+    . ', Timeout => 1); select undef, undef, undef, 0.1 } exit 1' . "'";
+  my $stop = "kill \$(cat $relay_pid)";
+
+  my $scenario_chaos = "$tmp/chaos-e2e.yml";
+  _write_yaml($scenario_chaos, <<"YAML");
+run:
+  name: chaos-e2e
+  duration: 8
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: external-command
+    command:
+      start: "$start"
+      health: "$health"
+      stop: "$stop"
+    endpoints:
+      - ws://127.0.0.1:$port
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 5
+chaos:
+  - at: 2
+    action: restart
+    target: relay:1
+thresholds:
+  error_rate_max: 0.5
+YAML
+
+  local $ENV{OVERNET_BURNER_WORKER} = "$^X -I$repo/lib $repo/bin/overnet-burner-worker";
+  my $run_id = 'chaos-e2e-001';
+  my $output =
+    `$^X $bin run --scenario $scenario_chaos --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
+  is $?, 0, 'the chaos run completes despite the mid-run relay restart' or diag($output);
+
+  my $run_dir = File::Spec->catdir($tmp, 'runs', $run_id);
+  my $stream  = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics', 'publisher-001.jsonl'));
+
+  my @errors = grep { $_->{status} eq 'error' } @{$stream};
+  ok @errors >= 1, 'the outage shows up as publish error metrics' or diag(scalar @{$stream});
+
+  my ($last_error_index) = grep { $stream->[$_]{status} eq 'error' } reverse 0 .. $#{$stream};
+  my @after_recovery = grep { $_->{status} eq 'success' } @{$stream}[$last_error_index .. $#{$stream}];
+  ok @after_recovery >= 1, 'the publisher recovered and published against the restarted relay';
+
+  my $report_out = `$^X $bin report --run-dir $run_dir 2>&1`;
+  is $?, 0, 'report generates for the chaos run' or diag($report_out);
+  my $report = _read_json(File::Spec->catfile($run_dir, 'report.json'));
+  is $report->{chaos}{hooks_executed}, 1,              'report counts the executed restart hook';
+  is $report->{run}{verdict},          'chaos_passed', 'the system met its thresholds under chaos';
+  is $report->{run}{result_class},     'chaos',        'the run is judged as a chaos experiment';
+};
+
 subtest 'end to end: real relay, real publisher, real metrics' => sub {
   my $port      = _free_port();
   my $relay_pid = File::Spec->catfile($tmp, 'relay.pid');

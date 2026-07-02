@@ -32,15 +32,20 @@ sub run {
 
   $self->open_metric_stream;
 
+  my $relay_url       = $input->{endpoints}{relays}[0];
   my $subscription_id = "burner-$input->{worker_id}";
+  my @filter_objects  = map { Net::Nostr::Filter->new(%{$_}) } @{$filters};
   my $replay_done     = 0;
+  my $ready_written   = 0;
+  my $reconnecting    = 0;
   my $done            = AnyEvent->condvar;
 
   my $client = Net::Nostr::Client->new;
   $client->on(
     eose => sub {
-      if (!$replay_done) {
-        $replay_done = 1;
+      $replay_done = 1;
+      if (!$ready_written) {
+        $ready_written = 1;
         $self->write_ready_file;
       }
     }
@@ -58,8 +63,34 @@ sub run {
       );
     }
   );
-  $client->connect($input->{endpoints}{relays}[0]);
-  $client->subscribe($subscription_id, map { Net::Nostr::Filter->new(%{$_}) } @{$filters});
+  $client->connect($relay_url);
+  $client->subscribe($subscription_id, @filter_objects);
+
+  my $reconnect_watchdog = AnyEvent->timer(
+    after    => 0.25,
+    interval => 0.25,
+    cb       => sub {
+      if ($client->is_connected || $reconnecting) {
+        return;
+      }
+      $reconnecting = 1;
+      $replay_done  = 0;
+      $client->connect(
+        $relay_url,
+        sub {
+          my ($error) = @_;
+          $reconnecting = 0;
+          if (!$error) {
+            my $resubscribed = eval {
+              $client->subscribe($subscription_id, @filter_objects);
+              1;
+            };
+          }
+          return;
+        }
+      );
+    },
+  );
 
   local $SIG{TERM} = sub { $done->send };
   my $deadline = AnyEvent->timer(
@@ -131,8 +162,14 @@ its readiness marker only after the stored-event replay boundary (C<EOSE>),
 and emits one C<subscription_fanout> metric event for every live event whose
 body carries a millisecond C<sent_at> stamp, measuring receive time against
 that stamp. Events without a stamp are observed but not measured, because a
-fanout latency that guesses its own start time is a lie. Workers in other
-languages are equally valid; the contract documents are normative.
+fanout latency that guesses its own start time is a lie.
+
+If the relay connection is lost mid-workload the subscriber keeps trying to
+reconnect and resubscribe for the rest of its duration, re-establishing the
+replay boundary each time: deliveries after a reconnect are treated as
+stored replay until the next C<EOSE>, so a replayed stamped event is never
+measured against its original C<sent_at>. Workers in other languages are
+equally valid; the contract documents are normative.
 
 =head1 SUBROUTINES/METHODS
 

@@ -100,6 +100,53 @@ subtest 'the worker executable honors the process contract' => sub {
   like $no_input, qr/OVERNET_BURNER_WORKER_INPUT/, 'worker names the missing input variable';
 };
 
+subtest 'publisher survives a relay restart and measures the outage' => sub {
+  my $port      = _free_port();
+  my $relay_pid = _spawn_relay($port);
+
+  my $run_dir    = _run_layout();
+  my $input      = _worker_input($run_dir, $port, duration_seconds => 8, publish_rate_per_second => 5);
+  my $input_path = File::Spec->catfile($run_dir, 'workers', 'publisher-001', 'input.json');
+  _spew($input_path, JSON->new->canonical(1)->encode($input));
+
+  my $pid = fork;
+  die "fork: $!" if !defined $pid;
+  if (!$pid) {
+    local $ENV{OVERNET_BURNER_WORKER_INPUT} = $input_path;
+    exec $^X, "-I$repo/lib", $worker or die "exec: $!";
+  }
+
+  my $ready_path = File::Spec->catfile($run_dir, 'workers', 'publisher-001', 'ready');
+  my $deadline   = time + 10;
+  while (time < $deadline && !-e $ready_path) {
+    if (waitpid($pid, WNOHANG) == $pid) {
+      die "publisher exited before becoming ready\n";
+    }
+    sleep 0.05;
+  }
+  ok -e $ready_path, 'publisher became ready against the original relay';
+
+  sleep 1;
+  kill 'TERM', $relay_pid;
+  waitpid $relay_pid, 0;
+  my $restarted_pid = _spawn_relay($port);
+
+  waitpid $pid, 0;
+  is $? >> 8, 0, 'publisher exited cleanly despite the relay restart';
+
+  my $events = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics', 'publisher-001.jsonl'));
+  my @errors = grep { $_->{status} eq 'error' } @{$events};
+  ok @errors >= 1, 'the outage produced error metrics, not worker death' or diag(scalar @{$events});
+
+  my ($last_error_index) = grep { $events->[$_]{status} eq 'error' } reverse 0 .. $#{$events};
+  my @after_recovery = grep { $_->{status} eq 'success' } @{$events}[$last_error_index .. $#{$events}];
+  ok @after_recovery >= 1, 'the publisher recovered and published successfully after the restart'
+    or diag(JSON->new->canonical(1)->encode($events));
+
+  kill 'TERM', $restarted_pid;
+  waitpid $restarted_pid, 0;
+};
+
 done_testing;
 
 sub _worker_input {

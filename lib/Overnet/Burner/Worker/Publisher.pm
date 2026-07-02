@@ -109,7 +109,13 @@ sub run {
 sub _publish_once {
   my ($self, %args) = @_;
 
-  my $input = $self->input;
+  my $input     = $self->input;
+  my $relay_url = $input->{endpoints}{relays}[0];
+
+  if (!$args{client}->is_connected && !$self->_reconnect(client => $args{client})) {
+    return;
+  }
+
   my $event = $args{key}->create_event(
     kind    => 7800,
     content => $JSON->encode(
@@ -146,8 +152,17 @@ sub _publish_once {
   );
 
   my $started_at = time;
-  $args{client}->publish($event);
-  my ($accepted, $message) = @{$waiter->recv};
+  my $sent       = eval {
+    $args{client}->publish($event);
+    1;
+  };
+  my ($accepted, $message);
+  if ($sent) {
+    ($accepted, $message) = @{$waiter->recv};
+  } else {
+    delete $args{pending}{$event->id};
+    ($accepted, $message) = (0, 'relay connection lost');
+  }
   my $finished_at = time;
 
   $self->emit_metric(
@@ -157,7 +172,7 @@ sub _publish_once {
     duration_ms => ($finished_at - $started_at) * 1000,
     status      => $accepted ? 'success' : 'error',
     event_id    => $event->id,
-    relay_url   => $input->{endpoints}{relays}[0],
+    relay_url   => $relay_url,
     (
       $accepted
       ? ()
@@ -166,6 +181,32 @@ sub _publish_once {
   );
 
   return;
+}
+
+sub _reconnect {
+  my ($self, %args) = @_;
+
+  my $relay_url  = $self->input->{endpoints}{relays}[0];
+  my $started_at = time;
+  my $ok         = eval {
+    $args{client}->connect($relay_url);
+    1;
+  };
+  if ($ok) {
+    return 1;
+  }
+
+  $self->emit_metric(
+    operation   => 'publish',
+    started_at  => $self->iso_timestamp($started_at),
+    finished_at => $self->iso_timestamp(time),
+    duration_ms => (time - $started_at) * 1000,
+    status      => 'error',
+    relay_url   => $relay_url,
+    error       => 'relay connection lost and reconnect failed',
+  );
+
+  return 0;
 }
 
 sub _workload_object_id {
@@ -200,6 +241,10 @@ events to the first configured relay endpoint at the configured rate, waits
 for each relay acknowledgment, and emits one C<publish> metric event per
 attempt. Each published event's body carries a millisecond-resolution
 C<sent_at> stamp so subscriber workers can measure live fanout latency.
+
+If the relay connection is lost mid-workload, affected publishes become
+C<error> metric events and the publisher keeps trying to reconnect for the
+rest of its duration, per the worker contract's Connection Loss rules.
 Workers in other languages are equally valid; the contract documents are
 normative.
 
