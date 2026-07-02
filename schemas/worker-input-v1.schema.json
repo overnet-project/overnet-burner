@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://overnet-project.org/schemas/overnet-burner/worker-input-v1.schema.json",
+  "title": "overnet-burner worker input v1",
+  "description": "The configuration document a burner worker process reads from the path in OVERNET_BURNER_WORKER_INPUT.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "input_version",
+    "run_id",
+    "run_dir",
+    "worker_id",
+    "role",
+    "seed",
+    "duration_seconds",
+    "metric_stream",
+    "ready_file",
+    "endpoints",
+    "workload"
+  ],
+  "properties": {
+    "input_version": {
+      "const": 1
+    },
+    "run_id": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "run_dir": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "worker_id": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "role": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "duration_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "metric_stream": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "ready_file": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "endpoints": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "relays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        }
+      }
+    },
+    "workload": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -54,11 +54,13 @@ Implemented so far:
 - topology provider descriptors and the external-command provider
 - Rex bundle rendering and the noop / rex-local runners
 - report v1 generation with schema, artifacts, and threshold records
+- the metric event contract with summarization and real threshold evaluation
+- the worker contract and the reference publisher worker
 
 In progress, in proposal order:
 
-- language-neutral metric event contract and summarization
-- worker contract and reference workers (publisher first)
+- runner orchestration of workers (launch, readiness sequencing, collection)
+- subscriber and reader reference workers
 - chaos subsystem and distributed scale mode
 
 ## Testing

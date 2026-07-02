@@ -24,7 +24,8 @@ is $args->{AUTHOR},           'Nicholas B. Hubbard <nicholashubbard@posteo.net>'
 is $args->{ABSTRACT},         'Rex-based scalable Overnet system-test harness',   'abstract';
 is $args->{LICENSE},          'gpl_3',                                            'license';
 is $args->{MIN_PERL_VERSION}, '5.040',                                            'minimum Perl version';
-is $args->{EXE_FILES},        ['bin/overnet-burner'],                             'installable CLI is explicit';
+is $args->{EXE_FILES}, ['bin/overnet-burner', 'bin/overnet-burner-worker'],
+  'installable CLIs are explicit';
 is(
   $args->{CONFIGURE_REQUIRES},
   {
@@ -38,6 +39,7 @@ is(
   {
     'JSON'       => 0,
     'Moo'        => 0,
+    'Net::Nostr' => 0,
     'Rex'        => 0,
     'strictures' => 2,
     'YAML::PP'   => 0,

@@ -1,0 +1,17 @@
+{
+  "input_version": 1,
+  "run_id": "sample-run-001",
+  "run_dir": "/var/tmp/overnet-burner/runs/sample-run-001",
+  "worker_id": "publisher-001",
+  "role": "publisher",
+  "seed": 12345,
+  "duration_seconds": 60,
+  "metric_stream": "metrics/publisher-001.jsonl",
+  "ready_file": "workers/publisher-001/ready",
+  "endpoints": {
+    "relays": ["ws://127.0.0.1:7777"]
+  },
+  "workload": {
+    "publish_rate_per_second": 10
+  }
+}

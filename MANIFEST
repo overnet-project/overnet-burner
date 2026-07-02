@@ -4,13 +4,16 @@
 .perltidyrc
 AGENTS.md
 bin/overnet-burner
+bin/overnet-burner-worker
 cpanfile
 docs/METRICS.md
 docs/PROPOSAL.md
 docs/REPORT.md
 docs/topology-providers.md
+docs/workers.md
 examples/metric-events-v1-sample.jsonl
 examples/report-v1-smoke.json
+examples/worker-input-v1-sample.json
 lib/Overnet/Burner/Config.pm
 lib/Overnet/Burner/Metrics.pm
 lib/Overnet/Burner/Plan.pm
@@ -23,6 +26,7 @@ lib/Overnet/Burner/Runner/RexLocal.pm
 lib/Overnet/Burner/Runner/RexLocalProvider.pm
 lib/Overnet/Burner/TopologyProvider.pm
 lib/Overnet/Burner/Util.pm
+lib/Overnet/Burner/Worker/Publisher.pm
 LICENSE
 Makefile.PL
 MANIFEST			This list of files
@@ -31,6 +35,7 @@ README.md
 scenarios/single-relay-baseline.yml
 schemas/metric-event-v1.schema.json
 schemas/report-v1.schema.json
+schemas/worker-input-v1.schema.json
 t/cli.t
 t/config.t
 t/github-ci.t
@@ -46,6 +51,7 @@ t/runner-noop.t
 t/runner-rex-local-provider.t
 t/runner-rex-local.t
 t/topology-provider-external-command.t
+t/worker-publisher.t
 xt/author/perlcritic.t
 xt/author/pod-coverage.t
 xt/author/pod-syntax.t
