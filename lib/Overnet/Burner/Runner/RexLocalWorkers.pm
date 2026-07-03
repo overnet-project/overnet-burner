@@ -203,14 +203,15 @@ sub _virtual_guests {
     my $port     = _free_port();
     my $pid_file = File::Spec->catfile($guest_dir, 'qemu.pid');
     _launch_vm(
-      vm_name   => $vm_name,
-      image     => $image,
-      memory_mb => $memory_mb,
-      cpus      => $cpus,
-      accel     => $accel,
-      seed      => $seed,
-      port      => $port,
-      pid_file  => $pid_file,
+      vm_name     => $vm_name,
+      image       => $image,
+      memory_mb   => $memory_mb,
+      cpus        => $cpus,
+      accel       => $accel,
+      seed        => $seed,
+      port        => $port,
+      pid_file    => $pid_file,
+      console_log => File::Spec->catfile($guest_dir, 'console.log'),
     );
     push @{$self->{worker_guests}},
       Overnet::Burner::Guest::Virtual->new(
@@ -281,15 +282,20 @@ sub _launch_vm {
   my $qemu   = $ENV{OVERNET_BURNER_QEMU} || 'qemu-system-x86_64';
   my $format = $args{image} =~ /[.]qcow2\z/mxs ? 'qcow2' : 'raw';
   my $cpu    = $args{accel} eq 'kvm'           ? 'host'  : 'max';
+
+  # The seed rides a virtio disk, not a CDROM: cloud kernels (Debian's
+  # cloud-amd64, for one) ship no SATA/AHCI drivers, so a -cdrom seed is
+  # invisible to exactly the images this method exists to boot.
   my $status = system $qemu,
-    '-name',    $args{vm_name}, '-machine', 'q35',
-    '-m',       "$args{memory_mb}M", '-smp', $args{cpus},
-    '-accel',   $args{accel}, '-cpu', $cpu, '-snapshot',
-    '-drive',   "file=$args{image},format=$format,if=virtio",
-    '-cdrom',   $args{seed},
-    '-netdev',  "user,id=net0,hostfwd=tcp:127.0.0.1:$args{port}-:22",
-    '-device',  'virtio-net-pci,netdev=net0',
-    '-display', 'none', '-daemonize', '-pidfile', $args{pid_file};
+    '-name',      $args{vm_name}, '-machine', 'q35',
+    '-m',         "$args{memory_mb}M", '-smp', $args{cpus},
+    '-accel',     $args{accel}, '-cpu', $cpu, '-snapshot',
+    '-drive',     "file=$args{image},format=$format,if=virtio",
+    '-drive',     "file=$args{seed},format=raw,if=virtio,readonly=on",
+    '-netdev',    "user,id=net0,hostfwd=tcp:127.0.0.1:$args{port}-:22",
+    '-device',    'virtio-net-pci,netdev=net0',
+    '-display',   'none',     '-serial', "file:$args{console_log}",
+    '-daemonize', '-pidfile', $args{pid_file};
   if ($status != 0) {
     croak "$qemu could not launch $args{vm_name}\n";
   }

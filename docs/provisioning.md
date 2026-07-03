@@ -159,7 +159,14 @@ provision:
   ed25519 key and a `burner` user; SSH arrives over user-mode networking
   through a per-guest `hostfwd` port on 127.0.0.1. Once reachable, the
   guest is exactly the `connect` transport. VM host keys are ephemeral by
-  construction, so they are not verified.
+  construction, so they are not verified. The seed is attached as a
+  **virtio disk, not a CDROM**: cloud kernels (Debian's `cloud-amd64`
+  flavor, for one) ship no SATA/AHCI drivers, so a CDROM seed is
+  invisible to exactly the images this method exists to boot.
+- **The guest console is evidence.** Every VM's serial console is
+  captured to `virtual/<guest>/console.log` in the run directory, so a
+  guest that never becomes reachable leaves behind the boot log that
+  explains why.
 - **Ephemeral disks.** Guests run with `-snapshot`: the base image is
   never modified and teardown is terminating the QEMU process.
 - **Honest acceleration.** KVM is used when `/dev/kvm` is usable and TCG

@@ -23,11 +23,13 @@ sub provision_method {
   return 'virtual';
 }
 
-sub _host_key_options {
+sub _transport_options {
 
   # The VM's host key is generated fresh on every -snapshot boot, so there
-  # is no prior knowledge to verify it against.
-  return qw(-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no);
+  # is no prior knowledge to verify it against; the connect timeout bounds
+  # reachability probes against a guest that accepts TCP but cannot finish
+  # the handshake yet.
+  return qw(-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5);
 }
 
 sub destroy {

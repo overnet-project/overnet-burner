@@ -62,7 +62,7 @@ sub _scp_binary {
   return $ENV{OVERNET_BURNER_SCP} || 'scp';
 }
 
-sub _host_key_options {
+sub _transport_options {
   return qw(-o StrictHostKeyChecking=accept-new);
 }
 
@@ -71,7 +71,7 @@ sub _ssh_options {
 
   return (
     qw(-o BatchMode=yes),
-    $self->_host_key_options,
+    $self->_transport_options,
     defined $self->port ? (q{-p}, $self->port) : (),
     defined $self->key  ? (q{-i}, $self->key)  : (),
   );
@@ -82,7 +82,7 @@ sub _scp_options {
 
   return (
     qw(-o BatchMode=yes),
-    $self->_host_key_options,
+    $self->_transport_options,
     defined $self->port ? (q{-P}, $self->port) : (),
     defined $self->key  ? (q{-i}, $self->key)  : (),
   );

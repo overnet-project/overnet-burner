@@ -92,12 +92,14 @@ subtest 'virtual-provisioned workers boot VMs and run over ssh' => sub {
 
   my @launches = grep {/-daemonize/} split /\n/, _slurp($ENV{OVERNET_BURNER_TEST_QEMU_LOG});
   is scalar @launches, 2, 'one VM boots per guest';
-  like $launches[0], qr/-m\x{0}2048M/mx,                  'qemu gets the constructed memory';
-  like $launches[0], qr/-smp\x{0}2/mx,                    'qemu gets the constructed cores';
-  like $launches[0], qr/-accel\x{0}tcg/mx,                'qemu uses the recorded accelerator';
-  like $launches[0], qr/-snapshot/mx,                     'disks are ephemeral';
-  like $launches[0], qr/format=qcow2/mx,                  'the image format follows the file extension';
-  like $launches[0], qr/-cdrom\x{0}[^\x{0}]*seed\.iso/mx, 'each VM boots with its cloud-init seed';
+  like $launches[0], qr/-m\x{0}2048M/mx,   'qemu gets the constructed memory';
+  like $launches[0], qr/-smp\x{0}2/mx,     'qemu gets the constructed cores';
+  like $launches[0], qr/-accel\x{0}tcg/mx, 'qemu uses the recorded accelerator';
+  like $launches[0], qr/-snapshot/mx,      'disks are ephemeral';
+  like $launches[0], qr/format=qcow2/mx,   'the image format follows the file extension';
+  like $launches[0], qr/-drive\x{0}file=[^\x{0}]*seed\.iso,format=raw,if=virtio,readonly=on/mx,
+    'the cloud-init seed rides a virtio disk so cloud kernels can see it';
+  like $launches[0], qr/-serial\x{0}file:[^\x{0}]*console\.log/mx, 'the guest console is captured as run evidence';
   my @ports;
 
   for my $launch (@launches) {
@@ -207,9 +209,17 @@ YAML
   my $run_id = 'virtual-real-001';
   my $output =
     `$^X $bin run --scenario $real_scenario --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
-  is $?, 0, 'the run completes on a real VM' or diag($output);
-
+  my $status  = $?;
   my $run_dir = File::Spec->catdir($tmp, 'runs', $run_id);
+  is $status, 0, 'the run completes on a real VM' or diag($output);
+  my $console = File::Spec->catfile($run_dir, 'virtual', 'worker-guest-001', 'console.log');
+  if ($status != 0 && -e $console) {
+    my $tail = _slurp($console);
+    if (length($tail) > 4000) {
+      $tail = substr $tail, -4000;
+    }
+    diag("guest console tail: $tail");
+  }
 
   my $guests = _read_json(File::Spec->catfile($run_dir, 'guests.json'));
   is $guests->{guests}[0]{method}, 'virtual', 'the ledger records the virtual method';
