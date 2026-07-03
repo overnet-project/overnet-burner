@@ -1,9 +1,12 @@
-# overnet-burner Abuse Simulation (Design)
+# overnet-burner Abuse Simulation
 
-**Status: proposed design, not implemented.** No abuse worker roles, abuse
-verdict, or abuse thresholds exist yet. This document is the
-implementation-neutral contract to build against; where it conflicts with a
-later implemented contract, the implemented contract wins.
+**Status: v1 implemented.** The `flooder`, `malformed_publisher`, and
+`replayer` abuse roles, the metric outcome members, the derived defense
+ratios, and the `abuse` experiment verdict are implemented and tested; the
+`subscription_abuser`, `sybil`, `provenance_forger`, and `connection_flood`
+roles remain proposed design, named here so scenarios and reports stay
+forward-compatible. This document is the language-neutral contract; where it
+conflicts with a later implemented contract, the implemented contract wins.
 
 Every worker overnet-burner has today is a cooperative, well-behaved
 participant: it sends valid events at a configured rate and measures its own
@@ -194,13 +197,13 @@ ratios per abuse operation from the members above:
 | `<op>.defended_ratio` | fraction of abuse operations the relay rejected or limited |
 | `<op>.defended_correct_ratio` | fraction defended with a spec-correct outcome and error category |
 
-Abuse thresholds resolve against these like any other threshold
-([REPORT.md](REPORT.md) threshold registry):
-
-| Threshold id | Metric | Comparator | Unit |
-|---|---|---|---|
-| `defense_rate_min` | `<op>.defended_ratio` | `>=` | `ratio` |
-| `defense_category_min` | `<op>.defended_correct_ratio` | `>=` | `ratio` |
+Abuse thresholds are configured as raw metric paths naming the abuse
+operation and the ratio ([REPORT.md](REPORT.md) threshold registry), for
+example `flood_publish.defended_ratio` or
+`malformed_publish.defended_correct_ratio`. A defense ratio is a floor, not
+a ceiling: a threshold whose metric path leaf is `defended_ratio` or
+`defended_correct_ratio` is judged with `>=` rather than the default `<=`,
+so a higher observed defense passes.
 
 Collateral damage reuses the existing honest-worker thresholds
 (`publish_p99_ms`, `subscription_fanout_p99_ms`, `error_rate_max`, and the
@@ -243,11 +246,15 @@ thresholds have.
 
 ## Implementation Order
 
-1. **`docs/abuse.md`** (this document) — the contract.
-2. **Fixtures** — abuse scenario fixtures and sample abuse metric streams.
-3. **The v1 abuse roles** — `flooder`, `malformed_publisher`, `replayer`,
-   with the `outcome` / `error_category` / `defended` metric members.
-4. **The abuse verdict** — the `abuse` result class, the derived ratios in
-   [METRICS.md](METRICS.md), and the threshold ids in [REPORT.md](REPORT.md).
-5. **The remaining roles** — `subscription_abuser`, `sybil`,
+1. ~~The contract~~ (this document).
+2. ~~Fixtures~~ — `scenarios/abuse-flood.yml` and
+   `examples/abuse-metric-events-v1-sample.jsonl`.
+3. ~~The v1 abuse roles~~ — `flooder`, `malformed_publisher`, `replayer`,
+   with the `outcome` / `error_category` / `defended` / `defended_correct`
+   metric members, each verified end to end against the reference relay's
+   rate-limiting, signature-verification, and deduplication behavior.
+4. ~~The abuse verdict~~ — the `abuse` result class, the derived ratios in
+   [METRICS.md](METRICS.md), and the `>=` defense-ratio comparator in
+   [REPORT.md](REPORT.md).
+5. **The remaining roles** (proposed) — `subscription_abuser`, `sybil`,
    `provenance_forger`, and scheduled `connection_flood`.

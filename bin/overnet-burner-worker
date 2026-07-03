@@ -10,11 +10,14 @@ use Overnet::Burner::Util qw(read_json_file);
 our $VERSION = '0.001';
 
 my %ROLE_CLASS = (
-  publisher     => 'Overnet::Burner::Worker::Publisher',
-  subscriber    => 'Overnet::Burner::Worker::Subscriber',
-  query_reader  => 'Overnet::Burner::Worker::QueryReader',
-  object_reader => 'Overnet::Burner::Worker::ObjectReader',
-  observer      => 'Overnet::Burner::Worker::Observer',
+  publisher           => 'Overnet::Burner::Worker::Publisher',
+  subscriber          => 'Overnet::Burner::Worker::Subscriber',
+  query_reader        => 'Overnet::Burner::Worker::QueryReader',
+  object_reader       => 'Overnet::Burner::Worker::ObjectReader',
+  observer            => 'Overnet::Burner::Worker::Observer',
+  flooder             => 'Overnet::Burner::Worker::Flooder',
+  malformed_publisher => 'Overnet::Burner::Worker::MalformedPublisher',
+  replayer            => 'Overnet::Burner::Worker::Replayer',
 );
 
 if (!caller) {

@@ -639,6 +639,81 @@ YAML
     'chaos offsets are validated against the total workload window';
 };
 
+subtest 'abuse topology roles and workload configuration validate' => sub {
+  my $valid = "$tmp/abuse-valid.yml";
+  _write_yaml($valid, <<'YAML');
+run:
+  name: abuse-valid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 2
+  flooders:
+    count: 2
+  malformed_publishers:
+    count: 1
+  replayers:
+    count: 1
+workload:
+  publish_rate_per_second: 5
+  abuse:
+    flooder:
+      publish_rate_per_second: 5000
+    malformed_publisher:
+      publish_rate_per_second: 10
+YAML
+  my $config = Overnet::Burner::Config->load_file($valid);
+  is $config->{topology}{flooders}{count},                         2,    'flooder count loads';
+  is $config->{topology}{malformed_publishers}{count},             1,    'malformed publisher count loads';
+  is $config->{topology}{replayers}{count},                        1,    'replayer count loads';
+  is $config->{workload}{abuse}{flooder}{publish_rate_per_second}, 5000, 'abuse rates are preserved';
+
+  my $default = Overnet::Burner::Config->load_file($scenario_path);
+  is $default->{topology}{flooders}{count}, 0, 'abuse roles default to zero';
+  is $default->{workload}{abuse}, {}, 'workload abuse defaults to an empty mapping';
+
+  my @rejections = (
+    [
+      'negative abuse rate',
+"  flooders:\n    count: 1\nworkload:\n  publish_rate_per_second: 1\n  abuse:\n    flooder:\n      publish_rate_per_second: -1",
+      qr/workload\.abuse\.flooder\.publish_rate_per_second\ must\ be\ a\ non-negative\ number/mx,
+    ],
+    [
+      'unknown abuse role',
+      "workload:\n  publish_rate_per_second: 1\n  abuse:\n    gremlin:\n      publish_rate_per_second: 5",
+      qr/workload\.abuse\.gremlin\ is\ not\ a\ known\ abuse\ role/mx,
+    ],
+    [
+      'abuse role not a mapping',
+      "workload:\n  publish_rate_per_second: 1\n  abuse:\n    flooder: 5",
+      qr/workload\.abuse\.flooder\ must\ be\ a\ mapping/mx,
+    ],
+  );
+
+  for my $case (@rejections) {
+    my ($name, $body, $pattern) = @{$case};
+    my $path = "$tmp/abuse-$name.yml";
+    $path =~ s/\ /-/gmx;
+    _write_yaml($path, <<"YAML");
+run:
+  name: abuse-invalid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+$body
+YAML
+    eval { Overnet::Burner::Config->load_file($path) };
+    like $@, $pattern, "$name is rejected";
+  }
+};
+
 subtest 'provision configuration validates' => sub {
   my $valid = "$tmp/provision-valid.yml";
   _write_yaml($valid, <<'YAML');

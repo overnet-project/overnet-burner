@@ -77,7 +77,9 @@ sub _normalize_topology {
   my ($copy) = @_;
 
   $copy->{topology} ||= {};
-  for my $role (qw(publishers subscribers query_readers object_readers observers)) {
+  for
+    my $role (qw(publishers subscribers query_readers object_readers observers flooders malformed_publishers replayers))
+  {
     $copy->{topology}{$role} ||= {};
     if (!exists $copy->{topology}{$role}{count}) {
       $copy->{topology}{$role}{count} = 0;
@@ -105,6 +107,7 @@ sub _normalize_workload {
   if (!exists $copy->{workload}{observer}{probe_interval_seconds}) {
     $copy->{workload}{observer}{probe_interval_seconds} = 1;
   }
+  $copy->{workload}{abuse} ||= {};
 
   return 1;
 }
@@ -129,12 +132,16 @@ sub validate {
     topology.query_readers.count
     topology.object_readers.count
     topology.observers.count
+    topology.flooders.count
+    topology.malformed_publishers.count
+    topology.replayers.count
     )
   ) {
     _require_nonnegative_integer($config, $path);
   }
   _require_hash($config, 'workload.observer');
   _require_positive_number($config, 'workload.observer.probe_interval_seconds');
+  _validate_abuse_workload($config);
 
   _require_array($config, 'workload.subscription_filters');
   _require_array($config, 'workload.query_filters');
@@ -150,6 +157,25 @@ sub validate {
   _validate_chaos($config);
   _validate_guest_reachable_endpoints($config);
   _require_hash($config, 'thresholds');
+
+  return 1;
+}
+
+sub _validate_abuse_workload {
+  my ($config) = @_;
+
+  my $abuse = _require_hash($config, 'workload.abuse');
+  my %known = map { $_ => 1 } qw(flooder malformed_publisher replayer);
+
+  for my $role (sort keys %{$abuse}) {
+    if (!$known{$role}) {
+      croak "workload.abuse.$role is not a known abuse role (flooder, malformed_publisher, replayer)\n";
+    }
+    _require_mapping_ref($abuse->{$role}, "workload.abuse.$role");
+    if (exists $abuse->{$role}{publish_rate_per_second}) {
+      _require_nonnegative_number($config, "workload.abuse.$role.publish_rate_per_second");
+    }
+  }
 
   return 1;
 }

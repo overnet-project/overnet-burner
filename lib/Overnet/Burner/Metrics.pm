@@ -142,6 +142,7 @@ sub summarize {
       error_count   => $errors,
       error_rate    => $count ? $errors / $count : 0,
       latency_ms    => _latency_summary([map { $_->{duration_ms} } @successes]),
+      _defense_summary(\@group),
     };
     $total_count += $count;
     $total_error += $errors;
@@ -186,6 +187,28 @@ sub summarize_stream_files {
   }
 
   return $class->summarize(\@events);
+}
+
+sub _defense_summary {
+  my ($group) = @_;
+
+  # Only abuse operations carry the defended member; honest operations get
+  # no defense fields so their summaries stay unchanged.
+  my @defense = grep { exists $_->{defended} } @{$group};
+  if (!@defense) {
+    return ();
+  }
+
+  my $count            = scalar @{$group};
+  my $defended         = grep { $_->{defended} } @defense;
+  my $defended_correct = grep { $_->{defended} && $_->{defended_correct} } @defense;
+
+  return (
+    defended_count         => $defended,
+    defended_ratio         => $count ? $defended / $count : 0,
+    defended_correct_count => $defended_correct,
+    defended_correct_ratio => $count ? $defended_correct / $count : 0,
+  );
 }
 
 sub _latency_summary {

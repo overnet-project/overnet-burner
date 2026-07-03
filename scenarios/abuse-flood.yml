@@ -1,0 +1,32 @@
+run:
+  name: abuse-flood
+  duration: 60
+  seed: 12345
+
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 2
+  subscribers:
+    count: 2
+  observers:
+    count: 1
+  flooders:
+    count: 2
+
+workload:
+  publish_rate_per_second: 10
+  abuse:
+    flooder:
+      publish_rate_per_second: 5000
+
+thresholds:
+  # Defense: the relay must reject or limit almost the entire flood.
+  flood_publish.defended_ratio: 0.99
+  flood_publish.defended_correct_ratio: 0.95
+  # Collateral: honest publishers must still meet their latency target and
+  # the relay must stay up for honest traffic while the flood runs.
+  publish_p99_ms: 250
+  subscription_fanout_p99_ms: 1000

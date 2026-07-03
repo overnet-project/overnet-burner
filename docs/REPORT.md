@@ -146,7 +146,11 @@ Scenario threshold ids map to summarized metrics as follows:
 A threshold id that is not in the registry is itself resolved as a raw
 metric path with the `<=` comparator and no unit, so any summarized value
 can be judged — for example `query.latency_ms.p50: 60` or
-`custom_op.latency_ms.max: 250` for a custom operation's stream.
+`custom_op.latency_ms.max: 250` for a custom operation's stream. As the one
+exception, a raw path whose leaf is `defended_ratio` or
+`defended_correct_ratio` (the abuse defense ratios from
+[abuse.md](abuse.md)) is judged with `>=` and unit `ratio`, because a
+higher defense is better.
 
 Metric paths resolve into the summarized metrics: `overall.*` resolves into
 the run-wide counters, and any other first segment names an operation
@@ -172,6 +176,13 @@ When the run executed chaos hooks (`chaos.hooks_executed > 0`), the
 threshold-driven rows above are judged as a chaos experiment instead:
 `chaos_failed`, `inconclusive_partial_run`, or `chaos_passed`, with result
 class `chaos`. See [chaos.md](chaos.md).
+
+When the run launched abuse workers (any collected operation summary
+carries a `defended_ratio`), the threshold-driven rows are judged as an
+abuse experiment instead: `abuse_failed`, `inconclusive_partial_run`, or
+`abuse_passed`, with result class `abuse`. An abuse experiment takes
+precedence over a chaos experiment when both are present. See
+[abuse.md](abuse.md).
 
 ## Artifacts
 

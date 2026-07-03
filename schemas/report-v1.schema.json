@@ -72,6 +72,8 @@
             "performance_failed",
             "chaos_passed",
             "chaos_failed",
+            "abuse_passed",
+            "abuse_failed",
             "conformance_passed",
             "conformance_failed",
             "orchestration_failed",
@@ -87,6 +89,7 @@
             "orchestration",
             "performance",
             "chaos",
+            "abuse",
             "conformance",
             "mixed"
           ]

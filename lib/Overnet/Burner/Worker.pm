@@ -3,10 +3,13 @@ package Overnet::Burner::Worker;
 use strictures 2;
 use Moo;
 
-use Carp    qw(croak);
-use English qw(-no_match_vars);
+use Carp qw(croak);
+use Crypt::PK::ECC;
+use Digest::SHA qw(sha256_hex);
+use English     qw(-no_match_vars);
 use File::Spec;
-use JSON  ();
+use JSON ();
+use Net::Nostr::Key;
 use POSIX qw(strftime);
 use Sys::Hostname;
 use Time::HiRes qw(sleep time);
@@ -59,6 +62,24 @@ sub _constructor_args_hash {
 
 sub expected_role {
   croak "worker classes must define expected_role\n";
+}
+
+sub derive_key {
+  my ($class, $seed, $worker_id) = @_;
+
+  if (!(defined $seed && !ref($seed) && length $seed)) {
+    croak "seed is required\n";
+  }
+  if (!(defined $worker_id && !ref($worker_id) && length $worker_id)) {
+    croak "worker_id is required\n";
+  }
+
+  my $secret_hex = sha256_hex("overnet-burner:worker:$seed:$worker_id");
+  my $pk         = Crypt::PK::ECC->new;
+  $pk->import_key_raw(pack('H*', $secret_hex), 'secp256k1');
+  my $der = $pk->export_key_der('private');
+
+  return Net::Nostr::Key->new(privkey => \$der);
 }
 
 sub run {
@@ -230,6 +251,10 @@ Public API entry point.
 Public API entry point.
 
 =head2 expected_role
+
+Public API entry point.
+
+=head2 derive_key
 
 Public API entry point.
 

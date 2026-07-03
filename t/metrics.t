@@ -40,6 +40,23 @@ subtest 'published sample stream validates against the metric event schema' => s
   }
 };
 
+subtest 'published abuse sample stream validates and summarizes' => sub {
+  my $validator = JSON::Schema::Modern->new;
+  my $abuse     = File::Spec->catfile($repo, 'examples', 'abuse-metric-events-v1-sample.jsonl');
+  my $events    = Overnet::Burner::Metrics->read_stream($abuse);
+  ok @{$events} >= 1, 'abuse sample stream loads';
+
+  for my $index (0 .. $#{$events}) {
+    my $result = $validator->evaluate($events->[$index], $schema);
+    ok $result->valid, 'abuse sample event ' . ($index + 1) . ' validates against metric-event-v1';
+  }
+
+  my $summary = Overnet::Burner::Metrics->summarize($events);
+  is $summary->{operations}{flood_publish}{defended_ratio},         0.5, 'the flood sample is half defended';
+  is $summary->{operations}{malformed_publish}{defended_ratio},     1,   'the malformed sample is fully defended';
+  is $summary->{operations}{replay_submit}{defended_correct_ratio}, 1,   'the replay sample is correctly defended';
+};
+
 subtest 'validate_event accepts a minimal valid event' => sub {
   my ($ok, $error) = Overnet::Burner::Metrics->validate_event({%base_event});
   is $ok,    1,     'minimal event is accepted';
@@ -166,6 +183,58 @@ subtest 'summarize matches the documented sample numbers' => sub {
     'overall counters aggregate every operation';
 
   is(Overnet::Burner::Metrics->summarize($events), $summary, 'summarization is deterministic');
+};
+
+subtest 'abuse operations summarize defended ratios' => sub {
+  my @events = map {
+    {
+      %base_event,
+        worker_id => 'flooder-001',
+        role      => 'flooder',
+        operation => 'flood_publish',
+        %{$_},
+    }
+  } (
+    {
+      status           => 'error',
+      outcome          => 'rejected',
+      error_category   => 'policy rejection',
+      defended         => JSON::true,
+      defended_correct => JSON::true
+    },
+    {
+      status           => 'error',
+      outcome          => 'rejected',
+      error_category   => 'policy rejection',
+      defended         => JSON::true,
+      defended_correct => JSON::true
+    },
+    {
+      status           => 'error',
+      outcome          => 'rejected',
+      error_category   => 'invalid input',
+      defended         => JSON::true,
+      defended_correct => JSON::false
+    },
+    {status => 'success', outcome => 'accepted', defended => JSON::false, defended_correct => JSON::false},
+  );
+
+  my $summary = Overnet::Burner::Metrics->summarize(\@events);
+  my $op      = $summary->{operations}{flood_publish};
+
+  is $op->{count},                  4,    'every abuse attempt is counted';
+  is $op->{defended_count},         3,    'three of four attempts were defended';
+  is $op->{defended_ratio},         0.75, 'defended_ratio is defended over total';
+  is $op->{defended_correct_count}, 2,    'two were defended with the correct semantics';
+  is $op->{defended_correct_ratio}, 0.5,  'defended_correct_ratio is correct defenses over total';
+};
+
+subtest 'honest operations carry no defended fields' => sub {
+  my $summary = Overnet::Burner::Metrics->summarize([{%base_event}]);
+  my $op      = $summary->{operations}{publish};
+
+  ok !exists $op->{defended_ratio},         'a publish summary has no defended_ratio';
+  ok !exists $op->{defended_correct_ratio}, 'a publish summary has no defended_correct_ratio';
 };
 
 subtest 'latency is null when an operation never succeeds' => sub {

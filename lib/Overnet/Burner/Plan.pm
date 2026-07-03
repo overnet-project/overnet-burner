@@ -65,8 +65,29 @@ sub build {
     role     => 'observer',
     prefix   => 'observer',
   );
+  my @flooders = _actors(
+    scenario => $scenario,
+    field    => 'flooders',
+    role     => 'flooder',
+    prefix   => 'flooder',
+  );
+  my @malformed_publishers = _actors(
+    scenario => $scenario,
+    field    => 'malformed_publishers',
+    role     => 'malformed_publisher',
+    prefix   => 'malformed-publisher',
+  );
+  my @replayers = _actors(
+    scenario => $scenario,
+    field    => 'replayers',
+    role     => 'replayer',
+    prefix   => 'replayer',
+  );
 
-  my @actors = (@relays, @publishers, @subscribers, @query_readers, @object_readers, @observers,);
+  my @actors = (
+    @relays,    @publishers,           @subscribers, @query_readers, @object_readers,
+    @observers, @malformed_publishers, @replayers,   @flooders,
+  );
   my @phases = _phases($scenario, \@actors);
   my $total  = 0;
   for my $phase (@phases) {
@@ -84,14 +105,17 @@ sub build {
       total_duration_seconds => $total,
       seed                   => 0 + $scenario->{run}{seed},
     },
-    topology_provider => $topology_provider,
-    relays            => \@relays,
-    publishers        => \@publishers,
-    subscribers       => \@subscribers,
-    query_readers     => \@query_readers,
-    object_readers    => \@object_readers,
-    observers         => \@observers,
-    workload          => {
+    topology_provider    => $topology_provider,
+    relays               => \@relays,
+    publishers           => \@publishers,
+    subscribers          => \@subscribers,
+    query_readers        => \@query_readers,
+    object_readers       => \@object_readers,
+    observers            => \@observers,
+    flooders             => \@flooders,
+    malformed_publishers => \@malformed_publishers,
+    replayers            => \@replayers,
+    workload             => {
       phases => \@phases,
     },
     metric_streams => [_metric_streams(@actors)],
@@ -171,6 +195,7 @@ sub _phases {
       query_filters           => _clone($scenario->{workload}{query_filters}),
       object_reads            => $object_reads,
       observer                => _clone($scenario->{workload}{observer} || {}),
+      abuse                   => _clone($scenario->{workload}{abuse}    || {}),
       actor_seeds             => \%actor_seeds,
       };
     $start += $duration;

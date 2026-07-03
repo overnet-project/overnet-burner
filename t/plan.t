@@ -165,6 +165,28 @@ is $chaos_plan->{chaos_hooks}[0]{action},     'restart',   'chaos hook records a
 is $chaos_plan->{chaos_hooks}[0]{target},     'relay:1',   'chaos hook records target';
 ok $chaos_plan->{chaos_hooks}[0]{seed} =~ /\A\d+\z/mx, 'chaos hook has deterministic seed';
 
+my $abuse = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
+$abuse->{topology}{flooders}{count}             = 2;
+$abuse->{topology}{malformed_publishers}{count} = 1;
+$abuse->{topology}{replayers}{count}            = 1;
+$abuse->{workload}{abuse}                       = {flooder => {publish_rate_per_second => 5000}};
+my $abuse_plan = Overnet::Burner::Plan->build($abuse);
+
+is [map { $_->{id} } @{$abuse_plan->{flooders}}], [qw(flooder-001 flooder-002)], 'plan expands flooder actors';
+is [map { $_->{id} } @{$abuse_plan->{malformed_publishers}}], ['malformed-publisher-001'],
+  'plan expands malformed publisher actors';
+is [map { $_->{id} } @{$abuse_plan->{replayers}}], ['replayer-001'],            'plan expands replayer actors';
+is $abuse_plan->{flooders}[0]{role},               'flooder',                   'abuse actors carry their role';
+is $abuse_plan->{flooders}[0]{metric_stream},      'metrics/flooder-001.jsonl', 'abuse actors record a metric stream';
+
+my %abuse_streams = map { $_->{actor_id} => 1 } @{$abuse_plan->{metric_streams}};
+ok $abuse_streams{'flooder-001'},             'flooder stream is declared for collection';
+ok $abuse_streams{'malformed-publisher-001'}, 'malformed publisher stream is declared';
+ok $abuse_streams{'replayer-001'},            'replayer stream is declared';
+
+is $abuse_plan->{workload}{phases}[0]{abuse}, {flooder => {publish_rate_per_second => 5000}},
+  'abuse configuration is carried into each phase';
+
 my $json_a = Overnet::Burner::Plan->canonical_json($plan_a);
 my $json_b = Overnet::Burner::Plan->canonical_json($plan_b);
 is $json_a,                    $json_b, 'canonical plan JSON is deterministic';

@@ -15,6 +15,7 @@ docs/provisioning.md
 docs/REPORT.md
 docs/topology-providers.md
 docs/workers.md
+examples/abuse-metric-events-v1-sample.jsonl
 examples/metric-events-v1-sample.jsonl
 examples/report-v1-smoke.json
 examples/worker-input-v1-sample.json
@@ -40,20 +41,26 @@ lib/Overnet/Burner/Runner/RexLocalWorkers.pm
 lib/Overnet/Burner/TopologyProvider.pm
 lib/Overnet/Burner/Util.pm
 lib/Overnet/Burner/Worker.pm
+lib/Overnet/Burner/Worker/Abuse.pm
+lib/Overnet/Burner/Worker/Flooder.pm
+lib/Overnet/Burner/Worker/MalformedPublisher.pm
 lib/Overnet/Burner/Worker/Observer.pm
 lib/Overnet/Burner/Worker/ObjectReader.pm
 lib/Overnet/Burner/Worker/Publisher.pm
 lib/Overnet/Burner/Worker/QueryReader.pm
+lib/Overnet/Burner/Worker/Replayer.pm
 lib/Overnet/Burner/Worker/Subscriber.pm
 LICENSE
 Makefile.PL
 MANIFEST			This list of files
 MANIFEST.SKIP
 README.md
+scenarios/abuse-flood.yml
 scenarios/single-relay-baseline.yml
 schemas/metric-event-v1.schema.json
 schemas/report-v1.schema.json
 schemas/worker-input-v1.schema.json
+t/abuse-classify.t
 t/cli.t
 t/config.t
 t/container-engine.t
@@ -79,6 +86,7 @@ t/runner-rex-local-provider.t
 t/runner-rex-local-workers.t
 t/runner-rex-local.t
 t/topology-provider-external-command.t
+t/worker-abuse.t
 t/worker-object-reader.t
 t/worker-observer.t
 t/worker-publisher.t

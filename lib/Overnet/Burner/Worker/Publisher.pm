@@ -6,13 +6,10 @@ use Moo;
 extends 'Overnet::Burner::Worker';
 
 use AnyEvent;
-use Carp qw(croak);
-use Crypt::PK::ECC;
-use Digest::SHA qw(sha256_hex);
-use English     qw(-no_match_vars);
-use JSON        ();
+use Carp    qw(croak);
+use English qw(-no_match_vars);
+use JSON    ();
 use Net::Nostr::Client;
-use Net::Nostr::Key;
 use Time::HiRes qw(sleep time);
 
 our $VERSION = '0.001';
@@ -24,24 +21,6 @@ no Moo;
 
 sub expected_role {
   return 'publisher';
-}
-
-sub derive_key {
-  my ($class, $seed, $worker_id) = @_;
-
-  if (!(defined $seed && !ref($seed) && length $seed)) {
-    croak "seed is required\n";
-  }
-  if (!(defined $worker_id && !ref($worker_id) && length $worker_id)) {
-    croak "worker_id is required\n";
-  }
-
-  my $secret_hex = sha256_hex("overnet-burner:worker:$seed:$worker_id");
-  my $pk         = Crypt::PK::ECC->new;
-  $pk->import_key_raw(pack('H*', $secret_hex), 'secp256k1');
-  my $der = $pk->export_key_der('private');
-
-  return Net::Nostr::Key->new(privkey => \$der);
 }
 
 sub run {
@@ -280,10 +259,6 @@ normative.
 =head1 SUBROUTINES/METHODS
 
 =head2 expected_role
-
-Public API entry point.
-
-=head2 derive_key
 
 Public API entry point.
 

@@ -96,9 +96,25 @@ these well-known names:
 - `relay_ping` — relay liveness round trip measured from opening a fresh
   connection to the stored-result boundary of an empty subscription; one
   event per probed relay endpoint, carrying `relay_url`
+- `flood_publish`, `malformed_publish`, `replay_submit` — abuse operations
+  emitted by adversarial workers, carrying the abuse members below; see
+  [abuse.md](abuse.md)
 
 New operation names are compatible additions; they appear in summaries
 automatically.
+
+### Abuse Members
+
+Abuse operations ([abuse.md](abuse.md)) carry four operation-specific
+members recording how the relay responded, against the Overnet core outcome
+and error vocabularies:
+
+| Member | Type | Description |
+|---|---|---|
+| `outcome` | string | Core outcome category (accepted, rejected, unauthorized, unavailable, unsupported, partial) |
+| `error_category` | string | Core error category for a rejection (invalid input, policy rejection, authentication failure, authorization failure, unsupported, not found, internal failure); absent when accepted |
+| `defended` | boolean | Whether the relay stopped this abuse |
+| `defended_correct` | boolean | Whether it stopped the abuse with the spec-correct semantics for the role; implies `defended` |
 
 ## Summarization
 
@@ -121,6 +137,11 @@ Report generation summarizes metric events with these normative rules:
   ascending-sorted samples, the value at 1-based index `ceil(p / 100 * n)`.
 - `overall.error_rate` is total `error_count` over total `count` across all
   operations.
+- An operation whose events carry the `defended` member (an abuse
+  operation) additionally summarizes `defended_count`, `defended_ratio`,
+  `defended_correct_count`, and `defended_correct_ratio`, each a fraction of
+  the operation's total `count`. Operations without `defended` events carry
+  no defense fields, so honest-worker summaries are unchanged.
 - Summarization is deterministic: identical streams produce identical
   summaries.
 

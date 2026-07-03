@@ -306,6 +306,93 @@ YAML
   is $report->{run}{verdict}, 'performance_failed', 'the failed reader threshold fails the run';
 };
 
+subtest 'a run with abuse workers is judged as an abuse experiment' => sub {
+  my $scenario_abuse = File::Spec->catfile($tmp, 'abuse.yml');
+  _write_text($scenario_abuse, <<'YAML');
+run:
+  name: abuse
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+  flooders:
+    count: 1
+workload:
+  publish_rate_per_second: 10
+  abuse:
+    flooder:
+      publish_rate_per_second: 5000
+thresholds:
+  flood_publish.defended_ratio: 0.9
+  flood_publish.defended_correct_ratio: 0.9
+  publish_p99_ms: 100
+YAML
+
+  my $defended = sub {
+    my ($correct) = @_;
+    return _metric_event(
+      worker_id        => 'flooder-001',
+      role             => 'flooder',
+      operation        => 'flood_publish',
+      status           => 'error',
+      error            => 'rate-limited: slow down',
+      outcome          => 'rejected',
+      error_category   => ($correct ? 'policy rejection' : 'invalid input'),
+      defended         => JSON::true,
+      defended_correct => ($correct ? JSON::true : JSON::false),
+    );
+  };
+
+  my $pass_dir = _run_with_metric_streams(
+    'report-abuse-pass-001',
+    -scenario       => $scenario_abuse,
+    'publisher-001' => [_metric_event(duration_ms => 20)],
+    'flooder-001'   => [map { $defended->(1) } 1 .. 10],
+  );
+  my $pass = _regenerated_report($pass_dir);
+
+  my %pass_thresholds = map { $_->{id} => $_ } @{$pass->{thresholds}};
+  is $pass_thresholds{'flood_publish.defended_ratio'}{comparator}, '>=',
+    'defended ratio thresholds are judged as a floor, not a ceiling';
+  is $pass_thresholds{'flood_publish.defended_ratio'}{observed_value}, 1, 'a fully defended flood observes ratio 1';
+  is $pass_thresholds{'flood_publish.defended_ratio'}{status},         'passed', 'the defense floor is met';
+  is $pass->{run}{verdict},      'abuse_passed', 'a defended run passes the abuse experiment';
+  is $pass->{run}{result_class}, 'abuse',        'an abuse run is classified as abuse, not performance';
+
+  my $fail_dir = _run_with_metric_streams(
+    'report-abuse-fail-001',
+    -scenario       => $scenario_abuse,
+    'publisher-001' => [_metric_event(duration_ms => 20)],
+    'flooder-001'   => [
+      (map { $defended->(1) } 1 .. 5),
+      (
+        map {
+          _metric_event(
+            worker_id        => 'flooder-001',
+            role             => 'flooder',
+            operation        => 'flood_publish',
+            status           => 'success',
+            outcome          => 'accepted',
+            defended         => JSON::false,
+            defended_correct => JSON::false,
+          )
+        } 1 .. 5
+      )
+    ],
+  );
+  my $fail = _regenerated_report($fail_dir);
+
+  my %fail_thresholds = map { $_->{id} => $_ } @{$fail->{thresholds}};
+  is $fail_thresholds{'flood_publish.defended_ratio'}{observed_value}, 0.5,      'half the flood got through';
+  is $fail_thresholds{'flood_publish.defended_ratio'}{status},         'failed', 'the defense floor is not met';
+  is $fail->{run}{verdict},      'abuse_failed', 'a run that let abuse through fails the abuse experiment';
+  is $fail->{run}{result_class}, 'abuse',        'the failing run is still classified as abuse';
+};
+
 subtest 'multi-phase runs are judged on the main phase only' => sub {
   my $scenario_phased = File::Spec->catfile($tmp, 'phased.yml');
   _write_text($scenario_phased, <<'YAML');

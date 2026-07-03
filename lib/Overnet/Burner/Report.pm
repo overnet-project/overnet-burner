@@ -139,6 +139,7 @@ sub _verdict_and_result_class {
   }
 
   my $chaos_run = ($chaos->{hooks_executed} || 0) > 0;
+  my $abuse_run = _has_abuse_operations($metrics);
 
   if (!$metrics->{collected}) {
     if (($metrics->{reason} || q{}) eq 'configuration_error') {
@@ -151,17 +152,39 @@ sub _verdict_and_result_class {
   my @missing   = grep { ($_->{reason} || q{}) eq 'metric_missing' } @{$thresholds};
   my @evaluated = grep { $_->{status} eq 'passed' || $_->{status} eq 'failed' } @{$thresholds};
 
+  # An abuse experiment takes precedence over a chaos experiment: the whole
+  # point of the run is measuring defenses.
+  my $class   = $abuse_run ? 'abuse' : $chaos_run ? 'chaos' : 'performance';
+  my %verdict = (
+    abuse       => {failed => 'abuse_failed',       passed => 'abuse_passed'},
+    chaos       => {failed => 'chaos_failed',       passed => 'chaos_passed'},
+    performance => {failed => 'performance_failed', passed => 'performance_passed'},
+  );
+
   if (@failed) {
-    return $chaos_run ? qw(chaos_failed chaos) : qw(performance_failed performance);
+    return ($verdict{$class}{failed}, $class);
   }
   if (@missing) {
-    return ('inconclusive_partial_run', $chaos_run ? 'chaos' : 'performance');
+    return ('inconclusive_partial_run', $class);
   }
   if (@evaluated) {
-    return $chaos_run ? qw(chaos_passed chaos) : qw(performance_passed performance);
+    return ($verdict{$class}{passed}, $class);
   }
 
   return ('smoke_passed', 'orchestration');
+}
+
+sub _has_abuse_operations {
+  my ($metrics) = @_;
+
+  my $operations = $metrics->{operations} || {};
+  for my $operation (values %{$operations}) {
+    if (ref $operation eq 'HASH' && exists $operation->{defended_ratio}) {
+      return 1;
+    }
+  }
+
+  return 0;
 }
 
 sub _scenario {
@@ -449,11 +472,12 @@ sub _thresholds {
   my @records;
 
   for my $id (sort keys %{$thresholds}) {
-    my $spec = $THRESHOLD{$id}
+    my $defense = $id =~ /[.](?:defended_ratio|defended_correct_ratio)\z/mxs;
+    my $spec    = $THRESHOLD{$id}
       || {
       metric     => $id,
-      comparator => '<=',
-      unit       => undef,
+      comparator => ($defense ? '>='    : '<='),
+      unit       => ($defense ? 'ratio' : undef),
       };
 
     my $threshold_record = {

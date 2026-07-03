@@ -56,6 +56,22 @@
     "phase": {
       "$ref": "#/$defs/non_empty_string",
       "description": "Workload phase the operation ran in (for example warmup, main, cooldown). Required in multi-phase runs; see METRICS.md."
+    },
+    "outcome": {
+      "$ref": "#/$defs/non_empty_string",
+      "description": "Abuse operations only: the Overnet core outcome category the relay returned (accepted, rejected, unauthorized, unavailable, unsupported, partial). See abuse.md."
+    },
+    "error_category": {
+      "$ref": "#/$defs/non_empty_string",
+      "description": "Abuse operations only: the Overnet core error category for a rejection (invalid input, policy rejection, authentication failure, authorization failure, unsupported, not found, internal failure). Absent when the operation was accepted. See abuse.md."
+    },
+    "defended": {
+      "type": "boolean",
+      "description": "Abuse operations only: whether the relay stopped this abuse. See abuse.md."
+    },
+    "defended_correct": {
+      "type": "boolean",
+      "description": "Abuse operations only: whether the relay stopped this abuse with the spec-correct outcome and error category for the role. Implies defended. See abuse.md."
     }
   },
   "$defs": {

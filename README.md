@@ -73,14 +73,19 @@ Implemented so far:
 - network chaos actions (net-delay, net-loss, partition, heal) on
   bridge-networked container guests, with post-action evidence recorded in
   the run ledger ([docs/chaos.md](docs/chaos.md))
+- abuse simulation v1: the flooder, malformed publisher, and replayer
+  adversarial worker roles, judged as an abuse experiment that measures
+  both relay defenses and their blast radius on honest traffic
+  ([docs/abuse.md](docs/abuse.md))
 
 In progress, in decided order:
 
 - guest provisioning continued: connect/container/virtual for relay
   guests (design in [docs/provisioning.md](docs/provisioning.md) and
   [docs/distributed.md](docs/distributed.md))
-- abuse simulation: adversarial worker roles that measure relay defenses
-  and their blast radius (design in [docs/abuse.md](docs/abuse.md))
+- abuse simulation continued: the subscription abuser, sybil, provenance
+  forger, and connection flood roles (design in
+  [docs/abuse.md](docs/abuse.md))
 
 ## Testing
 

@@ -27,13 +27,17 @@ our $VERSION = '0.001';
 no Moo;
 
 my %WORKER_ROLES = (
-  publisher     => 1,
-  subscriber    => 1,
-  query_reader  => 1,
-  object_reader => 1,
-  observer      => 1,
+  publisher           => 1,
+  subscriber          => 1,
+  query_reader        => 1,
+  object_reader       => 1,
+  observer            => 1,
+  flooder             => 1,
+  malformed_publisher => 1,
+  replayer            => 1,
 );
-my @LAUNCH_WAVES  = ([qw(subscriber query_reader object_reader observer)], [qw(publisher)],);
+my @LAUNCH_WAVES =
+  ([qw(subscriber query_reader object_reader observer)], [qw(publisher flooder malformed_publisher replayer)],);
 my %NETEM_ACTIONS = ('net-delay' => 1, 'net-loss' => 1);
 my %NET_ACTIONS   = (%NETEM_ACTIONS, partition => 1, heal => 1);
 
@@ -534,7 +538,9 @@ sub _worker_actors {
   my ($self) = @_;
 
   my $plan = $self->{plan};
-  return map { @{$plan->{$_} || []} } qw(subscribers query_readers object_readers observers publishers);
+  return
+    map { @{$plan->{$_} || []} }
+    qw(subscribers query_readers object_readers observers publishers flooders malformed_publishers replayers);
 }
 
 sub _total_duration_seconds {
