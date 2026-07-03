@@ -31,6 +31,24 @@ sub abuse_operation {
   croak "abuse worker classes must define abuse_operation\n";
 }
 
+sub register_response_handlers {
+  my ($self, $client, $pending) = @_;
+
+  # The default publish-abuse flow resolves each pending operation by the
+  # relay's OK acknowledgement, keyed by event id.
+  $client->on(
+    ok => sub {
+      my ($event_id, $accepted, $message) = @_;
+      my $waiter = delete $pending->{$event_id};
+      if ($waiter) {
+        $waiter->send([$accepted ? 1 : 0, $message]);
+      }
+    }
+  );
+
+  return 1;
+}
+
 sub default_rate {
   return 1;
 }
@@ -83,6 +101,13 @@ sub defense_for {
     my $defended = !$accepted || $classification->{duplicate};
     return {defended => $defended ? 1 : 0, defended_correct => $defended ? 1 : 0};
   }
+  if ($role eq 'subscription_abuser') {
+
+    # The correct defense against subscription-count abuse is refusing the
+    # excess subscription (a CLOSED), so any refusal is a correct defense.
+    my $defended = !$accepted;
+    return {defended => $defended ? 1 : 0, defended_correct => $defended ? 1 : 0};
+  }
 
   croak "no defense model for abuse role $role\n";
 }
@@ -97,15 +122,7 @@ sub run {
 
   my %pending;
   my $client = Net::Nostr::Client->new;
-  $client->on(
-    ok => sub {
-      my ($event_id, $accepted, $message) = @_;
-      my $waiter = delete $pending{$event_id};
-      if ($waiter) {
-        $waiter->send([$accepted ? 1 : 0, $message]);
-      }
-    }
-  );
+  $self->register_response_handlers($client, \%pending);
   $client->connect($input->{endpoints}{relays}[0]);
 
   $self->write_ready_file;
@@ -299,6 +316,8 @@ deployment's own defenses, never third-party relays.
 =head2 classify_response
 
 =head2 defense_for
+
+=head2 register_response_handlers
 
 =head2 abuse_operation
 

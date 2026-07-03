@@ -1,12 +1,13 @@
 # overnet-burner Abuse Simulation
 
-**Status: v1 implemented.** The `flooder`, `malformed_publisher`, and
-`replayer` abuse roles, the metric outcome members, the derived defense
-ratios, and the `abuse` experiment verdict are implemented and tested; the
-`subscription_abuser`, `sybil`, `provenance_forger`, and `connection_flood`
-roles remain proposed design, named here so scenarios and reports stay
-forward-compatible. This document is the language-neutral contract; where it
-conflicts with a later implemented contract, the implemented contract wins.
+**Status: implemented, expanding.** The `flooder`, `malformed_publisher`,
+`replayer`, and `subscription_abuser` abuse roles, the metric outcome
+members, the derived defense ratios, and the `abuse` experiment verdict are
+implemented and tested; the `sybil`, `provenance_forger`, and
+`connection_flood` roles remain proposed design, named here so scenarios and
+reports stay forward-compatible. This document is the language-neutral
+contract; where it conflicts with a later implemented contract, the
+implemented contract wins.
 
 Every worker overnet-burner has today is a cooperative, well-behaved
 participant: it sends valid events at a configured rate and measures its own
@@ -66,9 +67,10 @@ capability exposure.
 ## Abuse Worker Roles
 
 Each abuse role is a worker role in the plan (topology and workload), placed
-onto guests and launched exactly like an honest worker. The v1 slice is
-`flooder`, `malformed_publisher`, and `replayer`: together they exercise
-rate limiting, input validation, and idempotency, and none of them needs
+onto guests and launched exactly like an honest worker. The implemented
+roles are `flooder`, `malformed_publisher`, `replayer`, and
+`subscription_abuser`: together they exercise rate limiting, input
+validation, idempotency, and subscription bounding, and none of them needs
 forged-identity machinery. The remaining roles are named now and built
 after.
 
@@ -256,5 +258,8 @@ thresholds have.
 4. ~~The abuse verdict~~ — the `abuse` result class, the derived ratios in
    [METRICS.md](METRICS.md), and the `>=` defense-ratio comparator in
    [REPORT.md](REPORT.md).
-5. **The remaining roles** (proposed) — `subscription_abuser`, `sybil`,
-   `provenance_forger`, and scheduled `connection_flood`.
+5. ~~`subscription_abuser`~~ — opens accumulating subscriptions and measures
+   whether the relay bounds them, verified end to end against the reference
+   relay's `max_subscriptions`.
+6. **The remaining roles** (proposed) — `sybil`, `provenance_forger`, and
+   scheduled `connection_flood`.

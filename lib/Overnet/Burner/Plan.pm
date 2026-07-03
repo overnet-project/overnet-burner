@@ -83,10 +83,16 @@ sub build {
     role     => 'replayer',
     prefix   => 'replayer',
   );
+  my @subscription_abusers = _actors(
+    scenario => $scenario,
+    field    => 'subscription_abusers',
+    role     => 'subscription_abuser',
+    prefix   => 'subscription-abuser',
+  );
 
   my @actors = (
-    @relays,    @publishers,           @subscribers, @query_readers, @object_readers,
-    @observers, @malformed_publishers, @replayers,   @flooders,
+    @relays,    @publishers,           @subscribers, @query_readers,        @object_readers,
+    @observers, @malformed_publishers, @replayers,   @subscription_abusers, @flooders,
   );
   my @phases = _phases($scenario, \@actors);
   my $total  = 0;
@@ -115,6 +121,7 @@ sub build {
     flooders             => \@flooders,
     malformed_publishers => \@malformed_publishers,
     replayers            => \@replayers,
+    subscription_abusers => \@subscription_abusers,
     workload             => {
       phases => \@phases,
     },

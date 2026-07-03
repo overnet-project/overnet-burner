@@ -50,6 +50,7 @@ lib/Overnet/Burner/Worker/Publisher.pm
 lib/Overnet/Burner/Worker/QueryReader.pm
 lib/Overnet/Burner/Worker/Replayer.pm
 lib/Overnet/Burner/Worker/Subscriber.pm
+lib/Overnet/Burner/Worker/SubscriptionAbuser.pm
 LICENSE
 Makefile.PL
 MANIFEST			This list of files

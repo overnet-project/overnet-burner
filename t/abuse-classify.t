@@ -87,6 +87,22 @@ subtest 'replayer defends on duplicate handling or rejection' => sub {
   ok !$silent->{defended}, 'a silent plain accept of a replay is a defense failure';
 };
 
+subtest 'subscription_abuser defends when the relay refuses the subscription' => sub {
+  my $role = 'subscription_abuser';
+
+  # EOSE is modelled as an accept (the subscription opened); CLOSED as a
+  # rejection carrying the relay's reason.
+  my $refused = $class->defense_for($role, $class->classify_response(0, 'error: too many subscriptions'));
+  ok $refused->{defended},         'a refused subscription is defended';
+  ok $refused->{defended_correct}, 'refusing an excess subscription with CLOSED is the correct mechanism';
+
+  my $blocked = $class->defense_for($role, $class->classify_response(0, 'blocked: subscription quota exceeded'));
+  ok $blocked->{defended_correct}, 'a policy refusal is also correct';
+
+  my $opened = $class->defense_for($role, $class->classify_response(1, q{}));
+  ok !$opened->{defended}, 'an opened subscription is a defense failure';
+};
+
 subtest 'status follows relay acceptance' => sub {
   is $class->classify_response(1, q{})->{status},                  'success', 'an accepted operation is success';
   is $class->classify_response(0, 'invalid: bad')->{status},       'error',   'a rejected operation is error';

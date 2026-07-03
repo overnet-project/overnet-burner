@@ -96,9 +96,9 @@ these well-known names:
 - `relay_ping` — relay liveness round trip measured from opening a fresh
   connection to the stored-result boundary of an empty subscription; one
   event per probed relay endpoint, carrying `relay_url`
-- `flood_publish`, `malformed_publish`, `replay_submit` — abuse operations
-  emitted by adversarial workers, carrying the abuse members below; see
-  [abuse.md](abuse.md)
+- `flood_publish`, `malformed_publish`, `replay_submit`,
+  `abusive_subscribe` — abuse operations emitted by adversarial workers,
+  carrying the abuse members below; see [abuse.md](abuse.md)
 
 New operation names are compatible additions; they appear in summaries
 automatically.

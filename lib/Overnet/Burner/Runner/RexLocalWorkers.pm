@@ -35,9 +35,12 @@ my %WORKER_ROLES = (
   flooder             => 1,
   malformed_publisher => 1,
   replayer            => 1,
+  subscription_abuser => 1,
 );
-my @LAUNCH_WAVES =
-  ([qw(subscriber query_reader object_reader observer)], [qw(publisher flooder malformed_publisher replayer)],);
+my @LAUNCH_WAVES = (
+  [qw(subscriber query_reader object_reader observer)],
+  [qw(publisher flooder malformed_publisher replayer subscription_abuser)],
+);
 my %NETEM_ACTIONS = ('net-delay' => 1, 'net-loss' => 1);
 my %NET_ACTIONS   = (%NETEM_ACTIONS, partition => 1, heal => 1);
 
@@ -538,9 +541,8 @@ sub _worker_actors {
   my ($self) = @_;
 
   my $plan = $self->{plan};
-  return
-    map { @{$plan->{$_} || []} }
-    qw(subscribers query_readers object_readers observers publishers flooders malformed_publishers replayers);
+  return map { @{$plan->{$_} || []} } qw(subscribers query_readers object_readers observers publishers
+    flooders malformed_publishers replayers subscription_abusers);
 }
 
 sub _total_duration_seconds {

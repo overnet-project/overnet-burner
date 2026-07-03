@@ -16,6 +16,7 @@ use Overnet::Burner::Metrics;
 use Overnet::Burner::Worker::Flooder;
 use Overnet::Burner::Worker::MalformedPublisher;
 use Overnet::Burner::Worker::Replayer;
+use Overnet::Burner::Worker::SubscriptionAbuser;
 
 subtest 'flooder measures rate limiting honestly' => sub {
   my $port  = _free_port();
@@ -113,6 +114,42 @@ subtest 'replayer measures idempotency honestly' => sub {
   is $events->[0]{outcome}, 'accepted', 'a duplicate replay is accepted idempotently, not stored anew';
   my @wrong = grep { !$_->{defended_correct} } @{$events};
   is \@wrong, [], 'explicit duplicate handling is the correct defense';
+};
+
+subtest 'subscription_abuser measures subscription bounding honestly' => sub {
+  my $port  = _free_port();
+  my $relay = Net::Nostr::Relay->new(max_subscriptions => 3);
+  $relay->start('127.0.0.1', $port);
+
+  my $run_dir = _run_layout('subscription-abuser-001');
+  my $input   = _worker_input(
+    $run_dir, $port,
+    worker_id        => 'subscription-abuser-001',
+    role             => 'subscription_abuser',
+    abuse            => {subscription_abuser => {publish_rate_per_second => 40}},
+    duration_seconds => 1,
+  );
+
+  Overnet::Burner::Worker::SubscriptionAbuser->new(input => $input)->run;
+
+  my $events = _events($run_dir, 'subscription-abuser-001');
+  ok @{$events} >= 4, 'the abuser opened many subscriptions' or diag(scalar @{$events});
+
+  my @operations = grep { $_->{operation} ne 'abusive_subscribe' } @{$events};
+  is \@operations, [], 'every event is an abusive_subscribe operation';
+
+  my @opened  = grep { !$_->{defended} } @{$events};
+  my @refused = grep { $_->{defended} } @{$events};
+  ok @opened >= 1,  'the first subscriptions under the bound opened (a defense gap)';
+  ok @refused >= 1, 'subscriptions above the bound were refused';
+
+  my @incorrect = grep { $_->{defended} && !$_->{defended_correct} } @{$events};
+  is \@incorrect, [], 'refusing an excess subscription with CLOSED is the correct mechanism';
+
+  my ($refused) = grep { $_->{defended} } @{$events};
+  is $refused->{outcome}, 'rejected', 'a refused subscription is a rejection';
+  is $refused->{status},  'error',    'a refused subscription is an error status';
+  like $refused->{error}, qr/subscriptions/mx, 'the refusal reason names the subscription bound';
 };
 
 done_testing;
