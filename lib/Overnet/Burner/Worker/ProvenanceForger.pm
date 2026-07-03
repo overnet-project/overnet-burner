@@ -102,8 +102,12 @@ sub classify_abuse {
   my $verdict = $self->_verify_forged_event;
   my $defense = $VERDICT_DEFENSE{$verdict} || {defended => 0, defended_correct => 0};
 
+  # The verdict, not the relay, is the measured defense, but status stays
+  # honest about ground truth: it records whether the relay actually carried
+  # the forged event, so a relay that refused to carry it is not silently
+  # reported as a clean carry.
   my $classification = {
-    status         => 'success',
+    status         => ($args{accepted} ? 'success' : 'error'),
     outcome        => $verdict,
     error_category => undef,
     duplicate      => 0,

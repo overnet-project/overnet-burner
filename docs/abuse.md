@@ -243,12 +243,13 @@ an abuse event carries:
 | `defended` | boolean | Whether this operation was correctly defended |
 
 The `forge_publish` operation records the verification boundary's decision
-rather than a relay acknowledgement: its `status` is `success` because the
-forge-and-verify operation ran and the relay carried the event, and its
-`outcome` is the verification verdict. A forged event resolved to `forged`
-is `defended` and `defended_correct`; `unverified` or `unresolvable` is
-`defended` but not a correct positive detection; `authoritative` is the
-forgery succeeding and is neither.
+rather than a relay acknowledgement: its `outcome` is the verification
+verdict, while its `status` stays honest about ground truth and records
+whether the relay carried the forged event (normally `success`, since the
+relay is a dumb carrier). A forged event resolved to `forged` is `defended`
+and `defended_correct`; `unverified` or `unresolvable` is `defended` but not
+a correct positive detection; `authoritative` is the forgery succeeding and
+is neither.
 
 `status` follows the worker contract: an operation the relay rejected is
 `status: "error"` with the rejection reason, so an abuse operation's
