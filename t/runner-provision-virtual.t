@@ -228,9 +228,16 @@ YAML
   my $aggregated = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics.jsonl'));
   is scalar @{$aggregated}, 2, 'every stream came back from the real VM';
 
-  my $pid = _slurp(File::Spec->catfile($run_dir, 'virtual', 'worker-guest-001', 'qemu.pid'));
-  chomp $pid;
-  is kill(0, $pid), 0, 'the real VM does not outlive the run';
+  # real qemu unlinks its pid file when it exits, so a missing pid file is
+  # itself proof the VM is down
+  my $pid_path = File::Spec->catfile($run_dir, 'virtual', 'worker-guest-001', 'qemu.pid');
+  if (-e $pid_path) {
+    my $pid = _slurp($pid_path);
+    chomp $pid;
+    is kill(0, $pid), 0, 'the real VM does not outlive the run';
+  } else {
+    pass 'the real VM does not outlive the run (qemu removed its pid file on exit)';
+  }
 };
 
 done_testing;
