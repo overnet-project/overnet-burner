@@ -16,10 +16,13 @@ my $bin  = "$repo/bin/overnet-burner";
 my $tmp = tempdir(CLEANUP => 1);
 my ($fake_ssh, $fake_scp) = _write_fake_ssh_tools($tmp);
 my $fake_worker = _write_fake_worker($tmp);
+my $fake_rex    = _write_fake_rex($tmp);
 
-local $ENV{OVERNET_BURNER_SSH}    = $fake_ssh;
-local $ENV{OVERNET_BURNER_SCP}    = $fake_scp;
-local $ENV{OVERNET_BURNER_WORKER} = "$^X $fake_worker";
+local $ENV{OVERNET_BURNER_SSH}          = $fake_ssh;
+local $ENV{OVERNET_BURNER_SCP}          = $fake_scp;
+local $ENV{OVERNET_BURNER_WORKER}       = "$^X $fake_worker";
+local $ENV{OVERNET_BURNER_REX}          = $fake_rex;
+local $ENV{OVERNET_BURNER_TEST_REX_LOG} = File::Spec->catfile($tmp, 'fake-rex.log');
 
 my $scenario = "$tmp/connect.yml";
 _spew($scenario, <<'YAML');
@@ -161,6 +164,23 @@ PERL
   chmod 0755, $scp or die "chmod: $!";
 
   return ($ssh, $scp);
+}
+
+sub _write_fake_rex {
+  my ($dir) = @_;
+  my $path = File::Spec->catfile($dir, 'fake-rex');
+  _spew($path, <<'PERL');
+#!/usr/bin/env perl
+use strict;
+use warnings;
+my $log = $ENV{OVERNET_BURNER_TEST_REX_LOG} or die "OVERNET_BURNER_TEST_REX_LOG is required\n";
+open my $fh, '>>', $log or die "open $log: $!";
+print {$fh} join("\0", @ARGV), "\n";
+close $fh or die "close $log: $!";
+exit 0;
+PERL
+  chmod 0755, $path or die "chmod: $!";
+  return $path;
 }
 
 sub _write_fake_worker {
