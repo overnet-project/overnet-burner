@@ -148,13 +148,10 @@ sub _container_guests {
   for my $ordinal (1 .. ($workers->{count} || 1)) {
     my $guest_name = sprintf 'worker-guest-%03d', $ordinal;
     my $container  = "burner-$run_id-$guest_name";
-    $engine->run_detached(
-      name    => $container,
-      image   => $workers->{image},
-      network => $network,
-      @cap_add ? (cap_add => \@cap_add) : (),
-      command => ['sleep', 'infinity'],
-    );
+
+    # Registered before the engine call: `run -d` can create the container
+    # and still fail to start it, and only a registered guest is destroyed
+    # by failure cleanup.
     push @{$self->{worker_guests}},
       Overnet::Burner::Guest::Container->new(
       name      => $guest_name,
@@ -164,6 +161,13 @@ sub _container_guests {
       image     => $workers->{image},
       cap_add   => \@cap_add,
       );
+    $engine->run_detached(
+      name    => $container,
+      image   => $workers->{image},
+      network => $network,
+      @cap_add ? (cap_add => \@cap_add) : (),
+      command => ['sleep', 'infinity'],
+    );
   }
 
   return 1;

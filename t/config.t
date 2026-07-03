@@ -431,6 +431,32 @@ YAML
     qr/chaos\[0\]\.peers\ is\ not\ a\ parameter\ of\ partition/mx,
   ],
   [
+    'chaos net action with a malformed provision count',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: w:1
+    network: bridge
+    count: many
+chaos:
+  - at: 10
+    action: partition
+    target: worker-guest:1
+YAML
+    qr/provision\.workers\.count\ must\ be\ an\ integer/mx,
+  ],
+  [
     'chaos lifecycle action with a guest target',
     <<'YAML',
 run:
@@ -723,6 +749,32 @@ YAML
   is $virtual_config->{provision}{workers}{how},              'virtual',  'virtual provisioning loads for workers';
   is $virtual_config->{provision}{workers}{count},            1,          'virtual count defaults to one';
   is $virtual_config->{provision}{workers}{hardware}{memory}, '>= 2 GiB', 'hardware requirements are preserved';
+
+  my $foreign_arch = "$tmp/provision-foreign-arch.yml";
+  _write_yaml($foreign_arch, <<'YAML');
+run:
+  name: provision-foreign-arch
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: connect
+    guests:
+      - address: arm-box.example.net
+    hardware:
+      arch: never-built-arch
+YAML
+  my $foreign_config = Overnet::Burner::Config->load_file($foreign_arch);
+  is $foreign_config->{provision}{workers}{hardware}{arch}, 'never-built-arch',
+    'a connect group may truthfully declare a foreign guest architecture';
 
   my @rejections = (
     [

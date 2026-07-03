@@ -27,6 +27,10 @@ subtest 'validation accepts the implemented grammar' => sub {
   ok validate_requirements({arch => host_architecture(), memory => '>= 8 GB', cpu => {cores => '>= 4'}}, 'hardware'),
     'the decided v1 keys validate';
   ok validate_requirements({}, 'hardware'), 'an empty requirement validates';
+  ok validate_requirements({arch => 'never-built-arch'}, 'hardware'),
+    'a foreign arch is recorded, not compared, when nothing is being constructed';
+  eval { validate_requirements({arch => 'never-built-arch'}, 'hardware', construct => 1) };
+  like $@, qr/does\ not\ match\ the\ host\ architecture/mx, 'constructed guests must match the host architecture';
 };
 
 subtest 'validation rejects what is reserved or wrong' => sub {

@@ -143,8 +143,11 @@ sub validate {
   _validate_object_read_references($config);
   _validate_workload_phase($config, 'warmup');
   _validate_workload_phase($config, 'cooldown');
-  _validate_chaos($config);
+
+  # provision before chaos: network hooks are validated against the
+  # provisioned worker group, whose fields must already be known-good
   _validate_provision($config);
+  _validate_chaos($config);
   _validate_guest_reachable_endpoints($config);
   _require_hash($config, 'thresholds');
 
@@ -198,7 +201,8 @@ sub _validate_provision {
       _validate_provision_virtual($config, $group);
     }
     if (exists $spec->{hardware}) {
-      Overnet::Burner::Hardware::validate_requirements($spec->{hardware}, "provision.$group.hardware");
+      Overnet::Burner::Hardware::validate_requirements($spec->{hardware}, "provision.$group.hardware",
+        construct => ($how eq 'virtual' ? 1 : 0),);
     }
   }
 

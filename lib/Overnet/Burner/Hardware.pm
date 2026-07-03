@@ -25,7 +25,7 @@ sub host_architecture {
 }
 
 sub validate_requirements {
-  my ($hardware, $path) = @_;
+  my ($hardware, $path, %options) = @_;
 
   if (ref $hardware ne 'HASH') {
     croak "$path must be a mapping\n";
@@ -35,7 +35,7 @@ sub validate_requirements {
   }
   for my $key (sort keys %{$hardware}) {
     if ($key eq 'arch') {
-      _validate_arch($hardware->{arch}, $path);
+      _validate_arch($hardware->{arch}, $path, $options{construct});
     } elsif ($key eq 'memory') {
       _parse_memory($hardware->{memory}, $path);
     } elsif ($key eq 'cpu') {
@@ -67,10 +67,17 @@ sub requirement_minimums {
 }
 
 sub _validate_arch {
-  my ($value, $path) = @_;
+  my ($value, $path, $construct) = @_;
 
   if (ref $value || !defined $value || !length $value) {
     croak "$path.arch must be a non-empty string\n";
+  }
+
+  # Only a group that CONSTRUCTS guests is bound to the controller's
+  # architecture; attached groups may truthfully declare what their
+  # existing guests are.
+  if (!$construct) {
+    return 1;
   }
   my $host = host_architecture();
   if ($value ne $host) {

@@ -111,6 +111,29 @@ YAML
   like _slurp($pulled_stderr), qr/fake\sworker\sfailing\son\srequest/mx, 'the pulled stderr explains the failure';
 };
 
+subtest 'a container that fails to start is still torn down' => sub {
+  local $ENV{OVERNET_BURNER_TEST_ENGINE_LOG} = $engine_log;
+  local $ENV{OVERNET_BURNER_DOCKER}          = _write_emulating_engine($tmp);
+  local $ENV{OVERNET_BURNER_TEST_RUN_FAIL}   = 1;
+
+  my $scenario = _write_scenario($tmp, 'container-run-fail-start.yml', <<"YAML");
+provision:
+  workers:
+    how: container
+    image: example.test/worker:fake
+    count: 2
+    worker: "$^X $fake_worker"
+YAML
+
+  my $run_id = 'container-start-fail-001';
+  my $output =
+    `$^X $bin run --scenario $scenario --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
+  isnt $?, 0, 'the run fails when a container cannot start';
+
+  my @removed = grep {/\Arm\x{0}-f\x{0}burner-\Q$run_id\E-worker-guest-001/mx} split /\n/, _slurp($engine_log);
+  is scalar @removed, 1, 'the container that failed to start is removed, not leaked';
+};
+
 subtest 'network chaos actions drive the engine and record evidence' => sub {
   local $ENV{OVERNET_BURNER_TEST_ENGINE_LOG} = $engine_log;
   local $ENV{OVERNET_BURNER_DOCKER}          = _write_emulating_engine($tmp);
@@ -411,6 +434,7 @@ if ($subcommand eq '--version') {
 }
 if ($subcommand eq 'run') {
   print "emulated-container-id\n";
+  exit 1 if $ENV{OVERNET_BURNER_TEST_RUN_FAIL};
   exit 0;
 }
 if ($subcommand eq 'exec') {
