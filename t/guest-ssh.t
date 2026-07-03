@@ -132,6 +132,22 @@ subtest 'a real sshd exercises the transport when available' => sub {
     'environment and stdout cross a real sshd';
 };
 
+subtest 'run_command runs a one-shot command over the transport' => sub {
+  my $ok = $guest->run_command(command => 'printf out; printf err >&2; exit 0');
+  is $ok->{exit_code}, 0,     'a successful remote command reports exit code 0';
+  is $ok->{stdout},    'out', 'remote stdout crosses the transport';
+  is $ok->{stderr},    'err', 'remote stderr crosses the transport separately';
+
+  my $fail = $guest->run_command(command => 'exit 4');
+  is $fail->{exit_code}, 4, 'a nonzero remote exit code crosses the transport';
+
+  my $env = $guest->run_command(
+    command => 'printf "%s" "$GUEST_TEST_VALUE"',
+    env     => {GUEST_TEST_VALUE => 'over-the-wire'},
+  );
+  is $env->{stdout}, 'over-the-wire', 'the remote command environment is applied';
+};
+
 done_testing;
 
 sub _reap_within {

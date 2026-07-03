@@ -67,6 +67,48 @@ sub read_file {
   return $content;
 }
 
+sub run_command {
+  my ($self, %args) = @_;
+
+  my $command = $args{command} || croak "command is required\n";
+  my $env     = ref $args{env} eq 'HASH' ? $args{env} : {};
+
+  my ($dir, $mkstatus) = $self->_capture('mktemp -d');
+  if ($mkstatus != 0 || !defined $dir) {
+    croak 'guest ' . $self->name . " could not allocate a command work dir\n";
+  }
+  chomp $dir;
+  $dir =~ s/\s+\z//mxs;
+
+  my $out    = "$dir/stdout";
+  my $err    = "$dir/stderr";
+  my $prefix = q{};
+  for my $key (sort keys %{$env}) {
+    $prefix .= 'export ' . $key . q{=} . $self->shell_quote($env->{$key}) . '; ';
+  }
+
+  # The transport status reflects the trailing echo, so the command's own
+  # exit code is reported inline and parsed back out.
+  my ($marker, $status) =
+    $self->_capture($prefix
+      . '/bin/sh -c '
+      . $self->shell_quote($command) . ' > '
+      . $self->shell_quote($out) . ' 2> '
+      . $self->shell_quote($err)
+      . "; echo \"OVERNET_EXIT:\$?\"");
+  my ($exit_code) = ($status == 0 && defined $marker) ? $marker =~ /OVERNET_EXIT:(\d+)/mxs : ();
+
+  my $stdout = $self->read_file($out) // q{};
+  my $stderr = $self->read_file($err) // q{};
+  $self->_capture('rm -rf ' . $self->shell_quote($dir));
+
+  return {
+    exit_code => (defined $exit_code ? 0 + $exit_code : undef),
+    stdout    => $stdout,
+    stderr    => $stderr,
+  };
+}
+
 sub launch {
   my ($self, %args) = @_;
 
@@ -228,6 +270,14 @@ as a dead worker.
 =head2 write_file
 
 =head2 read_file
+
+=head2 run_command
+
+Runs one command to completion on the guest, capturing its stdout, stderr,
+and exit code back over the transport by staging them in a guest-side temp
+directory. Remote guests run in the transport's default working directory,
+so a C<cwd> is not accepted here; lifecycle commands placed on a remote
+relay guest must not assume the controller's run directory.
 
 =head2 launch
 

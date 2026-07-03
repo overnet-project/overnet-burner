@@ -32,6 +32,28 @@ subtest 'file operations' => sub {
     'reading a missing file returns undef instead of dying';
 };
 
+subtest 'run_command runs a one-shot command to completion' => sub {
+  my $ok = $guest->run_command(command => 'printf out; printf err >&2; exit 0');
+  is $ok->{exit_code}, 0,     'a successful command reports exit code 0';
+  is $ok->{stdout},    'out', 'stdout is captured';
+  is $ok->{stderr},    'err', 'stderr is captured separately from stdout';
+
+  my $fail = $guest->run_command(command => 'exit 7');
+  is $fail->{exit_code}, 7, 'a nonzero exit code is reported';
+
+  my $env = $guest->run_command(command => 'printf "%s" "$GUEST_TEST_VALUE"', env => {GUEST_TEST_VALUE => 'from-env'});
+  is $env->{stdout}, 'from-env', 'the command environment is applied';
+
+  my $work = File::Spec->catdir($tmp, 'run-command-cwd');
+  $guest->make_path($work);
+  my $cwd = $guest->run_command(command => 'pwd', cwd => $work);
+  chomp(my $observed = $cwd->{stdout});
+  is $observed, $work, 'the command runs in the requested working directory';
+
+  my $signaled = $guest->run_command(command => 'kill -TERM $$');
+  is $signaled->{exit_code}, undef, 'a signal-killed command reports an undefined exit code';
+};
+
 subtest 'process lifecycle' => sub {
   my $stdout = File::Spec->catfile($tmp, 'proc.stdout');
   my $stderr = File::Spec->catfile($tmp, 'proc.stderr');

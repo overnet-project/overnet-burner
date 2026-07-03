@@ -28,6 +28,10 @@ sub read_file {
   croak "guest classes must define read_file\n";
 }
 
+sub run_command {
+  croak "guest classes must define run_command\n";
+}
+
 sub launch {
   croak "guest classes must define launch\n";
 }
@@ -69,10 +73,11 @@ Version 0.001.
 A guest is a place workers run, behind a uniform interface, so runners can
 execute commands, move files, and probe readiness without knowing how the
 guest came to exist (see F<docs/provisioning.md>). The interface is
-deliberately small: create directories, write and read files, launch and
-reap processes, deliver signals, and aggregate worker readiness in one
-probe per guest. Everything the local exec transport does today, an SSH or
-container transport does tomorrow behind the same eight methods.
+deliberately small: create directories, write and read files, run a
+one-shot command to completion, launch and reap long-running processes,
+deliver signals, and aggregate worker readiness in one probe per guest.
+Everything the local exec transport does today, an SSH or container
+transport does tomorrow behind the same methods.
 
 =head1 SUBROUTINES/METHODS
 
@@ -89,6 +94,15 @@ container transport does tomorrow behind the same eight methods.
 =head2 write_file
 
 =head2 read_file
+
+=head2 run_command
+
+Run one command on the guest to completion and return its result as a hash
+reference with C<exit_code> (the integer exit status, or C<undef> when the
+command was killed by a signal), C<stdout>, and C<stderr>. Unlike C<launch>,
+which supervises a long-running worker, this is for the short lifecycle
+commands (a relay start, health probe, or stop) a runner needs to run on
+whichever guest a relay was placed on.
 
 =head2 launch
 

@@ -9,7 +9,8 @@ use Carp       qw(croak);
 use English    qw(-no_match_vars);
 use File::Path ();
 use File::Spec;
-use POSIX qw(WNOHANG);
+use File::Temp ();
+use POSIX      qw(WNOHANG);
 
 use Overnet::Burner::Util qw(checked_print);
 
@@ -54,6 +55,47 @@ sub read_file {
     or croak "close $path: $OS_ERROR\n";
 
   return $content;
+}
+
+sub run_command {
+  my ($self, %args) = @_;
+
+  my $command = $args{command} || croak "command is required\n";
+  my $cwd     = $args{cwd};
+  my $env     = ref $args{env} eq 'HASH' ? $args{env} : {};
+
+  my $out = File::Temp->new(UNLINK => 1);
+  my $err = File::Temp->new(UNLINK => 1);
+
+  my $pid = fork;
+  if (!defined $pid) {
+    croak "fork guest command: $OS_ERROR\n";
+  }
+  if ($pid == 0) {
+    local %ENV = (%ENV, %{$env});
+    if (defined $cwd) {
+      chdir $cwd or do {
+        checked_print(\*STDERR, "chdir $cwd: $OS_ERROR\n");
+        exit 127;
+      };
+    }
+    open STDOUT, '>', $out->filename or exit 127;
+    open STDERR, '>', $err->filename or exit 127;
+    if (!exec '/bin/sh', '-c', $command) {
+      exit 127;
+    }
+  }
+
+  if (waitpid($pid, 0) != $pid) {
+    croak "wait guest command: $OS_ERROR\n";
+  }
+  my $status = $CHILD_ERROR;
+
+  return {
+    exit_code => ($status & 127) ? undef : ($status >> 8),
+    stdout    => $self->read_file($out->filename) // q{},
+    stderr    => $self->read_file($err->filename) // q{},
+  };
 }
 
 sub launch {
@@ -158,6 +200,8 @@ existed.
 =head2 write_file
 
 =head2 read_file
+
+=head2 run_command
 
 =head2 launch
 

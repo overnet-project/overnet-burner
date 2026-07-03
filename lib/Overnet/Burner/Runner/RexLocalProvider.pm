@@ -11,7 +11,8 @@ use File::Path qw(make_path);
 use File::Spec;
 use JSON ();
 
-use Overnet::Burner::Util qw(checked_print read_json_file);
+use Overnet::Burner::Guest::Exec;
+use Overnet::Burner::Util qw(read_json_file write_file);
 
 our $VERSION = '0.001';
 
@@ -203,21 +204,21 @@ sub _run_topology_provider_command {
     exists $args{phase} ? (phase => $args{phase}) : (),
   );
 
-  $self->_record_topology_provider_event(%event_base, status => 'started');
+  my $guest = $self->_relay_guest_for($actor_id);
+  $self->_record_topology_provider_event(%event_base, guest => $guest->name, status => 'started');
 
-  my $status = _capture_shell_command(
-    cwd         => File::Spec->rel2abs($self->{run_dir}),
-    command     => $command,
-    stdout_path => File::Spec->rel2abs(File::Spec->catfile($self->{run_dir}, $relative_stdout),),
-    stderr_path => File::Spec->rel2abs(File::Spec->catfile($self->{run_dir}, $relative_stderr),),
+  my $outcome = $guest->run_command(
+    command => $command,
+    cwd     => File::Spec->rel2abs($self->{run_dir}),
   );
-  my $exit_code = ($status & 127) ? undef : ($status >> 8);
-  my $result_status =
-    defined $exit_code && $exit_code == 0
-    ? 'completed'
-    : 'failed';
-  my %result = (
+  write_file(File::Spec->rel2abs(File::Spec->catfile($self->{run_dir}, $relative_stdout)), $outcome->{stdout} // q{},);
+  write_file(File::Spec->rel2abs(File::Spec->catfile($self->{run_dir}, $relative_stderr)), $outcome->{stderr} // q{},);
+
+  my $exit_code     = $outcome->{exit_code};
+  my $result_status = defined $exit_code && $exit_code == 0 ? 'completed' : 'failed';
+  my %result        = (
     %event_base,
+    guest  => $guest->name,
     status => $result_status,
     defined $exit_code ? (exit_code => $exit_code) : (),
   );
@@ -232,8 +233,18 @@ sub _run_topology_provider_command {
   my $detail =
     defined $exit_code
     ? "exited with status $exit_code"
-    : "ended by signal " . ($status & 127);
+    : 'ended by a signal or transport failure';
   croak "provider command failed: $actor_id $kind $detail\n";
+}
+
+sub _relay_guest_for {
+  my ($self, $actor_id) = @_;
+
+  # The base provider runner runs relay lifecycle on the controller host.
+  # A runner that provisions relay guests overrides this to return the guest
+  # a relay was placed on, so the same lifecycle commands run there instead.
+  $self->{local_relay_guest} ||= Overnet::Burner::Guest::Exec->new(name => 'local', role => 'relays');
+  return $self->{local_relay_guest};
 }
 
 sub _record_topology_provider_event {
@@ -254,44 +265,6 @@ sub _record_topology_provider_event {
   );
 
   return 1;
-}
-
-sub _capture_shell_command {
-  my (%args) = @_;
-
-  my $cwd         = $args{cwd}         || croak "cwd is required\n";
-  my $command     = $args{command}     || croak "command is required\n";
-  my $stdout_path = $args{stdout_path} || croak "stdout_path is required\n";
-  my $stderr_path = $args{stderr_path} || croak "stderr_path is required\n";
-
-  my $pid = fork;
-  if (!defined $pid) {
-    croak "fork provider command: $OS_ERROR\n";
-  }
-
-  if ($pid == 0) {
-    chdir $cwd or do {
-      checked_print(\*STDERR, "chdir $cwd: $OS_ERROR\n");
-      exit 127;
-    };
-    open STDOUT, '>', $stdout_path or do {
-      checked_print(\*STDERR, "open $stdout_path: $OS_ERROR\n");
-      exit 127;
-    };
-    open STDERR, '>', $stderr_path or do {
-      checked_print(\*STDERR, "open $stderr_path: $OS_ERROR\n");
-      exit 127;
-    };
-    if (!exec '/bin/sh', '-c', $command) {
-      checked_print(\*STDERR, "exec /bin/sh: $OS_ERROR\n");
-      exit 127;
-    }
-  }
-
-  if (waitpid($pid, 0) != $pid) {
-    croak "wait provider command: $OS_ERROR\n";
-  }
-  return $CHILD_ERROR;
 }
 
 sub _read_json {
