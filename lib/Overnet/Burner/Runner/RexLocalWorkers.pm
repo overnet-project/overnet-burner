@@ -514,6 +514,19 @@ sub _destroy_worker_guests {
   return 1;
 }
 
+sub teardown_on_signal {
+  my ($self) = @_;
+
+  # Called from a signal handler: destroy every constructed guest so a
+  # Ctrl-C or kill leaves no orphaned container, virtual machine, or per-run
+  # network. Guest destroy is idempotent and best-effort (it never dies), so
+  # an orderly teardown that already ran makes this a quiet no-op. Connect
+  # guests are operator-owned and their destroy is a no-op by design.
+  $self->_destroy_worker_guests;
+
+  return 1;
+}
+
 sub cleanup_after_lifecycle_failure {
   my ($self, %args) = @_;
 
@@ -1175,6 +1188,8 @@ Version 0.001.
 =head2 collect
 
 =head2 summary_fields
+
+=head2 teardown_on_signal
 
 =head2 cleanup_after_lifecycle_failure
 

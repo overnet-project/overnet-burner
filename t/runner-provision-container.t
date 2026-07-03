@@ -3,8 +3,10 @@ use strictures 2;
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
-use JSON ();
+use JSON  ();
+use POSIX qw(WNOHANG);
 use Test2::V0;
+use Time::HiRes qw(sleep time);
 
 use lib "$FindBin::Bin/../lib";
 
@@ -370,7 +372,116 @@ YAML
   }
 };
 
+subtest 'a SIGINT mid-run tears down containers instead of orphaning them' => sub {
+  my $signal_log = File::Spec->catfile($tmp, 'engine-signal.log');
+  local $ENV{OVERNET_BURNER_TEST_ENGINE_LOG} = $signal_log;
+  local $ENV{OVERNET_BURNER_DOCKER}          = _write_emulating_engine($tmp);
+  local $ENV{OVERNET_BURNER_TEST_REMAP_FROM} = File::Spec->catdir($tmp, 'runs');
+  local $ENV{OVERNET_BURNER_TEST_REMAP_TO}   = File::Spec->catdir($tmp, 'guest-fs', 'runs');
+
+  # A worker that idles keeps the run in its observe window long enough to
+  # interrupt it, so the only container removal that can appear comes from
+  # the signal teardown rather than an orderly collect.
+  my $worker   = _write_sleeping_worker($tmp);
+  my $scenario = File::Spec->catfile($tmp, 'container-signal.yml');
+  _spew($scenario, <<"YAML");
+run:
+  name: container-signal
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+    endpoints:
+      - ws://127.0.0.1:59999
+  publishers:
+    count: 2
+workload:
+  publish_rate_per_second: 5
+provision:
+  workers:
+    how: container
+    image: example.test/worker:fake
+    count: 2
+    worker: "$^X $worker"
+YAML
+
+  my $run_id = 'container-signal-001';
+  my $pid    = fork;
+  defined $pid or die "fork: $!";
+  if (!$pid) {
+    open STDOUT, '>', File::Spec->devnull or exit 127;
+    open STDERR, '>', File::Spec->devnull or exit 127;
+    exec $^X, $bin, 'run', '--scenario', $scenario, '--runs-dir', "$tmp/runs", '--run-id', $run_id,
+      '--runner', 'rex-local-workers';
+    exit 127;
+  }
+
+  my $created = _wait_until(
+    sub {
+      my @runs = grep {/\Arun\x{0}-d\x{0}--name\x{0}burner-\Q$run_id\E/mx} split /\n/, _slurp_if($signal_log);
+      return scalar @runs >= 2;
+    },
+    30,
+  );
+  if (!$created) {
+    kill 'KILL', $pid;
+    waitpid $pid, 0;
+  }
+  ok $created, 'both containers were created before the interrupt';
+
+  kill 'INT', $pid;
+  my $exited = _wait_until(sub { waitpid($pid, WNOHANG) == $pid }, 30);
+  if (!$exited) {
+    kill 'KILL', $pid;
+    waitpid $pid, 0;
+  }
+  ok $exited, 'the interrupted run exited';
+
+  my @removed = grep {/\Arm\x{0}-f\x{0}burner-\Q$run_id\E/mx} split /\n/, _slurp($signal_log);
+  is scalar @removed, 2, 'a SIGINT tore down both containers instead of orphaning them';
+};
+
 done_testing;
+
+sub _write_sleeping_worker {
+  my ($dir) = @_;
+  my $path = File::Spec->catfile($dir, 'sleeping-worker');
+  _spew($path, <<'PERL');
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use JSON::PP ();
+my $input_path = $ENV{OVERNET_BURNER_WORKER_INPUT} or die "input required\n";
+open my $in, '<', $input_path or die "open: $!";
+my $input = JSON::PP::decode_json(do { local $/; <$in> });
+close $in or die "close: $!";
+open my $ready, '>', "$input->{run_dir}/$input->{ready_file}" or die "ready: $!";
+close $ready or die "close ready: $!";
+sleep 20;
+exit 0;
+PERL
+  chmod 0755, $path or die "chmod: $!";
+  return $path;
+}
+
+sub _wait_until {
+  my ($cond, $timeout) = @_;
+  my $deadline = time + $timeout;
+  while (time < $deadline) {
+    if ($cond->()) {
+      return 1;
+    }
+    sleep 0.05;
+  }
+  return 0;
+}
+
+sub _slurp_if {
+  my ($path) = @_;
+  return -e $path ? _slurp($path) : q{};
+}
 
 sub _write_scenario {
   my ($dir, $basename, $provision_yaml, $endpoint) = @_;

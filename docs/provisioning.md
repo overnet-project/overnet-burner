@@ -284,6 +284,20 @@ Provisioning slots into the existing runner phases:
    teardown never destroys the evidence needed to diagnose a failure.
 4. **finish** — orderly guest teardown, unless guests are kept.
 
+**Teardown guarantees.** A constructed guest never outlives its run under
+any exit the burner can observe: guests are destroyed on success (after
+collection), on a handled failure (`cleanup_after_lifecycle_failure`), and
+when a running burner is interrupted by `SIGINT` (Ctrl-C) or `SIGTERM` — the
+runner installs a signal handler that destroys every registered guest,
+removes the per-run network, then re-raises the signal so the process still
+exits with signal semantics. `destroy` is idempotent and best-effort, so an
+interrupt during an already-orderly teardown is a quiet no-op, and a
+constructed resource is always namespaced `burner-<run_id>[-<guest>]`. The
+only case that can leak is an untrappable hard kill (`SIGKILL`, power loss),
+which no in-process handler can cover; those are the operator's
+manual-cleanup case, and the naming scheme makes the orphans greppable
+(`docker ps -a --filter name=burner-`, `pkill -f 'qemu.*burner-'`).
+
 **Guest reuse:** a `--keep-guests` run leaves guests provisioned and
 records them; a later run can `--reuse-guests` to skip provisioning
 entirely, and a `guest login <name>` convenience should exist for

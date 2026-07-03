@@ -3,7 +3,7 @@ package Overnet::Burner::Runner;
 use strictures 2;
 use Moo;
 
-use Carp    qw(croak);
+use Carp    qw(carp croak);
 use English qw(-no_match_vars);
 use File::Spec;
 use JSON ();
@@ -81,6 +81,14 @@ sub _constructor_args_hash {
 sub run_lifecycle {
   my ($self) = @_;
 
+  # A Ctrl-C or kill during a run must not orphan constructed guests
+  # (containers, virtual machines, per-run networks). Tear them down
+  # best-effort on the way out, then re-raise so the process still exits
+  # with signal semantics. Hard kills (SIGKILL, power loss) cannot be
+  # trapped and remain the operator's manual-cleanup case.
+  local $SIG{INT}  = sub { $self->_handle_termination_signal('INT') };
+  local $SIG{TERM} = sub { $self->_handle_termination_signal('TERM') };
+
   my %phases;
   my $actor_counts = $self->actor_counts;
 
@@ -149,6 +157,30 @@ sub run_lifecycle {
   $self->write_summary_artifact($summary);
 
   return $summary;
+}
+
+sub _handle_termination_signal {
+  my ($self, $signal) = @_;
+
+  if (!eval { $self->teardown_on_signal($signal); 1 }) {
+    carp "guest teardown on SIG$signal did not complete cleanly";
+  }
+
+  # Restore the default disposition and re-raise so the run still terminates
+  # by the signal it was sent rather than swallowing it. The assignment is
+  # deliberately global: the process is on its way out.
+  $SIG{$signal} = 'DEFAULT';    ## no critic (Variables::RequireLocalizedPunctuationVars)
+  kill $signal, $PROCESS_ID;
+
+  return;
+}
+
+sub teardown_on_signal {
+
+  # Base runners construct no guests and have nothing to release. Runners
+  # that provision containers or virtual machines override this to destroy
+  # them when a run is interrupted.
+  return 1;
 }
 
 sub lifecycle_phases {
@@ -221,6 +253,13 @@ Version 0.001.
 =head2 summary_fields
 
 =head2 cleanup_after_lifecycle_failure
+
+=head2 teardown_on_signal
+
+Release any constructed guests when the run is interrupted by C<SIGINT> or
+C<SIGTERM>. The base implementation is a no-op; provisioning runners override
+it so a Ctrl-C or kill does not orphan containers, virtual machines, or
+per-run networks.
 
 =head2 write_summary_artifact
 
