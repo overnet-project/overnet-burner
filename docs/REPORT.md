@@ -139,7 +139,14 @@ Scenario threshold ids map to summarized metrics as follows:
 |---|---|---|---|
 | `publish_p99_ms` | `publish.latency_ms.p99` | `<=` | `ms` |
 | `subscription_fanout_p99_ms` | `subscription_fanout.latency_ms.p99` | `<=` | `ms` |
+| `query_p99_ms` | `query.latency_ms.p99` | `<=` | `ms` |
+| `object_read_p99_ms` | `object_read.latency_ms.p99` | `<=` | `ms` |
 | `error_rate_max` | `overall.error_rate` | `<=` | `ratio` |
+
+A threshold id that is not in the registry is itself resolved as a raw
+metric path with the `<=` comparator and no unit, so any summarized value
+can be judged — for example `query.latency_ms.p50: 60` or
+`custom_op.latency_ms.max: 250` for a custom operation's stream.
 
 Metric paths resolve into the summarized metrics: `overall.*` resolves into
 the run-wide counters, and any other first segment names an operation

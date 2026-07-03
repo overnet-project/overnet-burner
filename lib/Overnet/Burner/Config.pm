@@ -115,6 +115,7 @@ sub _validate_chaos {
   my ($config) = @_;
 
   my %actions     = map { $_ => 1 } qw(restart start stop);
+  my %reserved    = map { $_ => 1 } qw(net-delay net-loss partition heal);
   my $duration    = $config->{run}{duration};
   my $relay_count = $config->{topology}{relays}{count};
   my $hooks       = _require_array_of_mappings($config, 'chaos');
@@ -131,6 +132,9 @@ sub _validate_chaos {
     }
 
     my $action = $hook->{action};
+    if (defined $action && !ref($action) && $reserved{$action}) {
+      croak "chaos[$index].action $action is reserved for a future version\n";
+    }
     if (!(defined $action && !ref($action) && $actions{$action})) {
       croak "chaos[$index].action must be one of restart, start, stop\n";
     }

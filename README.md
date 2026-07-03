@@ -62,11 +62,16 @@ Implemented so far:
 - scheduled chaos hooks executed through topology provider lifecycle
   commands, judged as chaos experiments in the report
 
-In progress, in proposal order:
+In progress, in decided order:
 
-- distributed scale mode (design proposals in
-  [docs/distributed.md](docs/distributed.md) and
-  [docs/provisioning.md](docs/provisioning.md))
+- workload phases (warmup / main / cooldown, thresholds judged on the main
+  phase only)
+- the observer reference worker (relay-side black-box evidence)
+- guest provisioning: local, connect, container (Docker and podman), and
+  virtual (design proposals in [docs/provisioning.md](docs/provisioning.md)
+  and [docs/distributed.md](docs/distributed.md))
+- network chaos actions on provisioned guests (names reserved in
+  [docs/chaos.md](docs/chaos.md))
 
 ## Testing
 

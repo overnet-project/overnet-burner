@@ -252,6 +252,26 @@ YAML
     qr/chaos\[0\]\.action\ must\ be\ one\ of\ restart,\ start,\ stop/mx,
   ],
   [
+    'chaos hook with a reserved action',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+chaos:
+  - at: 10
+    action: net-delay
+    target: relay:1
+YAML
+    qr/chaos\[0\]\.action\ net-delay\ is\ reserved\ for\ a\ future\ version/mx,
+  ],
+  [
     'chaos hook scheduled past the run duration',
     <<'YAML',
 run:

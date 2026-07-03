@@ -78,7 +78,7 @@ provision:
 |---|---|---|
 | `local` | Nothing — the controller host itself | The default; exactly today's behavior |
 | `connect` | Nothing — attaches to machines you already have | The `hosts` sketch in distributed.md collapses into this method |
-| `container` | Podman/Docker containers | Cheap scale-out; shares the host kernel; the CI-testable path for everything distributed |
+| `container` | Docker or podman containers | Cheap scale-out; shares the host kernel; the CI-testable path for everything distributed |
 | `virtual` | QEMU/libvirt virtual machines | Real kernels and network stacks; honors hardware requirements by construction |
 
 Groups are keyed by what they host (`relays`, `workers`); omitting the
@@ -88,6 +88,44 @@ every existing scenario valid.
 Constructing methods (`container`, `virtual`) take a `count`; attaching
 methods (`connect`) take an explicit `guests` list. `local` is always a
 single implicit guest.
+
+### Container Engines
+
+Unlike tmt, which requires podman, the `container` method MUST support both
+Docker and podman behind one engine adapter:
+
+```yaml
+provision:
+  workers:
+    how: container
+    engine: auto   # auto (default) | docker | podman
+```
+
+- The adapter uses only the CLI surface the two engines share (`run`,
+  `exec`, `cp`, `inspect`, `rm`, `network create` / `network rm`), and both
+  engines are exercised by the same conformance tests — an engine that
+  needs special-casing beyond flag spelling is a design failure.
+- `engine: auto` probes for a working engine and prefers Docker when both
+  are present; the chosen engine and its version are recorded in the run
+  ledger, never assumed.
+- Divergences are validated at provision time rather than discovered
+  mid-run: container-name DNS on user-defined networks requires
+  aardvark-dns under rootless podman, and a `docker` alias that actually
+  invokes podman is detected and recorded as podman.
+
+### Container Decisions
+
+- **One worker per container.** A guest is a container is a worker —
+  placement, readiness, logs, and failure attribution stay simple and the
+  isolation the report implies is real. A density knob may come later if
+  container overhead proves limiting at scale; it is deliberately not in
+  v1.
+- **A per-run bridge network.** Each run creates its own named network
+  (`burner-<run-id>`); relays are addressed by container DNS name, nothing
+  is published to the host by default, parallel runs cannot contend for
+  ports, and teardown removes the network. Hosts where the controller
+  cannot reach bridge networks directly (macOS engine VMs) will need a
+  published-port fallback, which is explicitly a fallback, not the design.
 
 ## Hardware Requirements
 
@@ -111,6 +149,11 @@ requirement and their actual facts in the ledger and warn when they cannot
 honor it — a run must never silently pretend it got the hardware it asked
 for. `connect` validates discovered facts against the requirement and
 fails the run on mismatch.
+
+**v1 scope (decided):** `arch`, `memory`, and `cpu.cores`, with the full
+grammar (`and`/`or` groups, operators, units) parsed and reserved so
+scenarios written today stay valid as coverage grows. A requirement key
+outside the implemented set is a validation error, not a silent no-op.
 
 ## Placement
 
@@ -181,12 +224,18 @@ contract changes.
 4. **`virtual`** — QEMU/libvirt with hardware requirements; lab
    environments.
 
+## Readiness At Scale
+
+Readiness is probed per guest, not per worker: one aggregate command per
+guest per poll cycle (list the ready-file directory through the guest
+interface), so polling cost scales with the number of guests. This stays
+agentless — no daemon is deployed to guests, and everything runs through
+the same four-operation guest interface.
+
 ## Open Questions
 
-- Whether container guests should get one worker per container or many
-  (tmt is one-guest-one-container; workers are lighter than test suites,
-  so a density knob may be worth it).
-- Whether relay guests provisioned as containers should publish ports to
-  the host network or use a shared network namespace per run.
-- How far to take the hardware specification in v1 — likely `memory`,
-  `cpu.cores`, and `arch` only, with the grammar reserved for the rest.
+- Whether the published-port network fallback should be automatic when the
+  bridge network is unreachable from the controller, or always an explicit
+  scenario choice.
+- Whether `virtual` should reuse tmt's testcloud image conventions or take
+  plain QCOW2 paths only.

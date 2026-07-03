@@ -26,6 +26,23 @@ chaos:
 The v1 action vocabulary is closed: an unknown action is a scenario
 validation error, not a silently skipped hook.
 
+### Reserved Actions (v2, not implemented)
+
+The following action names are reserved for network fault injection and
+will be implemented once guests provisioned as containers or virtual
+machines exist (see [provisioning.md](provisioning.md)) — a network can
+only be injured safely inside a namespace or VM that belongs to the run:
+
+| Action | Semantics |
+|---|---|
+| `net-delay` | Add latency (and optionally jitter) to the target's network interface |
+| `net-loss` | Drop a percentage of the target's packets |
+| `partition` | Cut connectivity between the target and named peers |
+| `heal` | Remove all network faults previously applied to the target |
+
+Scenarios using reserved actions are rejected today with a message saying
+the action is reserved, so the names are safe to design against.
+
 ## Plan Expansion
 
 Each hook becomes a plan `chaos_hooks` entry with a stable id

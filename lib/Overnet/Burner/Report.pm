@@ -23,8 +23,18 @@ my %THRESHOLD = (
     comparator => '<=',
     unit       => 'ratio',
   },
+  object_read_p99_ms => {
+    metric     => 'object_read.latency_ms.p99',
+    comparator => '<=',
+    unit       => 'ms',
+  },
   publish_p99_ms => {
     metric     => 'publish.latency_ms.p99',
+    comparator => '<=',
+    unit       => 'ms',
+  },
+  query_p99_ms => {
+    metric     => 'query.latency_ms.p99',
     comparator => '<=',
     unit       => 'ms',
   },

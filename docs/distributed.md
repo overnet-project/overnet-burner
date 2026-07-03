@@ -122,6 +122,6 @@ convention in [workers.md](workers.md) already anticipates.
 - Live progress: whether the controller should sample remote metric
   streams mid-run for operator feedback, and how to do that without
   perturbing the workload.
-- Scale of readiness polling: per-file SSH polling will not survive
-  thousands of workers; a per-host readiness aggregator command is the
-  probable answer.
+- Readiness polling is settled in [provisioning.md](provisioning.md):
+  one aggregate probe per guest per poll cycle, agentless, through the
+  guest interface.

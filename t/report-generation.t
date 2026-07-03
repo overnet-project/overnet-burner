@@ -253,6 +253,58 @@ subtest 'a threshold without its metric is inconclusive' => sub {
   is $report->{run}{result_class}, 'performance', 'inconclusive threshold runs stay performance-classified';
 };
 
+subtest 'reader operations are judged by thresholds' => sub {
+  my $scenario_readers = File::Spec->catfile($tmp, 'reader-thresholds.yml');
+  _write_text($scenario_readers, <<'YAML');
+run:
+  name: reader-thresholds
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+  subscribers:
+    count: 0
+  query_readers:
+    count: 1
+  object_readers:
+    count: 1
+workload:
+  publish_rate_per_second: 10
+thresholds:
+  query_p99_ms: 100
+  object_read_p99_ms: 100
+  query.latency_ms.p50: 60
+YAML
+
+  my $run_dir = _run_with_metric_streams(
+    'report-reader-thresholds-001',
+    -scenario          => $scenario_readers,
+    'publisher-001'    => [_metric_event(duration_ms => 10)],
+    'query-reader-001' => [
+      _metric_event(operation => 'query', role => 'query_reader', duration_ms => 50),
+      _metric_event(operation => 'query', role => 'query_reader', duration_ms => 60),
+    ],
+    'object-reader-001' => [_metric_event(operation => 'object_read', role => 'object_reader', duration_ms => 150)],
+  );
+
+  my $report = _regenerated_report($run_dir);
+
+  my %thresholds = map { $_->{id} => $_ } @{$report->{thresholds}};
+  is $thresholds{query_p99_ms}{status},         'passed',               'query p99 threshold evaluates';
+  is $thresholds{query_p99_ms}{observed_value}, 60,                     'query p99 records the observed value';
+  is $thresholds{query_p99_ms}{metric},         'query.latency_ms.p99', 'query p99 resolves its registry metric';
+  is $thresholds{object_read_p99_ms}{status},   'failed',               'object read p99 threshold evaluates';
+  is $thresholds{object_read_p99_ms}{observed_value},     150,          'object read p99 records the observed value';
+  is $thresholds{'query.latency_ms.p50'}{status},         'passed',     'a raw metric path is a usable threshold id';
+  is $thresholds{'query.latency_ms.p50'}{observed_value}, 50,           'raw path threshold records the observed value';
+
+  is $report->{run}{verdict}, 'performance_failed', 'the failed reader threshold fails the run';
+};
+
 subtest 'a corrupt metric stream is surfaced instead of summarized around' => sub {
   my $run_dir = _run_with_metric_streams(
     'report-metrics-corrupt-001',
@@ -300,7 +352,8 @@ sub _metric_event {
 sub _run_with_metric_streams {
   my ($run_id, %streams_by_actor) = @_;
 
-  my $run = `$^X $bin run --scenario $scenario --runs-dir $tmp --run-id $run_id --runner noop 2>&1`;
+  my $scenario_path = delete $streams_by_actor{-scenario} || $scenario;
+  my $run           = `$^X $bin run --scenario $scenario_path --runs-dir $tmp --run-id $run_id --runner noop 2>&1`;
   is $?, 0, "$run_id run completes";
   my $run_dir = File::Spec->catdir($tmp, $run_id);
 
