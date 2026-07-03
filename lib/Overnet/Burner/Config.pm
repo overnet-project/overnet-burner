@@ -59,6 +59,11 @@ sub normalize {
     if (!exists $copy->{provision}{$group}{how}) {
       $copy->{provision}{$group}{how} = 'local';
     }
+    if (($copy->{provision}{$group}{how} || q{}) eq 'container') {
+      $copy->{provision}{$group}{engine}  ||= 'auto';
+      $copy->{provision}{$group}{count}   ||= 1;
+      $copy->{provision}{$group}{network} ||= 'host';
+    }
   }
 
   return $copy;
@@ -154,7 +159,7 @@ sub _validate_provision {
 
   my %implemented = (
     relays  => {local => 1},
-    workers => {local => 1, connect => 1},
+    workers => {local => 1, connect => 1, container => 1},
   );
   my %designed = map { $_ => 1 } qw(local connect container virtual);
 
@@ -168,11 +173,52 @@ sub _validate_provision {
       croak "provision.$group.how $how is not implemented yet\n";
     }
 
+    if (exists $spec->{worker}) {
+      my $worker = $spec->{worker};
+      if (!(defined $worker && !ref($worker) && length $worker)) {
+        croak "provision.$group.worker must be a non-empty string\n";
+      }
+    }
+
     if ($how eq 'connect') {
       _validate_provision_guests($config, $group);
     } elsif (exists $spec->{guests}) {
       croak "provision.$group.guests is only valid for how: connect\n";
     }
+
+    if ($how eq 'container') {
+      _validate_provision_container($config, $group);
+    }
+  }
+
+  return 1;
+}
+
+sub _validate_provision_container {
+  my ($config, $group) = @_;
+
+  my $path = "provision.$group";
+  my $spec = _value_at($config, $path);
+
+  my $image = $spec->{image};
+  if (!(defined $image && !ref($image) && length $image)) {
+    croak "$path.image is required for how: container\n";
+  }
+
+  my %engines = map { $_ => 1 } qw(auto docker podman);
+  my $engine  = $spec->{engine};
+  if (!(defined $engine && !ref($engine) && $engines{$engine})) {
+    croak "$path.engine must be one of auto, docker, podman\n";
+  }
+
+  _require_positive_integer($config, "$path.count");
+
+  my $network = $spec->{network};
+  if (!(defined $network && !ref($network) && length $network)) {
+    croak "$path.network must be a non-empty string\n";
+  }
+  if ($network ne 'host') {
+    croak "$path.network $network is not implemented yet for worker guests\n";
   }
 
   return 1;

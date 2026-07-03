@@ -82,6 +82,14 @@ jobs:
             echo "OVERNET_BURNER_TEST_SSH_KEY=$HOME/.ssh/burner_test"
           } >> "$GITHUB_ENV"
 
+      - name: Detect container engines for container-method tests
+        run: |
+          engines=""
+          docker info > /dev/null 2>&1 && engines="docker"
+          podman info > /dev/null 2>&1 && engines="$engines podman"
+          echo "OVERNET_BURNER_TEST_CONTAINER_ENGINES=${engines# }" >> "$GITHUB_ENV"
+          echo "container engines available: ${engines:-none}"
+
       - name: Run tests
         run: |
           prove -r -l -v t/

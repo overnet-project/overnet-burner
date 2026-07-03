@@ -465,6 +465,30 @@ YAML
   is $default->{provision}{workers}{how}, 'local', 'omitting provision means local for every group';
   is $default->{provision}{relays}{how},  'local', 'omitting provision means local for relays too';
 
+  my $container = "$tmp/provision-container.yml";
+  _write_yaml($container, <<'YAML');
+run:
+  name: provision-container
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: ghcr.io/example/worker:latest
+YAML
+  my $container_config = Overnet::Burner::Config->load_file($container);
+  is $container_config->{provision}{workers}{engine},  'auto', 'container engine defaults to auto';
+  is $container_config->{provision}{workers}{count},   1,      'container count defaults to one';
+  is $container_config->{provision}{workers}{network}, 'host', 'worker containers default to host networking';
+
   my @rejections = (
     [
       'unknown group',
@@ -500,6 +524,26 @@ YAML
       'local with guests',
       "provision:\n  workers:\n    how: local\n    guests:\n      - address: nope",
       qr/provision\.workers\.guests\ is\ only\ valid\ for\ how:\ connect/mx,
+    ],
+    [
+      'container without image',
+      "provision:\n  workers:\n    how: container",
+      qr/provision\.workers\.image\ is\ required\ for\ how:\ container/mx,
+    ],
+    [
+      'container with unknown engine',
+      "provision:\n  workers:\n    how: container\n    image: w:1\n    engine: rocket",
+      qr/provision\.workers\.engine\ must\ be\ one\ of\ auto,\ docker,\ podman/mx,
+    ],
+    [
+      'container with bridge networking',
+      "provision:\n  workers:\n    how: container\n    image: w:1\n    network: bridge",
+      qr/provision\.workers\.network\ bridge\ is\ not\ implemented\ yet\ for\ worker\ guests/mx,
+    ],
+    [
+      'empty worker command',
+      "provision:\n  workers:\n    how: local\n    worker: ''",
+      qr/provision\.workers\.worker\ must\ be\ a\ non-empty\ string/mx,
     ],
   );
 

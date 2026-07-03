@@ -18,8 +18,11 @@ examples/metric-events-v1-sample.jsonl
 examples/report-v1-smoke.json
 examples/worker-input-v1-sample.json
 lib/Overnet/Burner/Config.pm
+lib/Overnet/Burner/ContainerEngine.pm
 lib/Overnet/Burner/Guest.pm
+lib/Overnet/Burner/Guest/Container.pm
 lib/Overnet/Burner/Guest/Exec.pm
+lib/Overnet/Burner/Guest/Remote.pm
 lib/Overnet/Burner/Guest/SSH.pm
 lib/Overnet/Burner/Metrics.pm
 lib/Overnet/Burner/Plan.pm
@@ -50,7 +53,9 @@ schemas/report-v1.schema.json
 schemas/worker-input-v1.schema.json
 t/cli.t
 t/config.t
+t/container-engine.t
 t/github-ci.t
+t/guest-container.t
 t/guest-exec.t
 t/guest-ssh.t
 t/makemaker-metadata.t
@@ -63,6 +68,7 @@ t/rex-bundle.t
 t/run-ledger.t
 t/runner-noop.t
 t/runner-provision-connect.t
+t/runner-provision-container.t
 t/runner-rex-local-provider.t
 t/runner-rex-local-workers.t
 t/runner-rex-local.t

@@ -1,11 +1,17 @@
 # overnet-burner Guest Provisioning (Design)
 
 **Status: partially implemented.** The guest interface, the `local` method,
-and the `connect` method for the workers group are implemented and tested;
-`container` and `virtual` (and `connect` for the relays group) remain
-proposed design, rejected by scenario validation as not implemented yet.
-Where this document conflicts with the implemented contracts, the
-implemented contracts win. This design deliberately borrows from
+and the `connect` and `container` methods for the workers group are
+implemented and tested (both Docker and podman, with the engine adapter and
+detection rules below); `virtual` — and every method other than `local` for
+the relays group — remains proposed design, rejected by scenario validation
+as not implemented yet. One deliberate deviation while relays run on the
+controller host: **worker containers default to host networking**, because
+a bridge-networked worker cannot reach relay endpoints declared as
+`ws://127.0.0.1`; the per-run bridge network applies when relay guests
+exist, and other worker network modes are rejected until then. Where this
+document conflicts with the implemented contracts, the implemented
+contracts win. This design deliberately borrows from
 [tmt](https://github.com/teemtee/tmt), whose provision step solved the same
 problem for test environments: one plan, interchangeable provisioning
 backends behind a single guest interface.

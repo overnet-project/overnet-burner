@@ -44,6 +44,10 @@ sub ready_actors {
   croak "guest classes must define ready_actors\n";
 }
 
+sub destroy {
+  return 1;
+}
+
 1;
 
 =head1 NAME
@@ -93,6 +97,12 @@ container transport does tomorrow behind the same eight methods.
 =head2 signal
 
 =head2 ready_actors
+
+=head2 destroy
+
+Release any provisioned resources backing the guest. The default is a
+no-op because attached and local guests own nothing; constructed guests
+(containers, virtual machines) override it.
 
 =head1 DIAGNOSTICS
 

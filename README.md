@@ -67,13 +67,13 @@ Implemented so far:
   relay_ping probes of every endpoint)
 
 - the guest interface with the local exec transport and the connect (SSH)
-  provisioning method for workers, with deterministic placement recorded in
-  guests.json
+  and container (Docker and podman, one engine adapter) provisioning
+  methods for workers, with deterministic placement recorded in guests.json
 
 In progress, in decided order:
 
-- guest provisioning continued: container (Docker and podman) and virtual
-  (design in [docs/provisioning.md](docs/provisioning.md) and
+- guest provisioning continued: virtual, and container/connect for relay
+  guests (design in [docs/provisioning.md](docs/provisioning.md) and
   [docs/distributed.md](docs/distributed.md))
 - network chaos actions on provisioned guests (names reserved in
   [docs/chaos.md](docs/chaos.md))

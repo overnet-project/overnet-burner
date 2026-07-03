@@ -12,6 +12,8 @@ use File::Spec;
 use JSON        ();
 use Time::HiRes qw(sleep time);
 
+use Overnet::Burner::ContainerEngine;
+use Overnet::Burner::Guest::Container;
 use Overnet::Burner::Guest::Exec;
 use Overnet::Burner::Guest::SSH;
 use Overnet::Burner::Util qw(json_text read_json_file write_file);
@@ -53,21 +55,14 @@ sub _provision_worker_guests {
   my $workers   = ref $provision->{workers} eq 'HASH' ? $provision->{workers} : {};
   my $how       = $workers->{how} || 'local';
 
+  $self->{worker_command} = $workers->{worker};
+
   my @guests;
+  my $engine;
   if ($how eq 'connect') {
-    my $ordinal = 0;
-    for my $entry (@{$workers->{guests} || []}) {
-      $ordinal++;
-      push @guests,
-        Overnet::Burner::Guest::SSH->new(
-        name    => sprintf('worker-guest-%03d', $ordinal),
-        role    => 'workers',
-        address => $entry->{address},
-        exists $entry->{user} ? (user => $entry->{user}) : (),
-        exists $entry->{port} ? (port => $entry->{port}) : (),
-        exists $entry->{key}  ? (key  => $entry->{key})  : (),
-        );
-    }
+    @guests = $self->_connect_guests($workers);
+  } elsif ($how eq 'container') {
+    ($engine, @guests) = $self->_container_guests($workers);
   } else {
     push @guests, Overnet::Burner::Guest::Exec->new(name => 'local', role => 'workers');
   }
@@ -79,30 +74,113 @@ sub _provision_worker_guests {
     $self->{actor_guests}{$actor->{id}} = $guest;
   }
 
-  my @guest_records;
-  for my $guest (@guests) {
-    push @guest_records,
-      {
-      name      => $guest->name,
-      role      => $guest->role,
-      transport => $guest->transport,
-      $guest->transport eq 'ssh'
-      ? (
-        address => $guest->address,
-        defined $guest->user ? (user => $guest->user) : (),
-        defined $guest->port ? (port => $guest->port) : (),
-        defined $guest->key  ? (key  => $guest->key)  : (),
-        )
-      : (),
-      };
-  }
-  my %placement = map { $_ => $self->{actor_guests}{$_}->name } keys %{$self->{actor_guests}};
+  my @guest_records = map { _guest_record($_) } @guests;
+  my %placement     = map { $_ => $self->{actor_guests}{$_}->name } keys %{$self->{actor_guests}};
   write_file(
     File::Spec->catfile($self->{run_dir}, 'guests.json'),
-    json_text({guests => \@guest_records, placement => \%placement}),
+    json_text(
+      {
+        guests    => \@guest_records,
+        placement => \%placement,
+        $engine ? (engine => {name => $engine->name, version => $engine->version}) : (),
+      }
+    ),
   );
 
   return 1;
+}
+
+sub _connect_guests {
+  my ($self, $workers) = @_;
+
+  my @guests;
+  my $ordinal = 0;
+  for my $entry (@{$workers->{guests} || []}) {
+    $ordinal++;
+    push @guests,
+      Overnet::Burner::Guest::SSH->new(
+      name    => sprintf('worker-guest-%03d', $ordinal),
+      role    => 'workers',
+      address => $entry->{address},
+      exists $entry->{user} ? (user => $entry->{user}) : (),
+      exists $entry->{port} ? (port => $entry->{port}) : (),
+      exists $entry->{key}  ? (key  => $entry->{key})  : (),
+      );
+  }
+
+  return @guests;
+}
+
+sub _container_guests {
+  my ($self, $workers) = @_;
+
+  my $engine   = Overnet::Burner::ContainerEngine->detect(engine => $workers->{engine} || 'auto');
+  my $manifest = read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
+  my $run_id   = $manifest->{run_id};
+
+  my @guests;
+  for my $ordinal (1 .. ($workers->{count} || 1)) {
+    my $guest_name = sprintf 'worker-guest-%03d', $ordinal;
+    my $container  = "burner-$run_id-$guest_name";
+    $engine->run_detached(
+      name    => $container,
+      image   => $workers->{image},
+      network => $workers->{network} || 'host',
+      command => ['sleep', 'infinity'],
+    );
+    push @guests,
+      Overnet::Burner::Guest::Container->new(
+      name      => $guest_name,
+      role      => 'workers',
+      engine    => $engine,
+      container => $container,
+      image     => $workers->{image},
+      );
+  }
+
+  return ($engine, @guests);
+}
+
+sub _guest_record {
+  my ($guest) = @_;
+
+  my %guest_record = (
+    name      => $guest->name,
+    role      => $guest->role,
+    transport => $guest->transport,
+  );
+  if ($guest->transport eq 'ssh') {
+    $guest_record{address} = $guest->address;
+    for my $field (qw(user port key)) {
+      if (defined $guest->$field) {
+        $guest_record{$field} = $guest->$field;
+      }
+    }
+  }
+  if ($guest->transport eq 'container') {
+    $guest_record{container} = $guest->container;
+    $guest_record{image}     = $guest->image;
+  }
+
+  return \%guest_record;
+}
+
+sub _destroy_worker_guests {
+  my ($self) = @_;
+
+  for my $guest (@{$self->{worker_guests} || []}) {
+    $guest->destroy;
+  }
+
+  return 1;
+}
+
+sub cleanup_after_lifecycle_failure {
+  my ($self, %args) = @_;
+
+  $self->_destroy_worker_guests;
+
+  return $self->SUPER::cleanup_after_lifecycle_failure(%args);
 }
 
 sub _guest_for {
@@ -187,6 +265,7 @@ sub collect {
     phase             => 'collect',
     streams_collected => \@collected,
   );
+  $self->_destroy_worker_guests;
 
   return 1;
 }
@@ -272,7 +351,7 @@ sub _launch_worker {
   my $input_path = File::Spec->catfile($worker_dir, 'input.json');
   $guest->write_file($input_path, json_text($input));
 
-  my $command = $ENV{OVERNET_BURNER_WORKER} || 'overnet-burner-worker';
+  my $command = $self->{worker_command} || $ENV{OVERNET_BURNER_WORKER} || 'overnet-burner-worker';
   my $stdout  = File::Spec->catfile($logs_dir, "$actor_id.stdout");
   my $stderr  = File::Spec->catfile($logs_dir, "$actor_id.stderr");
 
@@ -589,6 +668,8 @@ Version 0.001.
 =head2 collect
 
 =head2 summary_fields
+
+=head2 cleanup_after_lifecycle_failure
 
 =head1 DIAGNOSTICS
 
