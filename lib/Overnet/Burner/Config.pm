@@ -60,13 +60,13 @@ sub normalize {
     if (!exists $copy->{provision}{$group}{how}) {
       $copy->{provision}{$group}{how} = 'local';
     }
-    if (($copy->{provision}{$group}{how} || q{}) eq 'container') {
+    my $how = $copy->{provision}{$group}{how} || q{};
+    if ($how eq 'container') {
       $copy->{provision}{$group}{engine}  ||= 'auto';
-      $copy->{provision}{$group}{count}   ||= 1;
       $copy->{provision}{$group}{network} ||= 'host';
     }
-    if (($copy->{provision}{$group}{how} || q{}) eq 'virtual') {
-      $copy->{provision}{$group}{count} ||= 1;
+    if (($how eq 'container' || $how eq 'virtual') && !exists $copy->{provision}{$group}{count}) {
+      $copy->{provision}{$group}{count} = 1;
     }
   }
 
@@ -145,6 +145,7 @@ sub validate {
   _validate_workload_phase($config, 'cooldown');
   _validate_chaos($config);
   _validate_provision($config);
+  _validate_guest_reachable_endpoints($config);
   _require_hash($config, 'thresholds');
 
   return 1;
@@ -215,6 +216,41 @@ sub _validate_provision_virtual {
     croak "$path.image is required for how: virtual\n";
   }
   _require_positive_integer($config, "$path.count");
+  for my $key (qw(network engine)) {
+    if (exists $spec->{$key}) {
+      croak "$path.$key is only valid for how: container\n";
+    }
+  }
+
+  return 1;
+}
+
+sub _validate_guest_reachable_endpoints {
+  my ($config) = @_;
+
+  my $workers = $config->{provision}{workers} || {};
+  my $how     = $workers->{how}               || 'local';
+  my $isolated =
+    ($how eq 'container' && ($workers->{network} || q{}) eq 'bridge') || $how eq 'virtual';
+  if (!$isolated) {
+    return 1;
+  }
+
+  my $endpoints = $config->{topology}{relays}{endpoints};
+  if (ref $endpoints ne 'ARRAY') {
+    return 1;
+  }
+  for my $index (0 .. $#{$endpoints}) {
+    my $endpoint = $endpoints->[$index];
+    my ($host) = defined $endpoint && !ref $endpoint ? $endpoint =~ m{\Awss?://(\[[^\]]*\]|[^/:]+)}imxs : ();
+    if (!defined $host) {
+      next;
+    }
+    if ($host =~ /\A(?:127[.]|localhost\z|\[::1\]\z)/imxs) {
+      croak "topology.relays.endpoints[$index] $endpoint is"
+        . " not reachable from the provisioned worker guests (loopback is guest-local)\n";
+    }
+  }
 
   return 1;
 }
@@ -383,6 +419,30 @@ sub _validate_network_hook {
   my $count = $workers->{count} || 1;
   if ($ordinal > $count) {
     croak "chaos[$index].target must name a provisioned worker guest ($target of $count)\n";
+  }
+
+  _validate_network_hook_parameters($hook, $index);
+
+  return 1;
+}
+
+sub _validate_network_hook_parameters {
+  my ($hook, $index) = @_;
+
+  my $action     = $hook->{action};
+  my %parameters = (
+    'net-delay' => {delay_ms     => 1, jitter_ms => 1},
+    'net-loss'  => {loss_percent => 1},
+    partition   => {},
+    heal        => {},
+  );
+  for my $key (sort keys %{$hook}) {
+    if ($key eq 'at' || $key eq 'action' || $key eq 'target') {
+      next;
+    }
+    if (!$parameters{$action}{$key}) {
+      croak "chaos[$index].$key is not a parameter of $action\n";
+    }
   }
 
   if ($action eq 'net-delay') {

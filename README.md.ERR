@@ -1,0 +1,26 @@
+Perltidy version is 20260204
+
+README.md: Begin Error Output Stream
+
+7: `overnet-burner` measures the behavior of Overnet systems under  ...
+   ^
+found String where operator expected
+
+Missing ';' or ',' above?
+
+7: `overnet-burner` measures the behavior of Overnet systems under  ...
+   ---------------- ^
+found bareword where operator expected (previous token underlined)
+
+17: - **Implementation-neutral.** Overnet applications can be writte ...
+      --^
+found bareword where operator expected (previous token underlined)
+
+17: - **Implementation-neutral.** Overnet applications can be writte ...
+                               -- ^
+found bareword where operator expected (previous token underlined)
+21: 
+21: Partial match to quote modifier [msixpodualngc] at word: 'github'
+21: Please put a space between quote modifiers and trailing keywords.
+21: unexpected character decimal 8212 (—) in script
+21: Giving up after error

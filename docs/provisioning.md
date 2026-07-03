@@ -14,8 +14,10 @@ network with `network: bridge` — required by the network chaos actions in
 [chaos.md](chaos.md) — in which case the scenario author must declare
 relay endpoints that are reachable **from the run network** (a host
 address the containers can route to, with the relay listening on it);
-endpoint rewriting is deliberately not performed. Other worker network
-modes are rejected. Where this document conflicts with the implemented
+endpoint rewriting is deliberately not performed, and loopback relay
+endpoints are rejected at scenario validation for bridge-networked and
+virtual workers, because loopback inside such a guest is the guest
+itself. Other worker network modes are rejected. Where this document conflicts with the implemented
 contracts, the implemented contracts win. This design deliberately borrows from
 [tmt](https://github.com/teemtee/tmt), whose provision step solved the same
 problem for test environments: one plan, interchangeable provisioning

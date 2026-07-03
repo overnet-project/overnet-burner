@@ -106,6 +106,9 @@ sub _parse_memory {
   if (!(defined $unit && exists $MEMORY_UNIT_MB{$unit})) {
     croak "$path.memory must include a unit (MB, MiB, GB, GiB)\n";
   }
+  if ($number <= 0) {
+    croak "$path.memory must be positive\n";
+  }
 
   return ceil($number * $MEMORY_UNIT_MB{$unit});
 }
@@ -114,8 +117,8 @@ sub _parse_cores {
   my ($value, $path) = @_;
 
   my (undef, $number, $unit) = _parse_comparison($value, "$path.cpu.cores");
-  if (defined $unit || $number != int $number) {
-    croak "$path.cpu.cores must be an integer\n";
+  if (defined $unit || $number != int $number || $number < 1) {
+    croak "$path.cpu.cores must be a positive integer\n";
   }
 
   return int $number;

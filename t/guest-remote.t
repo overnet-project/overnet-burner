@@ -40,7 +40,7 @@ subtest 'a written status file reaps as the worker exit status' => sub {
 };
 
 subtest 'a live supervisor without a status file is not reapable yet' => sub {
-  my $guest = _guest([[q{}, 256], [q{}, 0]]);
+  my $guest = _guest([[q{}, 256], ["alive\n", 0]]);
 
   is $guest->try_reap(\%handle), undef, 'try_reap returns undef while the supervisor still runs';
 };
@@ -48,9 +48,9 @@ subtest 'a live supervisor without a status file is not reapable yet' => sub {
 subtest 'a status file written between the read and the liveness probe is a clean exit' => sub {
   my $guest = _guest(
     [
-      [q{},   256],    # first status read: the supervisor has not written yet
-      [q{},   256],    # liveness probe: the supervisor already exited
-      ["0\n", 0],      # the status file landed between the two checks
+      [q{},      256],    # first status read: the supervisor has not written yet
+      ["dead\n", 0],      # liveness probe: the supervisor already exited
+      ["0\n",    0],      # the status file landed between the two checks
     ]
   );
 
@@ -59,9 +59,21 @@ subtest 'a status file written between the read and the liveness probe is a clea
 };
 
 subtest 'a supervisor that vanished without a status file reaps as killed' => sub {
-  my $guest = _guest([[q{}, 256], [q{}, 256], [q{}, 256]]);
+  my $guest = _guest([[q{}, 256], ["dead\n", 0], [q{}, 256]]);
 
   is $guest->try_reap(\%handle), 9, 'no status file after a dead supervisor means the worker was killed';
+};
+
+subtest 'a transport failure during the liveness probe is not a kill' => sub {
+  my $guest = _guest([[q{}, 256], [q{}, 255 << 8]]);
+
+  is $guest->try_reap(\%handle), undef, 'an unreachable transport reports nothing rather than a synthetic kill';
+};
+
+subtest 'garbled probe output is treated as unknown, not dead' => sub {
+  my $guest = _guest([[q{}, 256], ["connection reset\n", 0]]);
+
+  is $guest->try_reap(\%handle), undef, 'unparseable probe output reports nothing rather than a synthetic kill';
 };
 
 done_testing;

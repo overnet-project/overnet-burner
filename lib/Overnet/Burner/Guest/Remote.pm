@@ -118,8 +118,15 @@ sub try_reap {
     return $reaped;
   }
 
-  my (undef, $alive) = $self->_capture("kill -0 $handle->{supervisor_pid} 2>/dev/null");
-  if ($alive == 0) {
+  my ($probe, $status) = $self->_capture("kill -0 $handle->{supervisor_pid} 2>/dev/null && echo alive || echo dead");
+  my ($state) = defined $probe ? $probe =~ /\A\s*(alive|dead)\s*\z/mxs : ();
+  if ($status != 0 || !defined $state) {
+
+    # A probe that failed or answered garbage is a transport problem, not a
+    # dead supervisor: report nothing and let the next reap pass try again.
+    return;
+  }
+  if ($state eq 'alive') {
     return;
   }
 
@@ -207,7 +214,10 @@ transport primitives - run a remote command capturing output and status,
 and push a local file to a remote path. C<launch> stages a supervisor
 script that records the worker's pid for signal delivery and writes its
 exit status to a file; C<try_reap> reads that status back, and a supervisor
-that vanished without writing one is reported as a killed process.
+that vanished without writing one is reported as a killed process. A
+liveness probe that fails at the transport level reports nothing rather
+than a synthetic kill, so a transient connection problem never masquerades
+as a dead worker.
 
 =head1 SUBROUTINES/METHODS
 

@@ -41,7 +41,9 @@ subtest 'validation rejects what is reserved or wrong' => sub {
     [{memory => '> 1 GB'},  qr/hardware\.memory\ operator\ >\ is\ not\ implemented\ yet/mx, 'reserved operator'],
     [{memory => '>= 1'},    qr/hardware\.memory\ must\ include\ a\ unit/mx,                 'memory needs a unit'],
     [{memory => '>= 1 TB'}, qr/hardware\.memory\ must\ include\ a\ unit\ \(MB,\ MiB,\ GB,\ GiB\)/mx, 'unknown unit'],
-    [{cpu    => {cores => '>= 2.5'}}, qr/hardware\.cpu\.cores\ must\ be\ an\ integer/mx, 'fractional cores'],
+    [{cpu    => {cores => '>= 2.5'}}, qr/hardware\.cpu\.cores\ must\ be\ a\ positive\ integer/mx, 'fractional cores'],
+    [{cpu    => {cores => 0}},        qr/hardware\.cpu\.cores\ must\ be\ a\ positive\ integer/mx, 'zero cores'],
+    [{memory => '0 GiB'},             qr/hardware\.memory\ must\ be\ positive/mx,                 'zero memory'],
     [
       {cpu => {threads => 4}},
       qr/hardware\.cpu\.threads\ is\ not\ an\ implemented\ hardware\ requirement/mx,

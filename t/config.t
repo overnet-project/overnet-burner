@@ -404,6 +404,33 @@ YAML
     qr/chaos\[0\]\.loss_percent\ must\ be\ a\ number\ greater\ than\ 0\ and\ at\ most\ 100/mx,
   ],
   [
+    'chaos net action with an unknown parameter',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: w:1
+    network: bridge
+chaos:
+  - at: 10
+    action: partition
+    target: worker-guest:1
+    peers:
+      - worker-guest:2
+YAML
+    qr/chaos\[0\]\.peers\ is\ not\ a\ parameter\ of\ partition/mx,
+  ],
+  [
     'chaos lifecycle action with a guest target',
     <<'YAML',
 run:
@@ -724,6 +751,21 @@ YAML
       qr/provision\.workers\.image\ is\ required\ for\ how:\ virtual/mx,
     ],
     [
+      'virtual with a network key',
+      "provision:\n  workers:\n    how: virtual\n    image: w.qcow2\n    network: bridge",
+      qr/provision\.workers\.network\ is\ only\ valid\ for\ how:\ container/mx,
+    ],
+    [
+      'virtual with an engine key',
+      "provision:\n  workers:\n    how: virtual\n    image: w.qcow2\n    engine: podman",
+      qr/provision\.workers\.engine\ is\ only\ valid\ for\ how:\ container/mx,
+    ],
+    [
+      'container with a zero count',
+      "provision:\n  workers:\n    how: container\n    image: w:1\n    count: 0",
+      qr/provision\.workers\.count\ must\ be\ positive/mx,
+    ],
+    [
       'virtual with an unknown hardware key',
       "provision:\n  workers:\n    how: virtual\n    image: w.qcow2\n    hardware:\n      gpu: 1",
       qr/provision\.workers\.hardware\.gpu\ is\ not\ an\ implemented\ hardware\ requirement/mx,
@@ -865,6 +907,63 @@ YAML
   is scalar @{$net_config->{chaos}},        4,    'all four network actions validate';
   is $net_config->{chaos}[0]{delay_ms},     100,  'net-delay parameters are preserved';
   is $net_config->{chaos}[1]{loss_percent}, 12.5, 'net-loss accepts fractional percentages';
+};
+
+subtest 'relay endpoints must be reachable from isolated worker guests' => sub {
+  my $template = <<'YAML';
+run:
+  name: endpoint-reach
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+    endpoints:
+      - __ENDPOINT__
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+__PROVISION__
+YAML
+
+  my @cases = (
+    [
+      'bridge containers with a loopback endpoint', "    how: container\n    image: w:1\n    network: bridge",
+      'ws://127.0.0.1:7001',                        1
+    ],
+    ['virtual guests with a localhost endpoint', "    how: virtual\n    image: w.qcow2", 'ws://localhost:7001', 1],
+    [
+      'bridge containers with a routable endpoint', "    how: container\n    image: w:1\n    network: bridge",
+      'ws://192.0.2.10:7001',                       0
+    ],
+    [
+      'host-network containers with a loopback endpoint', "    how: container\n    image: w:1",
+      'ws://127.0.0.1:7001',                              0
+    ],
+  );
+
+  for my $case (@cases) {
+    my ($name, $provision, $endpoint, $rejected) = @{$case};
+    my $path = "$tmp/endpoint-reach-$name.yml";
+    $path =~ s/\ /-/gmx;
+    my $yaml = $template;
+    $yaml =~ s/__ENDPOINT__/$endpoint/mxs;
+    $yaml =~ s/__PROVISION__/$provision/mxs;
+    _write_yaml($path, $yaml);
+    my $error;
+    eval { Overnet::Burner::Config->load_file($path) } or $error = $@;
+
+    if ($rejected) {
+      like $error, qr/topology\.relays\.endpoints\[0\].*not\ reachable\ from\ the\ provisioned\ worker\ guests/mx,
+        "$name is rejected";
+    } else {
+      is $error, undef, "$name loads";
+    }
+  }
 };
 
 subtest 'topology.relays.endpoints are validated when present' => sub {

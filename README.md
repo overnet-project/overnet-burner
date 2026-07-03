@@ -66,17 +66,19 @@ Implemented so far:
 - the observer reference worker (relay-side black-box evidence via
   relay_ping probes of every endpoint)
 
-- the guest interface with the local exec transport and the connect (SSH)
-  and container (Docker and podman, one engine adapter) provisioning
-  methods for workers, with deterministic placement recorded in guests.json
+- the guest interface with the local exec transport and the connect (SSH),
+  container (Docker and podman, one engine adapter), and virtual (direct
+  QEMU with cloud-init and hardware requirements) provisioning methods for
+  workers, with deterministic placement recorded in guests.json
+- network chaos actions (net-delay, net-loss, partition, heal) on
+  bridge-networked container guests, with post-action evidence recorded in
+  the run ledger ([docs/chaos.md](docs/chaos.md))
 
 In progress, in decided order:
 
-- guest provisioning continued: virtual, and container/connect for relay
+- guest provisioning continued: connect/container/virtual for relay
   guests (design in [docs/provisioning.md](docs/provisioning.md) and
   [docs/distributed.md](docs/distributed.md))
-- network chaos actions on provisioned guests (names reserved in
-  [docs/chaos.md](docs/chaos.md))
 
 ## Testing
 

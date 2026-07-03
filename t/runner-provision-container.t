@@ -117,7 +117,7 @@ subtest 'network chaos actions drive the engine and record evidence' => sub {
   local $ENV{OVERNET_BURNER_TEST_REMAP_FROM} = File::Spec->catdir($tmp, 'runs');
   local $ENV{OVERNET_BURNER_TEST_REMAP_TO}   = File::Spec->catdir($tmp, 'guest-fs', 'runs');
 
-  my $scenario = _write_scenario($tmp, 'container-net-chaos.yml', <<"YAML");
+  my $scenario = _write_scenario($tmp, 'container-net-chaos.yml', <<"YAML", 'ws://192.0.2.10:59999');
 provision:
   workers:
     how: container
@@ -188,7 +188,7 @@ subtest 'a failing network action fails the run but still tears down' => sub {
   local $ENV{OVERNET_BURNER_TEST_REMAP_TO}   = File::Spec->catdir($tmp, 'guest-fs', 'runs');
   local $ENV{OVERNET_BURNER_TEST_NET_FAIL}   = 1;
 
-  my $scenario = _write_scenario($tmp, 'container-net-fail.yml', <<"YAML");
+  my $scenario = _write_scenario($tmp, 'container-net-fail.yml', <<"YAML", 'ws://192.0.2.10:59999');
 provision:
   workers:
     how: container
@@ -298,7 +298,7 @@ DOCKERFILE
       my $build = `$engine_name build -q -t $tag $context 2>&1`;
       is $?, 0, "$engine_name builds the netchaos worker image" or diag($build);
 
-      my $scenario = _write_scenario($tmp, "container-net-real-$engine_name.yml", <<"YAML");
+      my $scenario = _write_scenario($tmp, "container-net-real-$engine_name.yml", <<"YAML", 'ws://192.0.2.10:59999');
 provision:
   workers:
     how: container
@@ -350,8 +350,9 @@ YAML
 done_testing;
 
 sub _write_scenario {
-  my ($dir, $basename, $provision_yaml) = @_;
+  my ($dir, $basename, $provision_yaml, $endpoint) = @_;
 
+  $endpoint ||= 'ws://127.0.0.1:59999';
   my $path = File::Spec->catfile($dir, $basename);
   _spew($path, <<"YAML");
 run:
@@ -363,7 +364,7 @@ topology:
     count: 1
     provider: generic-relay
     endpoints:
-      - ws://127.0.0.1:59999
+      - $endpoint
   publishers:
     count: 2
   subscribers:

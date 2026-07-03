@@ -187,7 +187,8 @@ sub _virtual_guests {
 
   my $virtual_dir = File::Spec->catdir($self->{run_dir}, 'virtual');
   make_path($virtual_dir);
-  my $key = _generate_ssh_key($virtual_dir);
+  my $key        = _generate_ssh_key($virtual_dir);
+  my $public_key = read_file("$key.pub");
 
   for my $ordinal (1 .. ($workers->{count} || 1)) {
     my $guest_name = sprintf 'worker-guest-%03d', $ordinal;
@@ -198,7 +199,7 @@ sub _virtual_guests {
       guest_dir  => $guest_dir,
       vm_name    => $vm_name,
       guest_name => $guest_name,
-      public_key => read_file("$key.pub"),
+      public_key => $public_key,
     );
     my $port     = _free_port();
     my $pid_file = File::Spec->catfile($guest_dir, 'qemu.pid');
@@ -466,7 +467,9 @@ sub collect {
     $aggregated .= $content;
     push @collected, $stream->{path};
   }
-  $self->_pull_worker_logs;
+  if (!eval { $self->_pull_worker_logs; 1 }) {
+    $self->_record_worker_event(status => 'worker_log_pull_failed', phase => 'collect');
+  }
 
   if (@collected) {
     write_file(File::Spec->catfile($self->{run_dir}, 'metrics.jsonl'), $aggregated);
@@ -506,8 +509,7 @@ sub _pull_worker_logs {
       if (!defined $content) {
         next;
       }
-      make_path(dirname($path));
-      write_file($path, $content);
+      _store_local_copy($guest, $path, $content);
     }
   }
 
@@ -708,6 +710,11 @@ sub _await_worker_exits {
   if (@pending) {
     my $described = join ', ', map { $_->{hook}{id} } @pending;
     croak "chaos hook $described did not fire within the run window\n";
+  }
+
+  if (%{$self->{worker_pids}}) {
+    my $described = join ', ', sort keys %{$self->{worker_pids}};
+    croak "worker $described could not be reaped\n";
   }
 
   my @failed = grep { !defined $_->{exit_code} || $_->{exit_code} != 0 } @{$self->{worker_results}};
@@ -944,9 +951,13 @@ sub _tc_command {
 sub _exec_net_command {
   my ($self, $guest, $command) = @_;
 
-  my ($output, $status) = $guest->engine->exec_capture($guest->container, $command);
+  # stderr is merged so a failed action records its cause (tc missing, no
+  # capability) in the ledger instead of a bare command line.
+  my ($output, $status) = $guest->engine->exec_capture($guest->container, "{ $command; } 2>&1");
   if ($status != 0) {
-    croak 'guest ' . $guest->name . " could not run: $command\n";
+    my $detail = defined $output && length $output ? $output : 'no output';
+    chomp $detail;
+    croak 'guest ' . $guest->name . " could not run: $command: $detail\n";
   }
 
   return defined $output ? $output : q{};

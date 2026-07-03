@@ -52,10 +52,12 @@ Rules and disclosed limitations:
 - A netem action on a partitioned guest fails the run: the guest has no
   default-route interface to shape, and an experiment that cannot execute
   as designed must not pretend it did.
-- netem actions require `CAP_NET_ADMIN` and the `iproute2` tools (`ip`,
-  `tc`) **inside the worker image**. The runner adds the capability to
-  worker containers only when the scenario contains netem actions; images
-  without `iproute2` fail the hook, and therefore the run, honestly.
+- Every network action requires the `iproute2` tools (`ip`, `tc`)
+  **inside the worker image**: netem actions shape traffic with `tc`, and
+  every action captures its evidence with `ip`/`tc`. Only netem actions
+  additionally require `CAP_NET_ADMIN`; the runner adds the capability to
+  worker containers only when the scenario contains netem actions. Images
+  without the tools fail the hook, and therefore the run, honestly.
 - Faults left active at the end of the run are torn down with the guests
   and the per-run network; the runner does not auto-heal.
 
