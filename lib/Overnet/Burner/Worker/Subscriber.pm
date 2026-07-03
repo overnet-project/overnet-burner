@@ -32,6 +32,7 @@ sub run {
 
   $self->open_metric_stream;
 
+  $self->{workload_started} = time;
   my $relay_url       = $input->{endpoints}{relays}[0];
   my $subscription_id = "burner-$input->{worker_id}";
   my @filter_objects  = map { Net::Nostr::Filter->new(%{$_}) } @{$filters};
@@ -124,6 +125,7 @@ sub _measure_fanout {
 
   $self->emit_metric(
     operation       => 'subscription_fanout',
+    phase           => $self->phase_name_at($args{received_at} - $self->{workload_started}),
     started_at      => $self->iso_timestamp($sent_at_ms / 1000),
     finished_at     => $self->iso_timestamp($args{received_at}),
     duration_ms     => $duration_ms,

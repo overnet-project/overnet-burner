@@ -185,6 +185,39 @@ subtest 'subscriber reconnects after a relay restart' => sub {
   waitpid $restarted_pid, 0;
 };
 
+subtest 'subscriber tags fanout with the workload phase' => sub {
+  my $port      = _free_port();
+  my $relay_pid = _spawn_relay($port);
+
+  my $run_dir = _run_layout('subscriber-005');
+  my $input   = _subscriber_input($run_dir, $port, 'subscriber-005', 4);
+  $input->{phases} = [
+    {name => 'warmup',   start_seconds => 0, duration_seconds => 1},
+    {name => 'main',     start_seconds => 1, duration_seconds => 2},
+    {name => 'cooldown', start_seconds => 3, duration_seconds => 1},
+  ];
+  my $input_path = File::Spec->catfile($run_dir, 'workers', 'subscriber-005', 'input.json');
+  _spew($input_path, JSON->new->canonical(1)->encode($input));
+
+  my $pid = _spawn_subscriber($input_path);
+  _await_ready($pid, File::Spec->catfile($run_dir, 'workers', 'subscriber-005', 'ready'));
+
+  my ($warmup_id) = _publish_stamped($port, 1);
+  sleep 1.2;
+  my ($main_id) = _publish_stamped($port, 2);
+
+  waitpid $pid, 0;
+  is $? >> 8, 0, 'subscriber exited cleanly';
+
+  my $stream = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics', 'subscriber-005.jsonl'));
+  my %phase_by_id = map { $_->{event_id} => $_->{phase} } @{$stream};
+  is $phase_by_id{$warmup_id}, 'warmup', 'a fanout received during warmup is tagged warmup';
+  is $phase_by_id{$main_id},   'main',   'a fanout received during main is tagged main';
+
+  kill 'TERM', $relay_pid;
+  waitpid $relay_pid, 0;
+};
+
 subtest 'subscriber requires subscription filters' => sub {
   my $run_dir = _run_layout('subscriber-002');
   my $input   = {

@@ -61,33 +61,19 @@ sub run {
   my $stop = 0;
   local $SIG{TERM} = sub { $stop = 1 };
 
-  my $rate = 0 + ($input->{workload}{query_rate_per_second} || 1);
-  if ($rate <= 0) {
-    $rate = 1;
-  }
-  my $started  = time;
-  my $deadline = $started + $input->{duration_seconds};
-  my $sequence = 0;
-
-  while (!$stop && time < $deadline) {
-    my $scheduled = $started + $sequence / $rate;
-    if ($scheduled >= $deadline) {
+  my $started = time;
+  $self->{sequence} = 0;
+  for my $phase (@{$self->phases}) {
+    if ($stop) {
       last;
     }
-    my $wait = $scheduled - time;
-    if ($wait > 0) {
-      sleep $wait;
-    }
-    if ($stop || time >= $deadline) {
-      last;
-    }
-
-    $sequence++;
-    $self->_query_once(
-      client   => $client,
-      filters  => \@filters,
-      pending  => \%pending,
-      sequence => $sequence,
+    $self->_run_phase(
+      client  => $client,
+      filters => \@filters,
+      pending => \%pending,
+      phase   => $phase,
+      started => $started,
+      stop    => \$stop,
     );
   }
 
@@ -95,6 +81,46 @@ sub run {
   $self->close_metric_stream;
 
   return;
+}
+
+sub _run_phase {
+  my ($self, %args) = @_;
+
+  my $phase       = $args{phase};
+  my $stop        = $args{stop};
+  my $phase_start = $args{started} + $phase->{start_seconds};
+  my $deadline    = $phase_start + $phase->{duration_seconds};
+  my $rate        = $self->phase_rate($phase, 'query_rate_per_second');
+
+  if ($rate == 0) {
+    return $self->idle_until($deadline, $stop);
+  }
+
+  my $paced = 0;
+  while (!${$stop} && time < $deadline) {
+    my $scheduled = $phase_start + $paced / $rate;
+    if ($scheduled >= $deadline) {
+      last;
+    }
+    my $wait = $scheduled - time;
+    if ($wait > 0) {
+      sleep $wait;
+    }
+    if (${$stop} || time >= $deadline) {
+      last;
+    }
+
+    $paced++;
+    $self->_query_once(
+      client   => $args{client},
+      filters  => $args{filters},
+      pending  => $args{pending},
+      sequence => ++$self->{sequence},
+      phase    => $phase->{name},
+    );
+  }
+
+  return 1;
 }
 
 sub _query_once {
@@ -123,6 +149,7 @@ sub _query_once {
 
   $self->emit_metric(
     operation       => 'query',
+    phase           => $args{phase},
     started_at      => $self->iso_timestamp($started_at),
     finished_at     => $self->iso_timestamp($finished_at),
     duration_ms     => ($finished_at - $started_at) * 1000,

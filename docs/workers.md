@@ -50,7 +50,8 @@ other environment variables.
 | `metric_stream` | non-empty string | yes | Metric stream path, relative to `run_dir` |
 | `ready_file` | non-empty string | yes | Readiness marker path, relative to `run_dir` |
 | `endpoints` | object | yes | Service endpoints; `endpoints.relays` is an array of relay URLs, assigned relay first |
-| `workload` | object | yes | Role-specific workload parameters from the plan |
+| `workload` | object | yes | Role-specific workload parameters from the plan (the main phase's parameters) |
+| `phases` | array | no | Workload phases in order; see Workload Phases |
 
 Unknown additional fields are compatible v1 extensions; workers MUST ignore
 fields they do not understand.
@@ -78,6 +79,43 @@ fully operational — connected, subscribed, and able to perform its role —
 and before it begins its workload. Orchestration uses readiness to sequence
 roles (for example, subscribers must be ready before publishers start, or
 fanout measurements are lies).
+
+## Workload Phases
+
+A scenario's workload runs as one to three phases: an optional warmup, the
+main phase, and an optional cooldown.
+
+```yaml
+run:
+  duration: 60          # the MAIN phase; total run = warmup + main + cooldown
+workload:
+  publish_rate_per_second: 10
+  warmup:
+    duration: 10
+    publish_rate_per_second: 2   # optional per-phase rate overrides
+  cooldown:
+    duration: 5
+    publish_rate_per_second: 0   # an explicit rate of 0 means idle
+```
+
+- `run.duration` is the main phase's duration; the total workload window is
+  `warmup.duration + run.duration + cooldown.duration`, and
+  `duration_seconds` in the worker input is that total.
+- `warmup` and `cooldown` may override `publish_rate_per_second`,
+  `query_rate_per_second`, and `object_reads.rate_per_second`; anything not
+  overridden inherits the main workload's value. Filters and object
+  references are constant across phases.
+- An **explicit rate of `0`** in any phase means the worker performs no
+  operations during that phase (an absent rate still defaults to `1`).
+- Workers receive the ordered phase list in the input document's `phases`
+  array (each entry carries `name`, `start_seconds`, `duration_seconds`,
+  and the phase's workload parameters) and MUST pace each phase by its own
+  rates. A worker that receives no `phases` array treats the whole
+  `duration_seconds` as a single `main` phase driven by `workload` — which
+  is exactly what single-phase runs send.
+- In a multi-phase run every metric event MUST carry the `phase` member
+  naming the phase the operation ran in. Reports judge the main phase
+  only; see [METRICS.md](METRICS.md).
 
 ## Metric Emission
 

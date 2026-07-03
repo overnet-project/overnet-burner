@@ -52,6 +52,10 @@
     },
     "error": {
       "$ref": "#/$defs/non_empty_string"
+    },
+    "phase": {
+      "$ref": "#/$defs/non_empty_string",
+      "description": "Workload phase the operation ran in (for example warmup, main, cooldown). Required in multi-phase runs; see METRICS.md."
     }
   },
   "$defs": {

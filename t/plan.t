@@ -95,7 +95,32 @@ for my $actor_id (
 }
 ok !exists $streams{'relay-001'}, 'plan declares no relay metric stream';
 
-is $plan_a->{chaos_hooks}, [], 'plan includes empty chaos hook list';
+is $plan_a->{chaos_hooks},                 [], 'plan includes empty chaos hook list';
+is $plan_a->{run}{total_duration_seconds}, 60, 'single-phase total duration equals the main duration';
+
+my $phased = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
+$phased->{workload}{warmup}   = {duration => 10, publish_rate_per_second => 2};
+$phased->{workload}{cooldown} = {duration => 5,  query_rate_per_second   => 0};
+my $phased_plan = Overnet::Burner::Plan->build($phased);
+is [map {"$_->{id}:$_->{name}:$_->{ordinal}:$_->{start_seconds}:$_->{duration_seconds}"}
+    @{$phased_plan->{workload}{phases}}],
+  ['phase-001:warmup:1:0:10', 'phase-002:main:2:10:60', 'phase-003:cooldown:3:70:5'],
+  'warmup and cooldown expand into ordered phases around main';
+is $phased_plan->{run}{total_duration_seconds},                  75, 'total duration spans all phases';
+is $phased_plan->{workload}{phases}[0]{publish_rate_per_second}, 2,  'warmup overrides the publish rate';
+is $phased_plan->{workload}{phases}[0]{query_rate_per_second},   1,  'warmup inherits the query rate';
+is $phased_plan->{workload}{phases}[1]{publish_rate_per_second}, 10, 'main keeps the workload publish rate';
+is $phased_plan->{workload}{phases}[2]{publish_rate_per_second}, 10, 'cooldown inherits the publish rate';
+is $phased_plan->{workload}{phases}[2]{query_rate_per_second},   0,  'cooldown can silence a rate explicitly';
+is $phased_plan->{workload}{phases}[1]{subscription_filters},
+  $phased->{workload}{subscription_filters}, 'filters are constant across phases';
+
+for my $phase (@{$phased_plan->{workload}{phases}}) {
+  ok $phase->{actor_seeds}{'publisher-001'} =~ /\A\d+\z/mx, "$phase->{name} phase has actor seeds";
+}
+isnt $phased_plan->{workload}{phases}[0]{actor_seeds}{'publisher-001'},
+  $phased_plan->{workload}{phases}[1]{actor_seeds}{'publisher-001'},
+  'phase actor seeds differ between phases';
 
 my $changed_seed = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
 $changed_seed->{run}{seed} = 98765;

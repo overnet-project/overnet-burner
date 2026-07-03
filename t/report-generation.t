@@ -305,6 +305,63 @@ YAML
   is $report->{run}{verdict}, 'performance_failed', 'the failed reader threshold fails the run';
 };
 
+subtest 'multi-phase runs are judged on the main phase only' => sub {
+  my $scenario_phased = File::Spec->catfile($tmp, 'phased.yml');
+  _write_text($scenario_phased, <<'YAML');
+run:
+  name: phased
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 10
+  warmup:
+    duration: 10
+thresholds:
+  error_rate_max: 0.1
+YAML
+
+  my $run_dir = _run_with_metric_streams(
+    'report-phased-001',
+    -scenario       => $scenario_phased,
+    'publisher-001' => [
+      _metric_event(phase => 'warmup', status      => 'error', error => 'cold start', duration_ms => 400),
+      _metric_event(phase => 'main',   duration_ms => 10),
+      _metric_event(phase => 'main',   duration_ms => 20),
+    ],
+  );
+
+  my $report = _regenerated_report($run_dir);
+
+  is $report->{metrics}{operations}{publish}{count},      2, 'only main phase events are summarized';
+  is $report->{metrics}{operations}{publish}{error_rate}, 0, 'warmup errors do not reach the summary';
+  my %thresholds = map { $_->{id} => $_ } @{$report->{thresholds}};
+  is $thresholds{error_rate_max}{status},         'passed',             'warmup errors do not fail thresholds';
+  is $thresholds{error_rate_max}{observed_value}, 0,                    'the judged error rate is the main phase rate';
+  is $report->{run}{verdict},                     'performance_passed', 'the run is judged on its steady state';
+  is $report->{workload}{duration_seconds},       70, 'the report workload duration is the total window';
+};
+
+subtest 'an untagged event in a multi-phase run is a configuration error' => sub {
+  my $scenario_phased = File::Spec->catfile($tmp, 'phased.yml');
+  my $run_dir         = _run_with_metric_streams(
+    'report-phased-untagged-001',
+    -scenario       => $scenario_phased,
+    'publisher-001' => [_metric_event(phase => 'main', duration_ms => 10), _metric_event(duration_ms => 20),],
+  );
+
+  my $report = _regenerated_report($run_dir);
+
+  is $report->{metrics}{collected}, JSON::false,               'untagged events make metrics uncollectable';
+  is $report->{metrics}{reason},    'configuration_error',     'the reason is a configuration error';
+  is $report->{run}{verdict},       'inconclusive_no_metrics', 'the run cannot be judged';
+};
+
 subtest 'a corrupt metric stream is surfaced instead of summarized around' => sub {
   my $run_dir = _run_with_metric_streams(
     'report-metrics-corrupt-001',

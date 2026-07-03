@@ -75,6 +75,37 @@ subtest 'publisher measures honestly against a live relay' => sub {
   is \@invalid_kind, [], 'published events are Overnet events';
 };
 
+subtest 'publisher paces each workload phase by its own rate' => sub {
+  my $port  = _free_port();
+  my $relay = Net::Nostr::Relay->new;
+  $relay->start('127.0.0.1', $port);
+
+  my $run_dir = _run_layout();
+  my $input   = _worker_input($run_dir, $port, duration_seconds => 4, publish_rate_per_second => 5);
+  $input->{phases} = [
+    {name => 'warmup',   start_seconds => 0, duration_seconds => 1, publish_rate_per_second => 2},
+    {name => 'main',     start_seconds => 1, duration_seconds => 2, publish_rate_per_second => 5},
+    {name => 'cooldown', start_seconds => 3, duration_seconds => 1, publish_rate_per_second => 0},
+  ];
+
+  Overnet::Burner::Worker::Publisher->new(input => $input)->run;
+
+  my $events = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics', 'publisher-001.jsonl'));
+
+  my @untagged = grep { !defined $_->{phase} } @{$events};
+  is \@untagged, [], 'every event names its phase';
+
+  my @warmup   = grep { $_->{phase} eq 'warmup' } @{$events};
+  my @main     = grep { $_->{phase} eq 'main' } @{$events};
+  my @cooldown = grep { $_->{phase} eq 'cooldown' } @{$events};
+
+  ok @warmup >= 1 && @warmup <= 3, 'warmup publishes at the warmup rate' or diag(scalar @warmup);
+  ok @main >= 5   && @main <= 12,  'main publishes at the main rate'     or diag(scalar @main);
+  is \@cooldown, [], 'an explicit rate of zero publishes nothing';
+
+  is [map { $_->{phase} } @{$events}], [(map {'warmup'} @warmup), (map {'main'} @main)], 'phases run in order';
+};
+
 subtest 'the worker executable honors the process contract' => sub {
   my $port      = _free_port();
   my $relay_pid = _spawn_relay($port);

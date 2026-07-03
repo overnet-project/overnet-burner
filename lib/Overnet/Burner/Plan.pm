@@ -61,6 +61,11 @@ sub build {
   );
 
   my @actors = (@relays, @publishers, @subscribers, @query_readers, @object_readers,);
+  my @phases = _phases($scenario, \@actors);
+  my $total  = 0;
+  for my $phase (@phases) {
+    $total += $phase->{duration_seconds};
+  }
 
   return {
     plan_version => 1,
@@ -68,9 +73,10 @@ sub build {
       name => $scenario->{run}{name},
     },
     run => {
-      name             => $scenario->{run}{name},
-      duration_seconds => 0 + $scenario->{run}{duration},
-      seed             => 0 + $scenario->{run}{seed},
+      name                   => $scenario->{run}{name},
+      duration_seconds       => 0 + $scenario->{run}{duration},
+      total_duration_seconds => $total,
+      seed                   => 0 + $scenario->{run}{seed},
     },
     topology_provider => $topology_provider,
     relays            => \@relays,
@@ -79,7 +85,7 @@ sub build {
     query_readers     => \@query_readers,
     object_readers    => \@object_readers,
     workload          => {
-      phases => [_default_phase($scenario, \@actors)],
+      phases => \@phases,
     },
     metric_streams => [_metric_streams(@actors)],
     chaos_hooks    => [_chaos_hooks($scenario)],
@@ -120,25 +126,55 @@ sub _actors {
   return @actors;
 }
 
-sub _default_phase {
+sub _phases {
   my ($scenario, $actors) = @_;
 
-  my $phase_id    = 'phase-001';
-  my %actor_seeds = map { $_->{id} => _seed($scenario, "phase:$phase_id:actor:$_->{id}") } @{$actors};
+  my @specs = ([warmup => $scenario->{workload}{warmup}], [main => {}], [cooldown => $scenario->{workload}{cooldown}],);
 
-  return {
-    id                      => $phase_id,
-    name                    => 'main',
-    ordinal                 => 1,
-    start_seconds           => 0,
-    duration_seconds        => 0 + $scenario->{run}{duration},
-    publish_rate_per_second => 0 + $scenario->{workload}{publish_rate_per_second},
-    query_rate_per_second   => 0 + $scenario->{workload}{query_rate_per_second},
-    subscription_filters    => _clone($scenario->{workload}{subscription_filters}),
-    query_filters           => _clone($scenario->{workload}{query_filters}),
-    object_reads            => _clone($scenario->{workload}{object_reads}),
-    actor_seeds             => \%actor_seeds,
-  };
+  my @phases;
+  my $ordinal = 0;
+  my $start   = 0;
+  for my $spec (@specs) {
+    my ($name, $override) = @{$spec};
+    if ($name ne 'main' && ref $override ne 'HASH') {
+      next;
+    }
+
+    $ordinal++;
+    my $phase_id = sprintf 'phase-%03d', $ordinal;
+    my $duration =
+      $name eq 'main' ? 0 + $scenario->{run}{duration} : 0 + $override->{duration};
+    my %actor_seeds = map { $_->{id} => _seed($scenario, "phase:$phase_id:actor:$_->{id}") } @{$actors};
+
+    my $object_reads = _clone($scenario->{workload}{object_reads});
+    if (ref $override->{object_reads} eq 'HASH' && exists $override->{object_reads}{rate_per_second}) {
+      $object_reads->{rate_per_second} = 0 + $override->{object_reads}{rate_per_second};
+    }
+
+    push @phases,
+      {
+      id                      => $phase_id,
+      name                    => $name,
+      ordinal                 => $ordinal,
+      start_seconds           => $start,
+      duration_seconds        => $duration,
+      publish_rate_per_second => 0 + _override_or($override, $scenario, 'publish_rate_per_second'),
+      query_rate_per_second   => 0 + _override_or($override, $scenario, 'query_rate_per_second'),
+      subscription_filters    => _clone($scenario->{workload}{subscription_filters}),
+      query_filters           => _clone($scenario->{workload}{query_filters}),
+      object_reads            => $object_reads,
+      actor_seeds             => \%actor_seeds,
+      };
+    $start += $duration;
+  }
+
+  return @phases;
+}
+
+sub _override_or {
+  my ($override, $scenario, $key) = @_;
+
+  return exists $override->{$key} ? $override->{$key} : $scenario->{workload}{$key};
 }
 
 sub _metric_streams {

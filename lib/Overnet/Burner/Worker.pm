@@ -9,7 +9,7 @@ use File::Spec;
 use JSON  ();
 use POSIX qw(strftime);
 use Sys::Hostname;
-use Time::HiRes qw(time);
+use Time::HiRes qw(sleep time);
 
 use Overnet::Burner::Metrics;
 use Overnet::Burner::Util qw(checked_close checked_print write_file);
@@ -119,6 +119,60 @@ sub emit_metric {
   return 1;
 }
 
+sub phases {
+  my ($self) = @_;
+
+  my $input = $self->input;
+  if (ref $input->{phases} eq 'ARRAY' && @{$input->{phases}}) {
+    return $input->{phases};
+  }
+
+  my %workload = ref $input->{workload} eq 'HASH' ? %{$input->{workload}} : ();
+  my %phase    = (
+    %workload,
+    name             => 'main',
+    start_seconds    => 0,
+    duration_seconds => $input->{duration_seconds},
+  );
+
+  return [\%phase];
+}
+
+sub phase_name_at {
+  my ($self, $elapsed) = @_;
+
+  my $phases = $self->phases;
+  for my $phase (@{$phases}) {
+    if ($elapsed < $phase->{start_seconds} + $phase->{duration_seconds}) {
+      return $phase->{name};
+    }
+  }
+
+  return $phases->[-1]{name};
+}
+
+sub phase_rate {
+  my ($class, $parameters, $key) = @_;
+
+  my $rate = ref $parameters eq 'HASH' ? $parameters->{$key} : undef;
+  if (!defined $rate) {
+    return 1;
+  }
+
+  return 0 + $rate;
+}
+
+sub idle_until {
+  my ($self, $deadline, $stop) = @_;
+
+  while (!${$stop} && time < $deadline) {
+    my $remaining = $deadline - time;
+    sleep($remaining < 0.1 ? $remaining : 0.1);
+  }
+
+  return 1;
+}
+
 sub host {
   my ($self) = @_;
 
@@ -196,6 +250,22 @@ Public API entry point.
 Public API entry point.
 
 =head2 emit_metric
+
+Public API entry point.
+
+=head2 phases
+
+Public API entry point.
+
+=head2 phase_name_at
+
+Public API entry point.
+
+=head2 phase_rate
+
+Public API entry point.
+
+=head2 idle_until
 
 Public API entry point.
 

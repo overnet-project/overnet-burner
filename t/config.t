@@ -341,6 +341,94 @@ YAML
   like $@, $pattern, "$name reports a clean mapping error";
 }
 
+subtest 'workload phases load and validate' => sub {
+  my $valid = "$tmp/phases-valid.yml";
+  _write_yaml($valid, <<'YAML');
+run:
+  name: phases-valid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 10
+  warmup:
+    duration: 10
+    publish_rate_per_second: 2
+  cooldown:
+    duration: 5
+    publish_rate_per_second: 0
+chaos:
+  - at: 65
+    action: restart
+    target: relay:1
+YAML
+  my $config = Overnet::Burner::Config->load_file($valid);
+  is $config->{workload}{warmup}{duration},   10, 'warmup loads';
+  is $config->{workload}{cooldown}{duration}, 5,  'cooldown loads';
+
+  my @rejections = (
+    [
+      'warmup without duration',
+      "warmup:\n    publish_rate_per_second: 2",
+      qr/missing\ required\ field:\ workload\.warmup\.duration/mx,
+    ],
+    [
+      'negative warmup rate',
+      "warmup:\n    duration: 10\n    publish_rate_per_second: -1",
+      qr/workload\.warmup\.publish_rate_per_second\ must\ be\ a\ non-negative\ number/mx,
+    ],
+    ['cooldown as a sequence', 'cooldown: []', qr/workload\.cooldown\ must\ be\ a\ mapping/mx,],
+  );
+  for my $case (@rejections) {
+    my ($name, $phase_yaml, $pattern) = @{$case};
+    my $path = "$tmp/phases-$name.yml";
+    $path =~ s/\ /-/gmx;
+    _write_yaml($path, <<"YAML");
+run:
+  name: phases-invalid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 10
+  $phase_yaml
+YAML
+    eval { Overnet::Burner::Config->load_file($path) };
+    like $@, $pattern, "$name is rejected";
+  }
+
+  my $chaos_past_total = "$tmp/phases-chaos-late.yml";
+  _write_yaml($chaos_past_total, <<'YAML');
+run:
+  name: phases-chaos-late
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 10
+  warmup:
+    duration: 10
+chaos:
+  - at: 70
+    action: restart
+    target: relay:1
+YAML
+  eval { Overnet::Burner::Config->load_file($chaos_past_total) };
+  like $@, qr/chaos\[0\]\.at\ must\ be\ inside\ the\ run\ duration\ \(0\ <=\ at\ <\ 70\)/mx,
+    'chaos offsets are validated against the total workload window';
+};
+
 subtest 'valid chaos hooks load' => sub {
   my $path = "$tmp/chaos-valid.yml";
   _write_yaml($path, <<'YAML');

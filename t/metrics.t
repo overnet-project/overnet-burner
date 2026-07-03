@@ -225,6 +225,44 @@ subtest 'summarize_stream_files combines per-actor streams' => sub {
   is $summary->{overall}{count},                         3, 'streams combine into overall counters';
 };
 
+subtest 'a phase filter summarizes only the named phase' => sub {
+  my $tmp = tempdir(CLEANUP => 1);
+  mkdir File::Spec->catdir($tmp, 'metrics') or die "mkdir: $!";
+
+  _spew(
+    File::Spec->catfile($tmp, 'metrics', 'publisher-001.jsonl'),
+    _event_line({%base_event, phase => 'warmup', status => 'error', error => 'cold start'})
+      . _event_line({%base_event, phase => 'main',     duration_ms => 10})
+      . _event_line({%base_event, phase => 'main',     duration_ms => 20})
+      . _event_line({%base_event, phase => 'cooldown', duration_ms => 99}),
+  );
+
+  my $summary =
+    Overnet::Burner::Metrics->summarize_stream_files($tmp, [{path => 'metrics/publisher-001.jsonl'}], phase => 'main',);
+
+  is $summary->{operations}{publish}{count},           2,  'only main phase events are summarized';
+  is $summary->{operations}{publish}{error_count},     0,  'warmup errors do not pollute the main summary';
+  is $summary->{operations}{publish}{latency_ms}{max}, 20, 'cooldown latencies do not pollute the main summary';
+  is $summary->{overall}{error_rate},                  0,  'overall counters cover the main phase only';
+};
+
+subtest 'a phase filter rejects untagged events' => sub {
+  my $tmp = tempdir(CLEANUP => 1);
+  mkdir File::Spec->catdir($tmp, 'metrics') or die "mkdir: $!";
+
+  _spew(
+    File::Spec->catfile($tmp, 'metrics', 'publisher-001.jsonl'),
+    _event_line({%base_event, phase => 'main', duration_ms => 10}) . _event_line({%base_event, duration_ms => 20}),
+  );
+
+  my $error;
+  eval {
+    Overnet::Burner::Metrics->summarize_stream_files($tmp, [{path => 'metrics/publisher-001.jsonl'}], phase => 'main',);
+    1;
+  } or $error = $@;
+  like $error, qr/without\ a\ phase/mx, 'an event without a phase cannot be judged in a multi-phase run';
+};
+
 done_testing;
 
 sub _event_line {

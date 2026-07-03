@@ -159,11 +159,12 @@ sub summarize {
 }
 
 sub summarize_stream_files {
-  my ($class, $run_dir, $streams) = @_;
+  my ($class, $run_dir, $streams, %options) = @_;
 
   if (ref($streams) ne 'ARRAY') {
     croak "streams must be an array reference\n";
   }
+  my $phase = $options{phase};
 
   my @events;
   for my $stream (@{$streams}) {
@@ -171,7 +172,17 @@ sub summarize_stream_files {
       File::Spec->file_name_is_absolute($stream->{path})
       ? $stream->{path}
       : File::Spec->catfile($run_dir, $stream->{path});
-    push @events, @{$class->read_stream($path)};
+    my $stream_events = $class->read_stream($path);
+    if (defined $phase) {
+      for my $event (@{$stream_events}) {
+        if (!(defined $event->{phase} && !ref($event->{phase}) && length $event->{phase})) {
+          croak "$stream->{path}: metric event without a phase in a multi-phase run\n";
+        }
+      }
+      push @events, grep { $_->{phase} eq $phase } @{$stream_events};
+    } else {
+      push @events, @{$stream_events};
+    }
   }
 
   return $class->summarize(\@events);

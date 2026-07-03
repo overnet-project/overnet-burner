@@ -105,10 +105,52 @@ sub validate {
   _require_hash($config, 'workload.object_reads');
   _require_nonnegative_number($config, 'workload.object_reads.rate_per_second');
   _validate_object_read_references($config);
+  _validate_workload_phase($config, 'warmup');
+  _validate_workload_phase($config, 'cooldown');
   _validate_chaos($config);
   _require_hash($config, 'thresholds');
 
   return 1;
+}
+
+sub _validate_workload_phase {
+  my ($config, $name) = @_;
+
+  my $path  = "workload.$name";
+  my $phase = _value_at($config, $path);
+  if (!defined $phase) {
+    return 1;
+  }
+
+  _require_mapping_ref($phase, $path);
+  _require_positive_integer($config, "$path.duration");
+  for my $rate (qw(publish_rate_per_second query_rate_per_second)) {
+    if (exists $phase->{$rate}) {
+      _require_nonnegative_number($config, "$path.$rate");
+    }
+  }
+  if (exists $phase->{object_reads}) {
+    _require_mapping_ref($phase->{object_reads}, "$path.object_reads");
+    if (exists $phase->{object_reads}{rate_per_second}) {
+      _require_nonnegative_number($config, "$path.object_reads.rate_per_second");
+    }
+  }
+
+  return 1;
+}
+
+sub _total_duration {
+  my ($config) = @_;
+
+  my $total = $config->{run}{duration};
+  for my $name (qw(warmup cooldown)) {
+    my $phase = _value_at($config, "workload.$name");
+    if (ref $phase eq 'HASH' && defined $phase->{duration}) {
+      $total += $phase->{duration};
+    }
+  }
+
+  return $total;
 }
 
 sub _validate_chaos {
@@ -116,7 +158,7 @@ sub _validate_chaos {
 
   my %actions     = map { $_ => 1 } qw(restart start stop);
   my %reserved    = map { $_ => 1 } qw(net-delay net-loss partition heal);
-  my $duration    = $config->{run}{duration};
+  my $duration    = _total_duration($config);
   my $relay_count = $config->{topology}{relays}{count};
   my $hooks       = _require_array_of_mappings($config, 'chaos');
 

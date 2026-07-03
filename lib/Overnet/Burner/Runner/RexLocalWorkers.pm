@@ -142,6 +142,14 @@ sub _worker_actors {
   return map { @{$plan->{$_} || []} } qw(subscribers query_readers object_readers publishers);
 }
 
+sub _total_duration_seconds {
+  my ($self) = @_;
+
+  my $run = $self->{plan}{run} || {};
+
+  return $run->{total_duration_seconds} // $run->{duration_seconds};
+}
+
 sub _assigned_relays {
   my ($endpoints, $ordinal) = @_;
 
@@ -174,6 +182,14 @@ sub _launch_worker {
     }
   }
 
+  my @phases;
+  for my $plan_phase (@{$self->{plan}{workload}{phases} || []}) {
+    my %phase = %{$plan_phase};
+    delete $phase{actor_seeds};
+    push @phases, \%phase;
+  }
+  my ($main_phase) = grep { $_->{name} eq 'main' } @phases;
+
   my $input = {
     input_version    => 1,
     run_id           => $manifest->{run_id},
@@ -181,11 +197,12 @@ sub _launch_worker {
     worker_id        => $actor_id,
     role             => $actor->{role},
     seed             => $actor->{seed},
-    duration_seconds => $self->{plan}{run}{duration_seconds},
+    duration_seconds => $self->_total_duration_seconds,
     metric_stream    => $actor->{metric_stream},
     ready_file       => File::Spec->catfile('workers', $actor_id, 'ready'),
     endpoints        => {relays => _assigned_relays($args{endpoints}, $actor->{ordinal})},
-    workload         => $self->{plan}{workload}{phases}[0] || {},
+    workload         => $main_phase || $phases[0] || {},
+    @phases ? (phases => \@phases) : (),
   };
   my $input_path = File::Spec->catfile($worker_dir, 'input.json');
   write_file($input_path, json_text($input));
@@ -248,7 +265,7 @@ sub _await_worker_exits {
   my ($self, $chaos_hooks) = @_;
 
   my $window_start = time;
-  my $deadline     = $window_start + $self->{plan}{run}{duration_seconds} + $EXIT_GRACE_SECONDS;
+  my $deadline     = $window_start + $self->_total_duration_seconds + $EXIT_GRACE_SECONDS;
   my @pending      = @{$chaos_hooks || []};
 
   while ((%{$self->{worker_pids}} || @pending) && time < $deadline) {

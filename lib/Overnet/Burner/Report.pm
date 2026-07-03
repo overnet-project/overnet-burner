@@ -385,7 +385,7 @@ sub _workload {
   } @{$plan->{workload}{phases} || []};
 
   return {
-    duration_seconds => 0 + ($plan->{run}{duration_seconds} || 0),
+    duration_seconds => 0 + ($plan->{run}{total_duration_seconds} // $plan->{run}{duration_seconds} // 0),
     phases           => \@phases,
   };
 }
@@ -408,11 +408,13 @@ sub _metrics {
 
   my $collected = @streams && $seen == @streams ? 1 : 0;
 
+  my $multi_phase = scalar(@{$plan->{workload}{phases} || []}) > 1;
   my $summary;
   my $metrics_error;
   if ($collected) {
     eval {
-      $summary = Overnet::Burner::Metrics->summarize_stream_files($run_dir, \@streams);
+      $summary =
+        Overnet::Burner::Metrics->summarize_stream_files($run_dir, \@streams, $multi_phase ? (phase => 'main') : (),);
       1;
     } or do {
       $metrics_error = $EVAL_ERROR || 'metric stream summarization failed';

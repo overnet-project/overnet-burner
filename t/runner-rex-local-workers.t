@@ -55,7 +55,9 @@ subtest 'workers runner launches contract workers and collects streams' => sub {
   is $input->{worker_id},         'publisher-001',               'input names the actor';
   is $input->{endpoints}{relays}, ['ws://127.0.0.1:59999'],      'input carries the scenario relay endpoints';
   is $input->{metric_stream},     'metrics/publisher-001.jsonl', 'input assigns the plan metric stream';
-  is $input->{duration_seconds},  2,                             'input carries the run duration';
+  is $input->{duration_seconds},  2,                             'input carries the total run duration';
+  is [map { $_->{name} } @{$input->{phases}}], ['main'],         'input carries the ordered phase list';
+  ok !exists $input->{phases}[0]{actor_seeds}, 'input phases do not leak other actors seeds';
 
   my $plan = _read_json(File::Spec->catfile($run_dir, 'plan.json'));
   is $input->{seed}, $plan->{publishers}[0]{seed}, 'input carries the actor plan seed';

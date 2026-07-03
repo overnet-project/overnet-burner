@@ -47,16 +47,44 @@ sub run {
   my $stop = 0;
   local $SIG{TERM} = sub { $stop = 1 };
 
-  my $rate = 0 + ($reads->{rate_per_second} || 1);
-  if ($rate <= 0) {
-    $rate = 1;
+  my $started = time;
+  $self->{sequence} = 0;
+  for my $phase (@{$self->phases}) {
+    if ($stop) {
+      last;
+    }
+    $self->_run_phase(
+      http    => $http,
+      origin  => $origin,
+      objects => $objects,
+      phase   => $phase,
+      started => $started,
+      stop    => \$stop,
+    );
   }
-  my $started  = time;
-  my $deadline = $started + $input->{duration_seconds};
-  my $sequence = 0;
 
-  while (!$stop && time < $deadline) {
-    my $scheduled = $started + $sequence / $rate;
+  $self->close_metric_stream;
+
+  return;
+}
+
+sub _run_phase {
+  my ($self, %args) = @_;
+
+  my $phase       = $args{phase};
+  my $stop        = $args{stop};
+  my $objects     = $args{objects};
+  my $phase_start = $args{started} + $phase->{start_seconds};
+  my $deadline    = $phase_start + $phase->{duration_seconds};
+  my $rate        = $self->phase_rate($phase->{object_reads} || {}, 'rate_per_second');
+
+  if ($rate == 0) {
+    return $self->idle_until($deadline, $stop);
+  }
+
+  my $paced = 0;
+  while (!${$stop} && time < $deadline) {
+    my $scheduled = $phase_start + $paced / $rate;
     if ($scheduled >= $deadline) {
       last;
     }
@@ -64,21 +92,21 @@ sub run {
     if ($wait > 0) {
       sleep $wait;
     }
-    if ($stop || time >= $deadline) {
+    if (${$stop} || time >= $deadline) {
       last;
     }
 
-    $sequence++;
+    $paced++;
+    my $sequence = ++$self->{sequence};
     $self->_read_once(
-      http   => $http,
-      origin => $origin,
+      http   => $args{http},
+      origin => $args{origin},
       object => $objects->[($sequence - 1) % @{$objects}],
+      phase  => $phase->{name},
     );
   }
 
-  $self->close_metric_stream;
-
-  return;
+  return 1;
 }
 
 sub _read_once {
@@ -107,6 +135,7 @@ sub _read_once {
 
   $self->emit_metric(
     operation   => 'object_read',
+    phase       => $args{phase},
     started_at  => $self->iso_timestamp($started_at),
     finished_at => $self->iso_timestamp($finished_at),
     duration_ms => ($finished_at - $started_at) * 1000,

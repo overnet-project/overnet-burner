@@ -73,6 +73,11 @@ Events MAY carry additional operation-specific members (for example
 `http_status`, `rejection_reason`). Operation-specific members MUST NOT
 redefine core field names and SHOULD use `snake_case`.
 
+Events MAY carry a `phase` member naming the workload phase the operation
+ran in (`warmup`, `main`, `cooldown`). In a **multi-phase run** the `phase`
+member is REQUIRED on every event: an event that cannot say which phase it
+belongs to cannot be judged honestly.
+
 ## Well-Known Operations
 
 The `operation` vocabulary is open, but summaries and thresholds reference
@@ -96,6 +101,12 @@ automatically.
 
 Report generation summarizes metric events with these normative rules:
 
+- In a multi-phase run, only events with `phase: "main"` are summarized:
+  warmup and cooldown events remain in the streams as evidence but never
+  feed summaries or thresholds, because cold-start and drain noise are not
+  the system's steady-state behavior. An event without a `phase` member in
+  a multi-phase run makes the run's metrics untrustworthy (a configuration
+  error), exactly like a malformed stream.
 - Events from all streams of a run are grouped by `operation`.
 - `count`, `success_count`, and `error_count` count events by `status`;
   `error_rate` is `error_count / count`.
