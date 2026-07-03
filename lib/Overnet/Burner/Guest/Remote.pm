@@ -153,6 +153,14 @@ sub signal {
   return 1;
 }
 
+sub reachable {
+  my ($self) = @_;
+
+  my (undef, $status) = $self->_capture('true');
+
+  return $status == 0 ? 1 : 0;
+}
+
 sub ready_actors {
   my ($self, $workers_root) = @_;
 
@@ -216,6 +224,11 @@ that vanished without writing one is reported as a killed process.
 =head2 try_reap
 
 =head2 signal
+
+=head2 reachable
+
+True when the guest answers a trivial command over its transport; used to
+wait for constructed guests (containers, virtual machines) to come up.
 
 =head2 ready_actors
 

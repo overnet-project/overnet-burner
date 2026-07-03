@@ -1,11 +1,12 @@
 # overnet-burner Guest Provisioning (Design)
 
-**Status: partially implemented.** The guest interface, the `local` method,
-and the `connect` and `container` methods for the workers group are
-implemented and tested (both Docker and podman, with the engine adapter and
-detection rules below); `virtual` — and every method other than `local` for
-the relays group — remains proposed design, rejected by scenario validation
-as not implemented yet. One deliberate deviation while relays run on the
+**Status: implemented for the workers group.** The guest interface, the
+`local` method, and the `connect`, `container`, and `virtual` methods for
+the workers group are implemented and tested (containers on both Docker
+and podman with the engine adapter and detection rules below; virtual
+machines with direct QEMU per the decisions below); every method other
+than `local` for the relays group remains proposed design, rejected by
+scenario validation as not implemented yet. One deliberate deviation while relays run on the
 controller host: **worker containers default to host networking**, because
 a bridge-networked worker cannot reach relay endpoints declared as
 `ws://127.0.0.1`. Worker containers MAY opt into the per-run bridge
@@ -146,6 +147,43 @@ provision:
   with `CAP_NET_ADMIN` (recorded per guest in `guests.json`); otherwise no
   extra capability is granted.
 
+### Virtual Decisions
+
+- **Direct QEMU, no libvirt.** The `virtual` method drives
+  `qemu-system-x86_64` directly: dependency-light, CI-verifiable, and the
+  runner needs nothing a daemon would add. Images are plain paths (qcow2
+  or raw, chosen by file extension); tmt's testcloud image conventions
+  are deliberately not adopted.
+- **A virtual machine is an SSH guest the run constructed.** Each guest
+  boots from a cloud-init NoCloud seed ISO carrying a per-run generated
+  ed25519 key and a `burner` user; SSH arrives over user-mode networking
+  through a per-guest `hostfwd` port on 127.0.0.1. Once reachable, the
+  guest is exactly the `connect` transport. VM host keys are ephemeral by
+  construction, so they are not verified.
+- **Ephemeral disks.** Guests run with `-snapshot`: the base image is
+  never modified and teardown is terminating the QEMU process.
+- **Honest acceleration.** KVM is used when `/dev/kvm` is usable and TCG
+  otherwise; the accelerator actually used is recorded per guest in
+  `guests.json` — a TCG run must never present itself as KVM-fast.
+- **Host architecture only (v1).** `hardware.arch`, when declared for a
+  virtual group, must match the controller's architecture; emulating a
+  foreign architecture under TCG is rejected rather than silently slow.
+- **Hardware honored by construction.** `hardware.memory` and
+  `hardware.cpu.cores` minimums become `-m` and `-smp` (defaults 1024 MiB
+  and 1 CPU); memory units convert upward so the constructed guest never
+  has less than the requirement.
+- **Guest-reachable endpoints stay explicit.** Under user-mode networking
+  the host is reachable at `10.0.2.2`; as with bridge containers, the
+  scenario author declares relay endpoints reachable from inside the
+  guest, and endpoint rewriting is deliberately not performed.
+- **Dependencies.** `qemu-system-x86_64`, `genisoimage`, and `ssh-keygen`
+  must be on the controller; `OVERNET_BURNER_QEMU`,
+  `OVERNET_BURNER_GENISOIMAGE`, and `OVERNET_BURNER_SSH_KEYGEN` override
+  the binaries (test fakes, nonstandard installs).
+  `OVERNET_BURNER_QEMU_ACCEL` forces the accelerator and
+  `OVERNET_BURNER_VIRTUAL_BOOT_TIMEOUT` overrides the SSH readiness
+  deadline (180 seconds by default).
+
 ## Hardware Requirements
 
 Constructed guests MAY declare requirements using tmt's shape — implicit
@@ -173,6 +211,15 @@ fails the run on mismatch.
 grammar (`and`/`or` groups, operators, units) parsed and reserved so
 scenarios written today stay valid as coverage grows. A requirement key
 outside the implemented set is a validation error, not a silent no-op.
+
+**v1 implementation:** values are a plain number or a single `=` / `>=`
+comparison; memory values require a unit (`MB`, `MiB`, `GB`, `GiB`) and
+`cpu.cores` must be an integer. `and`/`or` groups and the remaining
+comparison operators are recognized and rejected as not implemented yet —
+reserved, never misread. Declared requirements are recorded in
+`guests.json` as `hardware_requirements` for every method; only `virtual`
+constructs guests to match today, and the other methods do not yet
+discover facts to compare against.
 
 ## Placement
 
@@ -259,5 +306,3 @@ the same four-operation guest interface.
 - Whether the published-port network fallback should be automatic when the
   bridge network is unreachable from the controller, or always an explicit
   scenario choice.
-- Whether `virtual` should reuse tmt's testcloud image conventions or take
-  plain QCOW2 paths only.

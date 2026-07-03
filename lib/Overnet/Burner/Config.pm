@@ -7,6 +7,7 @@ use English qw(-no_match_vars);
 use JSON    ();
 use YAML::PP;
 
+use Overnet::Burner::Hardware ();
 use Overnet::Burner::TopologyProvider;
 use Overnet::Burner::Util qw(clone_json json_text read_file);
 
@@ -63,6 +64,9 @@ sub normalize {
       $copy->{provision}{$group}{engine}  ||= 'auto';
       $copy->{provision}{$group}{count}   ||= 1;
       $copy->{provision}{$group}{network} ||= 'host';
+    }
+    if (($copy->{provision}{$group}{how} || q{}) eq 'virtual') {
+      $copy->{provision}{$group}{count} ||= 1;
     }
   }
 
@@ -159,7 +163,7 @@ sub _validate_provision {
 
   my %implemented = (
     relays  => {local => 1},
-    workers => {local => 1, connect => 1, container => 1},
+    workers => {local => 1, connect => 1, container => 1, virtual => 1},
   );
   my %designed = map { $_ => 1 } qw(local connect container virtual);
 
@@ -189,7 +193,28 @@ sub _validate_provision {
     if ($how eq 'container') {
       _validate_provision_container($config, $group);
     }
+    if ($how eq 'virtual') {
+      _validate_provision_virtual($config, $group);
+    }
+    if (exists $spec->{hardware}) {
+      Overnet::Burner::Hardware::validate_requirements($spec->{hardware}, "provision.$group.hardware");
+    }
   }
+
+  return 1;
+}
+
+sub _validate_provision_virtual {
+  my ($config, $group) = @_;
+
+  my $path = "provision.$group";
+  my $spec = _value_at($config, $path);
+
+  my $image = $spec->{image};
+  if (!(defined $image && !ref($image) && length $image)) {
+    croak "$path.image is required for how: virtual\n";
+  }
+  _require_positive_integer($config, "$path.count");
 
   return 1;
 }

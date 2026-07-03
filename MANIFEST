@@ -24,6 +24,8 @@ lib/Overnet/Burner/Guest/Container.pm
 lib/Overnet/Burner/Guest/Exec.pm
 lib/Overnet/Burner/Guest/Remote.pm
 lib/Overnet/Burner/Guest/SSH.pm
+lib/Overnet/Burner/Guest/Virtual.pm
+lib/Overnet/Burner/Hardware.pm
 lib/Overnet/Burner/Metrics.pm
 lib/Overnet/Burner/Plan.pm
 lib/Overnet/Burner/Report.pm
@@ -59,6 +61,7 @@ t/guest-container.t
 t/guest-exec.t
 t/guest-remote.t
 t/guest-ssh.t
+t/hardware.t
 t/makemaker-metadata.t
 t/manifest-skip-policy.t
 t/metrics.t
@@ -70,6 +73,7 @@ t/run-ledger.t
 t/runner-noop.t
 t/runner-provision-connect.t
 t/runner-provision-container.t
+t/runner-provision-virtual.t
 t/runner-rex-local-provider.t
 t/runner-rex-local-workers.t
 t/runner-rex-local.t

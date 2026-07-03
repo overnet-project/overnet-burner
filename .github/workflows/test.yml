@@ -90,6 +90,27 @@ jobs:
           echo "OVERNET_BURNER_TEST_CONTAINER_ENGINES=${engines# }" >> "$GITHUB_ENV"
           echo "container engines available: ${engines:-none}"
 
+      - uses: actions/cache@v4
+        with:
+          path: ~/images
+          key: debian-12-genericcloud-amd64-v1
+
+      - name: Provision qemu and a cloud image for virtual-method tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 genisoimage
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          if [ ! -w /dev/kvm ]; then
+            echo "no usable /dev/kvm; the real virtual-method test will be skipped"
+            exit 0
+          fi
+          mkdir -p ~/images
+          if [ ! -f ~/images/debian-12-genericcloud-amd64.qcow2 ]; then
+            curl -fsSL --retry 3 -o ~/images/debian-12-genericcloud-amd64.qcow2 \
+              "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+          fi
+          echo "OVERNET_BURNER_TEST_VIRTUAL_IMAGE=$HOME/images/debian-12-genericcloud-amd64.qcow2" >> "$GITHUB_ENV"
+
       - name: Run tests
         run: |
           prove -r -l -v t/

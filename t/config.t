@@ -669,6 +669,34 @@ YAML
   my $bridge_config = Overnet::Burner::Config->load_file($bridge);
   is $bridge_config->{provision}{workers}{network}, 'bridge', 'worker containers may opt into a bridge network';
 
+  my $virtual = "$tmp/provision-virtual.yml";
+  _write_yaml($virtual, <<'YAML');
+run:
+  name: provision-virtual
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: virtual
+    image: /images/worker.qcow2
+    hardware:
+      memory: ">= 2 GiB"
+      cpu:
+        cores: ">= 2"
+YAML
+  my $virtual_config = Overnet::Burner::Config->load_file($virtual);
+  is $virtual_config->{provision}{workers}{how},              'virtual',  'virtual provisioning loads for workers';
+  is $virtual_config->{provision}{workers}{count},            1,          'virtual count defaults to one';
+  is $virtual_config->{provision}{workers}{hardware}{memory}, '>= 2 GiB', 'hardware requirements are preserved';
+
   my @rejections = (
     [
       'unknown group',
@@ -681,14 +709,34 @@ YAML
       qr/provision\.workers\.how\ must\ be\ one\ of\ connect,\ container,\ local,\ virtual/mx,
     ],
     [
-      'reserved how',
-      "provision:\n  workers:\n    how: virtual",
-      qr/provision\.workers\.how\ virtual\ is\ not\ implemented\ yet/mx,
+      'relay virtual unimplemented',
+      "provision:\n  relays:\n    how: virtual\n    image: r.qcow2",
+      qr/provision\.relays\.how\ virtual\ is\ not\ implemented\ yet/mx,
     ],
     [
       'relay connect unimplemented',
       "provision:\n  relays:\n    how: connect\n    guests:\n      - address: r1",
       qr/provision\.relays\.how\ connect\ is\ not\ implemented\ yet/mx,
+    ],
+    [
+      'virtual without image',
+      "provision:\n  workers:\n    how: virtual",
+      qr/provision\.workers\.image\ is\ required\ for\ how:\ virtual/mx,
+    ],
+    [
+      'virtual with an unknown hardware key',
+      "provision:\n  workers:\n    how: virtual\n    image: w.qcow2\n    hardware:\n      gpu: 1",
+      qr/provision\.workers\.hardware\.gpu\ is\ not\ an\ implemented\ hardware\ requirement/mx,
+    ],
+    [
+      'virtual with a reserved hardware group',
+"provision:\n  workers:\n    how: virtual\n    image: w.qcow2\n    hardware:\n      and:\n        - memory: 1 GiB",
+      qr/provision\.workers\.hardware\ and\/or\ groups\ are\ not\ implemented\ yet/mx,
+    ],
+    [
+      'virtual with a foreign architecture',
+      "provision:\n  workers:\n    how: virtual\n    image: w.qcow2\n    hardware:\n      arch: never-built-arch",
+      qr/provision\.workers\.hardware\.arch\ never-built-arch\ does\ not\ match\ the\ host\ architecture/mx,
     ],
     [
       'connect without guests',

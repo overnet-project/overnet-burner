@@ -10,14 +10,17 @@ use English        qw(-no_match_vars);
 use File::Basename qw(dirname);
 use File::Path     qw(make_path);
 use File::Spec;
-use JSON        ();
-use Time::HiRes qw(sleep time);
+use IO::Socket::INET ();
+use JSON             ();
+use Time::HiRes      qw(sleep time);
 
 use Overnet::Burner::ContainerEngine;
 use Overnet::Burner::Guest::Container;
 use Overnet::Burner::Guest::Exec;
 use Overnet::Burner::Guest::SSH;
-use Overnet::Burner::Util qw(json_text read_json_file write_file);
+use Overnet::Burner::Guest::Virtual;
+use Overnet::Burner::Hardware ();
+use Overnet::Burner::Util     qw(json_text read_file read_json_file write_file);
 
 our $VERSION = '0.001';
 
@@ -34,9 +37,11 @@ my @LAUNCH_WAVES  = ([qw(subscriber query_reader object_reader observer)], [qw(p
 my %NETEM_ACTIONS = ('net-delay' => 1, 'net-loss' => 1);
 my %NET_ACTIONS   = (%NETEM_ACTIONS, partition => 1, heal => 1);
 
-my $READY_TIMEOUT_SECONDS = 10;
-my $EXIT_GRACE_SECONDS    = 15;
-my $KILL_GRACE_SECONDS    = 5;
+my $READY_TIMEOUT_SECONDS        = 10;
+my $EXIT_GRACE_SECONDS           = 15;
+my $KILL_GRACE_SECONDS           = 5;
+my $VIRTUAL_BOOT_TIMEOUT_SECONDS = 180;
+my $DEFAULT_VM_MEMORY_MB         = 1024;
 
 sub prepare {
   my ($self) = @_;
@@ -62,23 +67,27 @@ sub _provision_worker_guests {
 
   $self->{worker_command} = $workers->{worker};
 
-  my @guests;
-  my $engine;
+  # Constructed guests are registered as they come up so a failure partway
+  # through provisioning still tears down everything already built.
+  $self->{worker_guests} = [];
   if ($how eq 'connect') {
-    @guests = $self->_connect_guests($workers);
+    push @{$self->{worker_guests}}, $self->_connect_guests($workers);
   } elsif ($how eq 'container') {
-    ($engine, @guests) = $self->_container_guests($workers, $config->{chaos} || []);
+    $self->_container_guests($workers, $config->{chaos} || []);
+  } elsif ($how eq 'virtual') {
+    $self->_virtual_guests($workers);
   } else {
-    push @guests, Overnet::Burner::Guest::Exec->new(name => 'local', role => 'workers');
+    push @{$self->{worker_guests}}, Overnet::Burner::Guest::Exec->new(name => 'local', role => 'workers');
   }
 
-  $self->{worker_guests} = \@guests;
-  $self->{actor_guests}  = {};
+  my @guests = @{$self->{worker_guests}};
+  $self->{actor_guests} = {};
   for my $actor ($self->_worker_actors) {
     my $guest = $guests[(($actor->{ordinal} || 1) - 1) % @guests];
     $self->{actor_guests}{$actor->{id}} = $guest;
   }
 
+  my $engine        = $self->{worker_engine};
   my @guest_records = map { _guest_record($_) } @guests;
   my %placement     = map { $_ => $self->{actor_guests}{$_}->name } keys %{$self->{actor_guests}};
   write_file(
@@ -91,6 +100,7 @@ sub _provision_worker_guests {
         $self->{worker_network}
         ? (network => {name => $self->{worker_network}, mode => 'bridge'})
         : (),
+        exists $workers->{hardware} ? (hardware_requirements => $workers->{hardware}) : (),
       }
     ),
   );
@@ -125,17 +135,16 @@ sub _container_guests {
   my $engine   = Overnet::Burner::ContainerEngine->detect(engine => $workers->{engine} || 'auto');
   my $manifest = read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
   my $run_id   = $manifest->{run_id};
+  $self->{worker_engine} = $engine;
 
   my $network = $workers->{network} || 'host';
   if ($network eq 'bridge') {
     $network = "burner-$run_id";
     $engine->network_create($network);
     $self->{worker_network} = $network;
-    $self->{worker_engine}  = $engine;
   }
   my @cap_add = (grep { $NETEM_ACTIONS{$_->{action} || q{}} } @{$chaos}) ? ('NET_ADMIN') : ();
 
-  my @guests;
   for my $ordinal (1 .. ($workers->{count} || 1)) {
     my $guest_name = sprintf 'worker-guest-%03d', $ordinal;
     my $container  = "burner-$run_id-$guest_name";
@@ -146,7 +155,7 @@ sub _container_guests {
       @cap_add ? (cap_add => \@cap_add) : (),
       command => ['sleep', 'infinity'],
     );
-    push @guests,
+    push @{$self->{worker_guests}},
       Overnet::Burner::Guest::Container->new(
       name      => $guest_name,
       role      => 'workers',
@@ -157,7 +166,168 @@ sub _container_guests {
       );
   }
 
-  return ($engine, @guests);
+  return 1;
+}
+
+sub _virtual_guests {
+  my ($self, $workers) = @_;
+
+  my $manifest = read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
+  my $run_id   = $manifest->{run_id};
+
+  my $image = $workers->{image};
+  if (!-r $image) {
+    croak "provision.workers.image $image does not exist or is unreadable\n";
+  }
+
+  my %minimums  = Overnet::Burner::Hardware::requirement_minimums($workers->{hardware} || {});
+  my $memory_mb = $minimums{memory_mb}            || $DEFAULT_VM_MEMORY_MB;
+  my $cpus      = $minimums{cpus}                 || 1;
+  my $accel     = $ENV{OVERNET_BURNER_QEMU_ACCEL} || (-w '/dev/kvm' ? 'kvm' : 'tcg');
+
+  my $virtual_dir = File::Spec->catdir($self->{run_dir}, 'virtual');
+  make_path($virtual_dir);
+  my $key = _generate_ssh_key($virtual_dir);
+
+  for my $ordinal (1 .. ($workers->{count} || 1)) {
+    my $guest_name = sprintf 'worker-guest-%03d', $ordinal;
+    my $vm_name    = "burner-$run_id-$guest_name";
+    my $guest_dir  = File::Spec->catdir($virtual_dir, $guest_name);
+    make_path($guest_dir);
+    my $seed = _seed_iso(
+      guest_dir  => $guest_dir,
+      vm_name    => $vm_name,
+      guest_name => $guest_name,
+      public_key => read_file("$key.pub"),
+    );
+    my $port     = _free_port();
+    my $pid_file = File::Spec->catfile($guest_dir, 'qemu.pid');
+    _launch_vm(
+      vm_name   => $vm_name,
+      image     => $image,
+      memory_mb => $memory_mb,
+      cpus      => $cpus,
+      accel     => $accel,
+      seed      => $seed,
+      port      => $port,
+      pid_file  => $pid_file,
+    );
+    push @{$self->{worker_guests}},
+      Overnet::Burner::Guest::Virtual->new(
+      name      => $guest_name,
+      role      => 'workers',
+      address   => '127.0.0.1',
+      port      => $port,
+      user      => 'burner',
+      key       => $key,
+      pid_file  => $pid_file,
+      image     => $image,
+      memory_mb => $memory_mb,
+      cpus      => $cpus,
+      accel     => $accel,
+      );
+  }
+
+  $self->_await_guests_reachable;
+
+  return 1;
+}
+
+sub _generate_ssh_key {
+  my ($dir) = @_;
+
+  my $key    = File::Spec->catfile($dir, 'id_ed25519');
+  my $keygen = $ENV{OVERNET_BURNER_SSH_KEYGEN} || 'ssh-keygen';
+  my $status = system $keygen, '-q', '-t', 'ed25519', '-N', q{}, '-f', $key;
+  if ($status != 0) {
+    croak "could not generate a guest ssh key with $keygen\n";
+  }
+
+  return $key;
+}
+
+sub _seed_iso {
+  my (%args) = @_;
+
+  my $public_key = $args{public_key};
+  chomp $public_key;
+  my $user_data = File::Spec->catfile($args{guest_dir}, 'user-data');
+  write_file($user_data, <<"USERDATA");
+#cloud-config
+users:
+  - name: burner
+    shell: /bin/sh
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - $public_key
+USERDATA
+  my $meta_data = File::Spec->catfile($args{guest_dir}, 'meta-data');
+  write_file($meta_data, "instance-id: $args{vm_name}\nlocal-hostname: $args{guest_name}\n");
+
+  my $iso         = File::Spec->catfile($args{guest_dir}, 'seed.iso');
+  my $genisoimage = $ENV{OVERNET_BURNER_GENISOIMAGE} || 'genisoimage';
+  my $status      = system $genisoimage, '-quiet', '-output', $iso, '-volid', 'cidata', '-joliet', '-rock',
+    $user_data, $meta_data;
+  if ($status != 0) {
+    croak "could not build the cloud-init seed with $genisoimage\n";
+  }
+
+  return $iso;
+}
+
+sub _launch_vm {
+  my (%args) = @_;
+
+  my $qemu   = $ENV{OVERNET_BURNER_QEMU} || 'qemu-system-x86_64';
+  my $format = $args{image} =~ /[.]qcow2\z/mxs ? 'qcow2' : 'raw';
+  my $cpu    = $args{accel} eq 'kvm'           ? 'host'  : 'max';
+  my $status = system $qemu,
+    '-name',    $args{vm_name}, '-machine', 'q35',
+    '-m',       "$args{memory_mb}M", '-smp', $args{cpus},
+    '-accel',   $args{accel}, '-cpu', $cpu, '-snapshot',
+    '-drive',   "file=$args{image},format=$format,if=virtio",
+    '-cdrom',   $args{seed},
+    '-netdev',  "user,id=net0,hostfwd=tcp:127.0.0.1:$args{port}-:22",
+    '-device',  'virtio-net-pci,netdev=net0',
+    '-display', 'none', '-daemonize', '-pidfile', $args{pid_file};
+  if ($status != 0) {
+    croak "$qemu could not launch $args{vm_name}\n";
+  }
+
+  return 1;
+}
+
+sub _free_port {
+  my $socket = IO::Socket::INET->new(
+    LocalAddr => '127.0.0.1',
+    LocalPort => 0,
+    Listen    => 1,
+    Proto     => 'tcp',
+  ) or croak "could not find a free port: $OS_ERROR\n";
+  my $port = $socket->sockport;
+  close $socket or croak "close port probe: $OS_ERROR\n";
+
+  return $port;
+}
+
+sub _await_guests_reachable {
+  my ($self) = @_;
+
+  my $timeout  = $ENV{OVERNET_BURNER_VIRTUAL_BOOT_TIMEOUT} || $VIRTUAL_BOOT_TIMEOUT_SECONDS;
+  my $deadline = time + $timeout;
+  my @pending  = @{$self->{worker_guests}};
+  while (@pending) {
+    @pending = grep { !$_->reachable } @pending;
+    if (!@pending) {
+      return 1;
+    }
+    if (time >= $deadline) {
+      croak 'virtual guest ' . $pending[0]->name . " did not become reachable within ${timeout}s\n";
+    }
+    sleep 1;
+  }
+
+  return 1;
 }
 
 sub _guest_record {
@@ -182,6 +352,13 @@ sub _guest_record {
     if (@{$guest->cap_add}) {
       $guest_record{cap_add} = $guest->cap_add;
     }
+  }
+  if ($guest->isa('Overnet::Burner::Guest::Virtual')) {
+    $guest_record{method}    = $guest->provision_method;
+    $guest_record{image}     = $guest->image;
+    $guest_record{accel}     = $guest->accel;
+    $guest_record{memory_mb} = 0 + $guest->memory_mb;
+    $guest_record{cpus}      = 0 + $guest->cpus;
   }
 
   return \%guest_record;
