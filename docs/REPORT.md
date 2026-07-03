@@ -172,17 +172,22 @@ verdict follows from metrics and thresholds:
 | All configured thresholds evaluated and passed | `performance_passed` | `performance` |
 | Metrics collected, no thresholds configured | `smoke_passed` | `orchestration` |
 
-When the run executed chaos hooks (`chaos.hooks_executed > 0`), the
-threshold-driven rows above are judged as a chaos experiment instead:
-`chaos_failed`, `inconclusive_partial_run`, or `chaos_passed`, with result
-class `chaos`. See [chaos.md](chaos.md).
+When the run perturbed the system under test — by executing chaos hooks
+(`chaos.hooks_executed > 0`), by launching abuse workers (any collected
+operation summary carries a `defended_ratio`), or both — the
+threshold-driven rows above are judged as a **resilience experiment**
+instead: `resilience_failed`, `inconclusive_partial_run`, or
+`resilience_passed`, with result class `resilience`.
 
-When the run launched abuse workers (any collected operation summary
-carries a `defended_ratio`), the threshold-driven rows are judged as an
-abuse experiment instead: `abuse_failed`, `inconclusive_partial_run`, or
-`abuse_passed`, with result class `abuse`. An abuse experiment takes
-precedence over a chaos experiment when both are present. See
-[abuse.md](abuse.md).
+Chaos (infrastructure faults) and abuse (adversarial participants) are two
+mechanisms of the same resilience experiment, not two competing verdicts. A
+run that uses both is one resilience experiment, judged once against all its
+thresholds, so a failing threshold is never misattributed to whichever
+mechanism happened to win a precedence rule. `run.perturbations` records
+which mechanisms actually ran (`["chaos"]`, `["abuse"]`, or both), and the
+same collateral thresholds (honest-worker latency and error rates, the
+observer's `relay_ping`) measure the blast radius on honest traffic
+regardless of mechanism. See [chaos.md](chaos.md) and [abuse.md](abuse.md).
 
 ## Artifacts
 

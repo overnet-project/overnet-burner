@@ -1,6 +1,7 @@
 use strictures 2;
 
 use Digest::SHA;
+use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
@@ -306,7 +307,7 @@ YAML
   is $report->{run}{verdict}, 'performance_failed', 'the failed reader threshold fails the run';
 };
 
-subtest 'a run with abuse workers is judged as an abuse experiment' => sub {
+subtest 'a run with abuse workers is judged as a resilience experiment' => sub {
   my $scenario_abuse = File::Spec->catfile($tmp, 'abuse.yml');
   _write_text($scenario_abuse, <<'YAML');
 run:
@@ -360,8 +361,9 @@ YAML
     'defended ratio thresholds are judged as a floor, not a ceiling';
   is $pass_thresholds{'flood_publish.defended_ratio'}{observed_value}, 1, 'a fully defended flood observes ratio 1';
   is $pass_thresholds{'flood_publish.defended_ratio'}{status},         'passed', 'the defense floor is met';
-  is $pass->{run}{verdict},      'abuse_passed', 'a defended run passes the abuse experiment';
-  is $pass->{run}{result_class}, 'abuse',        'an abuse run is classified as abuse, not performance';
+  is $pass->{run}{verdict},       'resilience_passed', 'a defended run passes the resilience experiment';
+  is $pass->{run}{result_class},  'resilience',        'an abuse run is a resilience experiment, not performance';
+  is $pass->{run}{perturbations}, ['abuse'],           'the run records abuse as its perturbation mechanism';
 
   my $fail_dir = _run_with_metric_streams(
     'report-abuse-fail-001',
@@ -389,8 +391,77 @@ YAML
   my %fail_thresholds = map { $_->{id} => $_ } @{$fail->{thresholds}};
   is $fail_thresholds{'flood_publish.defended_ratio'}{observed_value}, 0.5,      'half the flood got through';
   is $fail_thresholds{'flood_publish.defended_ratio'}{status},         'failed', 'the defense floor is not met';
-  is $fail->{run}{verdict},      'abuse_failed', 'a run that let abuse through fails the abuse experiment';
-  is $fail->{run}{result_class}, 'abuse',        'the failing run is still classified as abuse';
+  is $fail->{run}{verdict},      'resilience_failed', 'a run that let abuse through fails the resilience experiment';
+  is $fail->{run}{result_class}, 'resilience',        'the failing run is still a resilience experiment';
+};
+
+subtest 'a run with both chaos and abuse is one resilience experiment' => sub {
+  my $scenario_mixed = File::Spec->catfile($tmp, 'mixed.yml');
+  _write_text($scenario_mixed, <<'YAML');
+run:
+  name: mixed
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+  flooders:
+    count: 1
+workload:
+  publish_rate_per_second: 10
+  abuse:
+    flooder:
+      publish_rate_per_second: 5000
+chaos:
+  - at: 5
+    action: restart
+    target: relay:1
+thresholds:
+  flood_publish.defended_ratio: 0.9
+  publish_p99_ms: 5
+YAML
+
+  my $defended = _metric_event(
+    worker_id        => 'flooder-001',
+    role             => 'flooder',
+    operation        => 'flood_publish',
+    status           => 'error',
+    error            => 'rate-limited: slow down',
+    outcome          => 'rejected',
+    error_category   => 'policy rejection',
+    defended         => JSON::true,
+    defended_correct => JSON::true,
+  );
+
+  my $run_dir = _run_with_metric_streams(
+    'report-mixed-001',
+    -scenario       => $scenario_mixed,
+    'publisher-001' => [_metric_event(duration_ms => 20)],
+    'flooder-001'   => [map {$defended} 1 .. 10],
+  );
+
+  # The chaos hook is scheduled in the plan but the noop runner does not fire
+  # it, so record its execution in the runner log the report reads from.
+  _record_chaos_hook($run_dir, 'chaos-001');
+
+  my $report = _regenerated_report($run_dir);
+
+  is $report->{chaos}{hooks_executed}, 1, 'the injected chaos hook is counted as executed';
+  is $report->{run}{result_class}, 'resilience',
+    'a run with both mechanisms is a single resilience experiment, not one class winning';
+  is $report->{run}{perturbations}, ['abuse', 'chaos'], 'the run records both perturbation mechanisms it ran';
+
+  # The failing threshold is the collateral publish latency, a performance
+  # signal, yet the verdict is the unified resilience verdict rather than
+  # being misattributed to whichever mechanism happened to win precedence.
+  my %thresholds = map { $_->{id} => $_ } @{$report->{thresholds}};
+  is $thresholds{'flood_publish.defended_ratio'}{status}, 'passed', 'the defense floor is met';
+  is $thresholds{publish_p99_ms}{status},                 'failed', 'the collateral latency threshold fails';
+  is $report->{run}{verdict}, 'resilience_failed',
+    'any threshold failure in a perturbation run is a single resilience_failed verdict';
 };
 
 subtest 'multi-phase runs are judged on the main phase only' => sub {
@@ -529,6 +600,34 @@ sub _write_text {
   open my $fh, '>', $path or die "open $path: $!";
   print {$fh} $content or die "print $path: $!";
   close $fh            or die "close $path: $!";
+  return;
+}
+
+sub _record_chaos_hook {
+  my ($run_dir, $hook_id) = @_;
+  my $logs_dir = File::Spec->catdir($run_dir, 'logs');
+  make_path($logs_dir);
+  my $path = File::Spec->catfile($logs_dir, 'runner.jsonl');
+  my $json = JSON->new->canonical(1);
+  open my $fh, '>>', $path or die "open $path: $!";
+  for my $status (qw(started completed)) {
+    print {$fh} $json->encode(
+      {
+        runner     => 'noop',
+        phase      => 'observe',
+        event_kind => 'chaos_hook',
+        hook_id    => $hook_id,
+        action     => 'restart',
+        target     => 'relay:1',
+        actor_id   => 'relay-001',
+        status     => $status,
+        timestamp  => '2026-06-27T20:01:5' . ($status eq 'started' ? '7Z' : '8Z'),
+      }
+      )
+      . "\n"
+      or die "print $path: $!";
+  }
+  close $fh or die "close $path: $!";
   return;
 }
 

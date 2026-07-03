@@ -110,15 +110,37 @@ sub _run {
   my ($verdict, $result_class) = _verdict_and_result_class($manifest, $metrics, $thresholds, $chaos);
 
   return {
-    id           => $manifest->{run_id},
-    status       => $status,
-    verdict      => $verdict,
-    result_class => $result_class,
-    created_at   => $manifest->{timestamps}{created_at}  || undef,
-    started_at   => $manifest->{timestamps}{started_at}  || undef,
-    finished_at  => $manifest->{timestamps}{finished_at} || undef,
-    duration_ms  => _duration_ms($manifest->{timestamps}{started_at}, $manifest->{timestamps}{finished_at},),
+    id            => $manifest->{run_id},
+    status        => $status,
+    verdict       => $verdict,
+    result_class  => $result_class,
+    perturbations => [_perturbations($metrics, $chaos)],
+    created_at    => $manifest->{timestamps}{created_at}  || undef,
+    started_at    => $manifest->{timestamps}{started_at}  || undef,
+    finished_at   => $manifest->{timestamps}{finished_at} || undef,
+    duration_ms   => _duration_ms($manifest->{timestamps}{started_at}, $manifest->{timestamps}{finished_at},),
   };
+}
+
+# The perturbation mechanisms a run actually exercised. A run that injures
+# infrastructure (chaos) and a run that introduces adversarial participants
+# (abuse) are two mechanisms of one resilience experiment, so the report
+# records which ran rather than collapsing them to a single winning class.
+sub _perturbations {
+  my ($metrics, $chaos) = @_;
+  my @mechanisms;
+  if (_has_abuse_operations($metrics)) {
+    push @mechanisms, 'abuse';
+  }
+  if (_chaos_run($chaos)) {
+    push @mechanisms, 'chaos';
+  }
+  return @mechanisms;
+}
+
+sub _chaos_run {
+  my ($chaos) = @_;
+  return (($chaos->{hooks_executed} || 0) > 0) ? 1 : 0;
 }
 
 sub _verdict_and_result_class {
@@ -138,8 +160,7 @@ sub _verdict_and_result_class {
     return ('not_evaluated', 'none');
   }
 
-  my $chaos_run = ($chaos->{hooks_executed} || 0) > 0;
-  my $abuse_run = _has_abuse_operations($metrics);
+  my $perturbation = _chaos_run($chaos) || _has_abuse_operations($metrics);
 
   if (!$metrics->{collected}) {
     if (($metrics->{reason} || q{}) eq 'configuration_error') {
@@ -152,12 +173,13 @@ sub _verdict_and_result_class {
   my @missing   = grep { ($_->{reason} || q{}) eq 'metric_missing' } @{$thresholds};
   my @evaluated = grep { $_->{status} eq 'passed' || $_->{status} eq 'failed' } @{$thresholds};
 
-  # An abuse experiment takes precedence over a chaos experiment: the whole
-  # point of the run is measuring defenses.
-  my $class   = $abuse_run ? 'abuse' : $chaos_run ? 'chaos' : 'performance';
+  # Chaos and abuse are two mechanisms of one resilience experiment. A run
+  # that ran either is judged as a single resilience experiment, so the
+  # verdict never depends on which mechanism a run happened to use and a
+  # mixed run cannot be misattributed to one of them.
+  my $class   = $perturbation ? 'resilience' : 'performance';
   my %verdict = (
-    abuse       => {failed => 'abuse_failed',       passed => 'abuse_passed'},
-    chaos       => {failed => 'chaos_failed',       passed => 'chaos_passed'},
+    resilience  => {failed => 'resilience_failed',  passed => 'resilience_passed'},
     performance => {failed => 'performance_failed', passed => 'performance_passed'},
   );
 

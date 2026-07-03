@@ -58,10 +58,8 @@ is $schema->{properties}{run}{properties}{verdict}{enum}, [
     smoke_passed
     performance_passed
     performance_failed
-    chaos_passed
-    chaos_failed
-    abuse_passed
-    abuse_failed
+    resilience_passed
+    resilience_failed
     conformance_passed
     conformance_failed
     orchestration_failed
@@ -72,8 +70,11 @@ is $schema->{properties}{run}{properties}{verdict}{enum}, [
   ],
   'run verdict enum is explicit';
 is $schema->{properties}{run}{properties}{result_class}{enum},
-  [qw(none orchestration performance chaos abuse conformance mixed)],
+  [qw(none orchestration performance resilience conformance)],
   'result class enum is explicit';
+is $schema->{properties}{run}{properties}{perturbations}{items}{enum},
+  [qw(abuse chaos)],
+  'perturbations enumerate the two experiment mechanisms';
 is $schema->{'$defs'}{phase}{properties}{status}{enum},
   [qw(planned skipped running completed failed not_evaluated)],
   'phase status enum is explicit';

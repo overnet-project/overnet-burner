@@ -43,6 +43,7 @@
         "status",
         "verdict",
         "result_class",
+        "perturbations",
         "created_at",
         "started_at",
         "finished_at",
@@ -70,10 +71,8 @@
             "smoke_passed",
             "performance_passed",
             "performance_failed",
-            "chaos_passed",
-            "chaos_failed",
-            "abuse_passed",
-            "abuse_failed",
+            "resilience_passed",
+            "resilience_failed",
             "conformance_passed",
             "conformance_failed",
             "orchestration_failed",
@@ -88,11 +87,21 @@
             "none",
             "orchestration",
             "performance",
-            "chaos",
-            "abuse",
-            "conformance",
-            "mixed"
+            "resilience",
+            "conformance"
           ]
+        },
+        "perturbations": {
+          "type": "array",
+          "description": "Perturbation mechanisms the run exercised. Chaos (infrastructure faults) and abuse (adversarial participants) are the two mechanisms of a resilience experiment; the list is empty for a performance run.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "abuse",
+              "chaos"
+            ]
+          },
+          "uniqueItems": true
         },
         "created_at": {
           "$ref": "#/$defs/nullable_timestamp"

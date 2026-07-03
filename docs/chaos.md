@@ -116,20 +116,29 @@ guest has no default route to show).
 carry their real timings, `hooks_executed` counts hooks that completed, and
 hooks that never fired stay `not_evaluated`.
 
-For a completed run with `hooks_executed > 0`, the verdict is judged as a
-chaos experiment:
+Chaos is one mechanism of a **resilience experiment**: injuring
+infrastructure to see whether the system recovers and what honest traffic
+pays. Adversarial participants ([abuse.md](abuse.md)) are the other
+mechanism, and a run may use both. For a completed run with
+`hooks_executed > 0`, the verdict is judged as a resilience experiment:
 
 | Condition | Verdict | Result class |
 |---|---|---|
-| Any threshold `failed` | `chaos_failed` | `chaos` |
-| No failure, but a configured threshold's metric is missing | `inconclusive_partial_run` | `chaos` |
-| All configured thresholds evaluated and passed | `chaos_passed` | `chaos` |
-| No thresholds evaluated | existing non-chaos rules apply | |
+| Any threshold `failed` | `resilience_failed` | `resilience` |
+| No failure, but a configured threshold's metric is missing | `inconclusive_partial_run` | `resilience` |
+| All configured thresholds evaluated and passed | `resilience_passed` | `resilience` |
+| No thresholds evaluated | existing non-experiment rules apply | |
+
+`run.perturbations` includes `chaos` for such a run (and `abuse` too when a
+run also launched abuse workers). Because chaos and abuse are judged as one
+experiment, a run that uses both is never split into competing verdicts; a
+failing threshold fails the single resilience experiment regardless of which
+mechanism it belonged to.
 
 A run that fails because a hook could not execute is an orchestration
-failure (`orchestration_failed`), never `chaos_failed`: `chaos_failed` is
-reserved for the system under test missing its thresholds during a chaos
-experiment that actually ran.
+failure (`orchestration_failed`), never `resilience_failed`:
+`resilience_failed` is reserved for the system under test missing its
+thresholds during an experiment that actually ran.
 
 ## Limitations
 

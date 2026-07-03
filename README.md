@@ -60,7 +60,7 @@ Implemented so far:
   derived object read measurement
 - the rex-local-workers runner: end-to-end local runs with real workers
 - scheduled chaos hooks executed through topology provider lifecycle
-  commands, judged as chaos experiments in the report
+  commands, judged as one mechanism of a resilience experiment in the report
 - workload phases (warmup / main / cooldown, thresholds judged on the main
   phase only)
 - the observer reference worker (relay-side black-box evidence via
@@ -75,11 +75,12 @@ Implemented so far:
   the run ledger ([docs/chaos.md](docs/chaos.md))
 - abuse simulation: the flooder, malformed publisher, replayer,
   subscription abuser, sybil, connection flood, and provenance forger
-  adversarial worker roles, judged as an abuse experiment that measures both
-  relay defenses and their blast radius on honest traffic. The provenance
-  forger measures a consumer-side provenance verification boundary (Overnet
-  core section 7.9) rather than a relay defense, using the
-  `Overnet::Burner::Provenance` reference oracle
+  adversarial worker roles. Abuse and chaos are the two mechanisms of a
+  single **resilience experiment**, judged together against defense and
+  collateral (blast-radius) thresholds; the report records which mechanisms
+  ran in `run.perturbations`. The provenance forger measures a consumer-side
+  provenance verification boundary (Overnet core section 7.9) rather than a
+  relay defense, using the `Overnet::Burner::Provenance` reference oracle
   ([docs/abuse.md](docs/abuse.md))
 
 In progress, in decided order:

@@ -9,11 +9,14 @@ with a later implemented contract, the implemented contract wins.
 
 Every worker overnet-burner has today is a cooperative, well-behaved
 participant: it sends valid events at a configured rate and measures its own
-latency and fanout. The chaos subsystem injures infrastructure (relay
-lifecycle and the network), not participants. Abuse simulation adds the
-missing axis: **adversarial participants** that deliberately violate or
-exploit the protocol, so a run can measure how well a relay defends itself
-and what that defense costs everyone else.
+latency and fanout. Chaos and abuse are the two ways a run deliberately
+perturbs that steady state to test resilience: chaos ([chaos.md](chaos.md))
+injures infrastructure (relay lifecycle and the network), while abuse adds
+the other mechanism — **adversarial participants** that deliberately violate
+or exploit the protocol. Both ask the same two questions (does the system
+defend or recover, and what did honest traffic pay?), so a run is judged as
+a single **resilience experiment** whether it uses one mechanism or both
+(see [Report And Verdict](#report-and-verdict)).
 
 Like every other cross-process surface in overnet-burner, abuse is defined
 here as a language-neutral contract. An abuse worker is any executable that
@@ -260,9 +263,10 @@ a defense gap even though the event was refused.
 
 ## Report And Verdict
 
-An **abuse experiment** is a run that launched abuse workers, judged as a
-distinct result class parallel to chaos. The report derives two derived
-ratios per abuse operation from the members above:
+A run that launched abuse workers is judged as a **resilience experiment**
+(result class `resilience`), the same experiment chaos runs are judged as —
+abuse and chaos are two mechanisms of it, not parallel classes. The report
+derives two derived ratios per abuse operation from the members above:
 
 | Metric | Meaning |
 |---|---|
@@ -279,30 +283,37 @@ so a higher observed defense passes.
 
 Collateral damage reuses the existing honest-worker thresholds
 (`publish_p99_ms`, `subscription_fanout_p99_ms`, `error_rate_max`, and the
-observer's `relay_ping` errors): the abuse experiment fails if the abuse got
+observer's `relay_ping` errors): the experiment fails if the abuse got
 through **or** if honest traffic was harmed while it ran.
 
-For a completed run that launched abuse workers, the threshold-driven rows
-in [REPORT.md](REPORT.md) are judged as an abuse experiment, with result
-class `abuse`:
+Abuse is one mechanism of a **resilience experiment**; chaos (infrastructure
+faults, [chaos.md](chaos.md)) is the other, and a run may use both. For a
+completed run that launched abuse workers, the threshold-driven rows in
+[REPORT.md](REPORT.md) are judged as a resilience experiment, with result
+class `resilience`:
 
 | Condition | Verdict | Result class |
 |---|---|---|
-| Any abuse or collateral threshold `failed` | `abuse_failed` | `abuse` |
-| No failure, but a configured threshold's metric is missing | `inconclusive_partial_run` | `abuse` |
-| All configured thresholds evaluated and passed | `abuse_passed` | `abuse` |
-| No thresholds configured | measurement only; existing non-abuse rules apply | |
+| Any abuse or collateral threshold `failed` | `resilience_failed` | `resilience` |
+| No failure, but a configured threshold's metric is missing | `inconclusive_partial_run` | `resilience` |
+| All configured thresholds evaluated and passed | `resilience_passed` | `resilience` |
+| No thresholds configured | measurement only; existing non-experiment rules apply | |
+
+`run.perturbations` includes `abuse` for such a run (and `chaos` too when a
+run also executed chaos hooks). Because abuse and chaos are judged as one
+experiment, a run that uses both is judged once against all its thresholds
+rather than picking a winning class, so a failing threshold is never
+misattributed to one mechanism.
 
 A run that fails because an abuse worker could not execute its abuse as
 designed is an orchestration failure (`orchestration_failed`), never
-`abuse_failed`: `abuse_failed` is reserved for a relay that failed to defend
-itself during an experiment that actually ran.
+`resilience_failed`: `resilience_failed` is reserved for a system under test
+that failed to defend itself during an experiment that actually ran.
 
-Whether an abuse experiment can fail a relay's CI is therefore a scenario
-choice, not a fixed policy: configure abuse and collateral thresholds and
-the run gates on them; omit them and the run reports the defended ratios as
-measurement without a pass/fail verdict — the same optionality chaos
-thresholds have.
+Whether a resilience experiment can fail a relay's CI is therefore a
+scenario choice, not a fixed policy: configure abuse, chaos, and collateral
+thresholds and the run gates on them; omit them and the run reports the
+defended ratios as measurement without a pass/fail verdict.
 
 ## Limitations
 
@@ -329,7 +340,8 @@ thresholds have.
    with the `outcome` / `error_category` / `defended` / `defended_correct`
    metric members, each verified end to end against the reference relay's
    rate-limiting, signature-verification, and deduplication behavior.
-4. ~~The abuse verdict~~ — the `abuse` result class, the derived ratios in
+4. ~~The abuse verdict~~ — the abuse experiment result class (since unified
+   with chaos into the `resilience` result class), the derived ratios in
    [METRICS.md](METRICS.md), and the `>=` defense-ratio comparator in
    [REPORT.md](REPORT.md).
 5. ~~`subscription_abuser`~~ — opens accumulating subscriptions and measures

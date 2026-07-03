@@ -194,8 +194,9 @@ YAML
   is $report->{chaos}{hooks}[0]{status}, 'completed', 'report records the hook as completed';
   ok $report->{chaos}{hooks}[0]{started_at} && $report->{chaos}{hooks}[0]{finished_at},
     'report carries real hook timings';
-  is $report->{run}{verdict},      'chaos_passed', 'passing thresholds under chaos give a chaos verdict';
-  is $report->{run}{result_class}, 'chaos',        'the run is classified as a chaos experiment';
+  is $report->{run}{verdict},       'resilience_passed', 'passing thresholds under chaos give a resilience verdict';
+  is $report->{run}{result_class},  'resilience',        'the run is classified as a resilience experiment';
+  is $report->{run}{perturbations}, ['chaos'],           'the run records chaos as its perturbation mechanism';
 };
 
 subtest 'a failing chaos hook fails the run' => sub {
@@ -302,9 +303,9 @@ YAML
   my $report_out = `$^X $bin report --run-dir $run_dir 2>&1`;
   is $?, 0, 'report generates for the chaos run' or diag($report_out);
   my $report = _read_json(File::Spec->catfile($run_dir, 'report.json'));
-  is $report->{chaos}{hooks_executed}, 1,              'report counts the executed restart hook';
-  is $report->{run}{verdict},          'chaos_passed', 'the system met its thresholds under chaos';
-  is $report->{run}{result_class},     'chaos',        'the run is judged as a chaos experiment';
+  is $report->{chaos}{hooks_executed}, 1,                   'report counts the executed restart hook';
+  is $report->{run}{verdict},          'resilience_passed', 'the system met its thresholds under chaos';
+  is $report->{run}{result_class},     'resilience',        'the run is judged as a resilience experiment';
 };
 
 subtest 'end to end: real relay, real publisher, real metrics' => sub {
