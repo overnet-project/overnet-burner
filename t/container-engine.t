@@ -69,7 +69,18 @@ subtest 'operations use the shared CLI surface' => sub {
   $engine->copy_to('burner-test-guest-001', "$tmp/engine-argv.log", '/tmp/dest');
   $engine->remove('burner-test-guest-001');
   $engine->network_create('burner-net-001');
+  $engine->network_disconnect('burner-net-001', 'burner-test-guest-001');
+  $engine->network_connect('burner-net-001', 'burner-test-guest-001');
   $engine->network_remove('burner-net-001');
+
+  my $capped = $engine->run_detached(
+    name    => 'burner-test-guest-002',
+    image   => 'example.test/worker:latest',
+    network => 'burner-net-001',
+    cap_add => ['NET_ADMIN'],
+    command => ['sleep', 'infinity'],
+  );
+  is $capped, 'fake-container-id', 'run_detached accepts capability grants';
 
   my $argv = _slurp($log);
   like $argv, qr/run\x{0}-d\x{0}--name\x{0}burner-test-guest-001\x{0}--network\x{0}host\x{0}
@@ -78,7 +89,14 @@ subtest 'operations use the shared CLI surface' => sub {
   like $argv, qr/cp\x{0}[^\x{0}]+\x{0}burner-test-guest-001:\/tmp\/dest/mx,           'copy_to uses engine cp';
   like $argv, qr/rm\x{0}-f\x{0}burner-test-guest-001/mx,                              'remove forces removal';
   like $argv, qr/network\x{0}create\x{0}burner-net-001/mx,                            'network_create is available';
-  like $argv, qr/network\x{0}rm\x{0}burner-net-001/mx,                                'network_remove is available';
+  like $argv, qr/network\x{0}disconnect\x{0}burner-net-001\x{0}burner-test-guest-001/mx,
+    'network_disconnect cuts one container from a network';
+  like $argv, qr/network\x{0}connect\x{0}burner-net-001\x{0}burner-test-guest-001/mx,
+    'network_connect reattaches one container to a network';
+  like $argv, qr/network\x{0}rm\x{0}burner-net-001/mx, 'network_remove is available';
+  like $argv, qr/run\x{0}-d\x{0}--name\x{0}burner-test-guest-002\x{0}--network\x{0}burner-net-001\x{0}
+                 --cap-add\x{0}NET_ADMIN\x{0}example\.test\/worker:latest/mx,
+    'run_detached grants requested capabilities through --cap-add';
 };
 
 done_testing;

@@ -249,10 +249,10 @@ chaos:
     action: melt
     target: relay:1
 YAML
-    qr/chaos\[0\]\.action\ must\ be\ one\ of\ restart,\ start,\ stop/mx,
+    qr/chaos\[0\]\.action\ must\ be\ one\ of\ restart,\ start,\ stop,\ net-delay,\ net-loss,\ partition,\ heal/mx,
   ],
   [
-    'chaos hook with a reserved action',
+    'chaos net action without bridge-networked container workers',
     <<'YAML',
 run:
   name: broken
@@ -267,9 +267,166 @@ workload:
 chaos:
   - at: 10
     action: net-delay
-    target: relay:1
+    target: worker-guest:1
+    delay_ms: 100
 YAML
-    qr/chaos\[0\]\.action\ net-delay\ is\ reserved\ for\ a\ future\ version/mx,
+    qr/chaos\[0\]\.action\ net-delay\ requires\ container-provisioned\ workers\ on\ a\ bridge\ network/mx,
+  ],
+  [
+    'chaos net action with a relay target',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: w:1
+    count: 2
+    network: bridge
+chaos:
+  - at: 10
+    action: net-delay
+    target: relay:1
+    delay_ms: 100
+YAML
+    qr/chaos\[0\]\.target\ must\ name\ a\ provisioned\ worker\ guest\ as\ worker-guest:<ordinal>/mx,
+  ],
+  [
+    'chaos net action targeting a guest beyond the count',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: w:1
+    count: 2
+    network: bridge
+chaos:
+  - at: 10
+    action: partition
+    target: worker-guest:9
+YAML
+    qr/chaos\[0\]\.target\ must\ name\ a\ provisioned\ worker\ guest\ \(worker-guest:9\ of\ 2\)/mx,
+  ],
+  [
+    'chaos net-delay without delay_ms',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: w:1
+    network: bridge
+chaos:
+  - at: 10
+    action: net-delay
+    target: worker-guest:1
+YAML
+    qr/chaos\[0\]\.delay_ms\ must\ be\ a\ positive\ integer/mx,
+  ],
+  [
+    'chaos net-delay with a bad jitter',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: w:1
+    network: bridge
+chaos:
+  - at: 10
+    action: net-delay
+    target: worker-guest:1
+    delay_ms: 100
+    jitter_ms: fuzzy
+YAML
+    qr/chaos\[0\]\.jitter_ms\ must\ be\ a\ positive\ integer/mx,
+  ],
+  [
+    'chaos net-loss with a bad loss percentage',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: w:1
+    network: bridge
+chaos:
+  - at: 10
+    action: net-loss
+    target: worker-guest:1
+    loss_percent: 0
+YAML
+    qr/chaos\[0\]\.loss_percent\ must\ be\ a\ number\ greater\ than\ 0\ and\ at\ most\ 100/mx,
+  ],
+  [
+    'chaos lifecycle action with a guest target',
+    <<'YAML',
+run:
+  name: broken
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: w:1
+    network: bridge
+chaos:
+  - at: 10
+    action: restart
+    target: worker-guest:1
+YAML
+    qr/chaos\[0\]\.target\ must\ name\ a\ configured\ relay\ as\ relay:<ordinal>/mx,
   ],
   [
     'chaos hook scheduled past the run duration',
@@ -489,6 +646,29 @@ YAML
   is $container_config->{provision}{workers}{count},   1,      'container count defaults to one';
   is $container_config->{provision}{workers}{network}, 'host', 'worker containers default to host networking';
 
+  my $bridge = "$tmp/provision-bridge.yml";
+  _write_yaml($bridge, <<'YAML');
+run:
+  name: provision-bridge
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: ghcr.io/example/worker:latest
+    network: bridge
+YAML
+  my $bridge_config = Overnet::Burner::Config->load_file($bridge);
+  is $bridge_config->{provision}{workers}{network}, 'bridge', 'worker containers may opt into a bridge network';
+
   my @rejections = (
     [
       'unknown group',
@@ -536,9 +716,9 @@ YAML
       qr/provision\.workers\.engine\ must\ be\ one\ of\ auto,\ docker,\ podman/mx,
     ],
     [
-      'container with bridge networking',
-      "provision:\n  workers:\n    how: container\n    image: w:1\n    network: bridge",
-      qr/provision\.workers\.network\ bridge\ is\ not\ implemented\ yet\ for\ worker\ guests/mx,
+      'container with an unknown network mode',
+      "provision:\n  workers:\n    how: container\n    image: w:1\n    network: macvlan",
+      qr/provision\.workers\.network\ macvlan\ is\ not\ implemented\ yet\ for\ worker\ guests/mx,
     ],
     [
       'empty worker command',
@@ -595,6 +775,48 @@ YAML
   my $config = Overnet::Burner::Config->load_file($path);
   is scalar @{$config->{chaos}},  2,         'chaos hooks load';
   is $config->{chaos}[0]{target}, 'relay:2', 'chaos target is preserved';
+
+  my $net_path = "$tmp/chaos-net-valid.yml";
+  _write_yaml($net_path, <<'YAML');
+run:
+  name: chaos-net-valid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: container
+    image: ghcr.io/example/worker:latest
+    count: 2
+    network: bridge
+chaos:
+  - at: 5
+    action: net-delay
+    target: worker-guest:1
+    delay_ms: 100
+    jitter_ms: 20
+  - at: 10
+    action: net-loss
+    target: worker-guest:2
+    loss_percent: 12.5
+  - at: 15
+    action: partition
+    target: worker-guest:1
+  - at: 20
+    action: heal
+    target: worker-guest:1
+YAML
+  my $net_config = Overnet::Burner::Config->load_file($net_path);
+  is scalar @{$net_config->{chaos}},        4,    'all four network actions validate';
+  is $net_config->{chaos}[0]{delay_ms},     100,  'net-delay parameters are preserved';
+  is $net_config->{chaos}[1]{loss_percent}, 12.5, 'net-loss accepts fractional percentages';
 };
 
 subtest 'topology.relays.endpoints are validated when present' => sub {

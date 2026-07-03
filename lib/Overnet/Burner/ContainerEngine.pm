@@ -60,11 +60,14 @@ sub run_detached {
   my $name    = $args{name}  || croak "container name is required\n";
   my $image   = $args{image} || croak "image is required\n";
   my @command = ref $args{command} eq 'ARRAY' ? @{$args{command}} : ();
+  my @cap_add = ref $args{cap_add} eq 'ARRAY' ? @{$args{cap_add}} : ();
 
-  my ($output, $status) =
-    _capture_argv($self->binary, 'run', '-d', '--name', $name,
+  my ($output, $status) = _capture_argv(
+    $self->binary, 'run', '-d', '--name', $name,
     defined $args{network} ? ('--network', $args{network}) : (),
-    $image, @command,);
+    (map { ('--cap-add', $_) } @cap_add),
+    $image, @command,
+  );
   if ($status != 0 || !defined $output || !length $output) {
     croak $self->name . " could not start container $name from $image\n";
   }
@@ -116,6 +119,28 @@ sub network_remove {
   my (undef, $status) = _capture_argv($self->binary, 'network', 'rm', $name);
 
   return $status == 0 ? 1 : 0;
+}
+
+sub network_disconnect {
+  my ($self, $network, $container) = @_;
+
+  my (undef, $status) = _capture_argv($self->binary, 'network', 'disconnect', $network, $container);
+  if ($status != 0) {
+    croak $self->name . " could not disconnect $container from $network\n";
+  }
+
+  return 1;
+}
+
+sub network_connect {
+  my ($self, $network, $container) = @_;
+
+  my (undef, $status) = _capture_argv($self->binary, 'network', 'connect', $network, $container);
+  if ($status != 0) {
+    croak $self->name . " could not connect $container to $network\n";
+  }
+
+  return 1;
 }
 
 sub _capture_argv {
@@ -188,6 +213,10 @@ can pin a specific real engine.
 =head2 network_create
 
 =head2 network_remove
+
+=head2 network_disconnect
+
+=head2 network_connect
 
 =head1 DIAGNOSTICS
 

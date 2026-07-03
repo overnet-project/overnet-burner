@@ -30,7 +30,9 @@ my %WORKER_ROLES = (
   object_reader => 1,
   observer      => 1,
 );
-my @LAUNCH_WAVES = ([qw(subscriber query_reader object_reader observer)], [qw(publisher)],);
+my @LAUNCH_WAVES  = ([qw(subscriber query_reader object_reader observer)], [qw(publisher)],);
+my %NETEM_ACTIONS = ('net-delay' => 1, 'net-loss' => 1);
+my %NET_ACTIONS   = (%NETEM_ACTIONS, partition => 1, heal => 1);
 
 my $READY_TIMEOUT_SECONDS = 10;
 my $EXIT_GRACE_SECONDS    = 15;
@@ -44,6 +46,7 @@ sub prepare {
   $self->{worker_pids}      = {};
   $self->{worker_log_files} = {};
   $self->{chaos_results}    = [];
+  $self->{guest_net_state}  = {};
   $self->_provision_worker_guests;
 
   return 1;
@@ -64,7 +67,7 @@ sub _provision_worker_guests {
   if ($how eq 'connect') {
     @guests = $self->_connect_guests($workers);
   } elsif ($how eq 'container') {
-    ($engine, @guests) = $self->_container_guests($workers);
+    ($engine, @guests) = $self->_container_guests($workers, $config->{chaos} || []);
   } else {
     push @guests, Overnet::Burner::Guest::Exec->new(name => 'local', role => 'workers');
   }
@@ -85,6 +88,9 @@ sub _provision_worker_guests {
         guests    => \@guest_records,
         placement => \%placement,
         $engine ? (engine => {name => $engine->name, version => $engine->version}) : (),
+        $self->{worker_network}
+        ? (network => {name => $self->{worker_network}, mode => 'bridge'})
+        : (),
       }
     ),
   );
@@ -114,11 +120,20 @@ sub _connect_guests {
 }
 
 sub _container_guests {
-  my ($self, $workers) = @_;
+  my ($self, $workers, $chaos) = @_;
 
   my $engine   = Overnet::Burner::ContainerEngine->detect(engine => $workers->{engine} || 'auto');
   my $manifest = read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
   my $run_id   = $manifest->{run_id};
+
+  my $network = $workers->{network} || 'host';
+  if ($network eq 'bridge') {
+    $network = "burner-$run_id";
+    $engine->network_create($network);
+    $self->{worker_network} = $network;
+    $self->{worker_engine}  = $engine;
+  }
+  my @cap_add = (grep { $NETEM_ACTIONS{$_->{action} || q{}} } @{$chaos}) ? ('NET_ADMIN') : ();
 
   my @guests;
   for my $ordinal (1 .. ($workers->{count} || 1)) {
@@ -127,7 +142,8 @@ sub _container_guests {
     $engine->run_detached(
       name    => $container,
       image   => $workers->{image},
-      network => $workers->{network} || 'host',
+      network => $network,
+      @cap_add ? (cap_add => \@cap_add) : (),
       command => ['sleep', 'infinity'],
     );
     push @guests,
@@ -137,6 +153,7 @@ sub _container_guests {
       engine    => $engine,
       container => $container,
       image     => $workers->{image},
+      cap_add   => \@cap_add,
       );
   }
 
@@ -162,6 +179,9 @@ sub _guest_record {
   if ($guest->transport eq 'container') {
     $guest_record{container} = $guest->container;
     $guest_record{image}     = $guest->image;
+    if (@{$guest->cap_add}) {
+      $guest_record{cap_add} = $guest->cap_add;
+    }
   }
 
   return \%guest_record;
@@ -172,6 +192,10 @@ sub _destroy_worker_guests {
 
   for my $guest (@{$self->{worker_guests} || []}) {
     $guest->destroy;
+  }
+  if ($self->{worker_network}) {
+    $self->{worker_engine}->network_remove($self->{worker_network});
+    $self->{worker_network} = undef;
   }
 
   return 1;
@@ -567,6 +591,10 @@ sub _resolve_chaos_hooks {
   my %provider_relays = map { $_->{actor_id} => $_ } $self->_topology_provider_command_relays;
   my @resolved;
   for my $hook (@hooks) {
+    if ($NET_ACTIONS{$hook->{action}}) {
+      push @resolved, {hook => $hook, guest => $self->_net_target_guest($hook)};
+      next;
+    }
     my ($ordinal) = $hook->{target} =~ /\Arelay:([0-9]+)\z/mxs;
     my $actor_id  = defined $ordinal  ? sprintf('relay-%03d', $ordinal) : undef;
     my $relay     = defined $actor_id ? $provider_relays{$actor_id}     : undef;
@@ -579,8 +607,25 @@ sub _resolve_chaos_hooks {
   return \@resolved;
 }
 
+sub _net_target_guest {
+  my ($self, $hook) = @_;
+
+  my ($ordinal) = $hook->{target} =~ /\Aworker-guest:([0-9]+)\z/mxs;
+  my $name      = defined $ordinal ? sprintf('worker-guest-%03d', $ordinal) : q{};
+  my ($guest)   = grep { $_->name eq $name } @{$self->{worker_guests} || []};
+  if (!($guest && $guest->transport eq 'container' && $self->{worker_network})) {
+    croak "chaos hook $hook->{id} targets $hook->{target}," . " which is not a container guest on a per-run network\n";
+  }
+
+  return $guest;
+}
+
 sub _execute_chaos_hook {
   my ($self, %args) = @_;
+
+  if ($args{guest}) {
+    return $self->_execute_net_chaos_hook(%args);
+  }
 
   my ($hook, $actor_id, $relay) = @args{qw(hook actor_id relay)};
   my $started_at = time;
@@ -636,6 +681,100 @@ sub _execute_chaos_hook {
   return 1;
 }
 
+sub _execute_net_chaos_hook {
+  my ($self, %args) = @_;
+
+  my ($hook, $guest) = @args{qw(hook guest)};
+  my $started_at = time;
+  my %base       = (
+    hook_id        => $hook->{id},
+    action         => $hook->{action},
+    target         => $hook->{target},
+    guest          => $guest->name,
+    at_seconds     => 0 + $hook->{at_seconds},
+    offset_seconds => 0 + sprintf('%.3f', $started_at - $args{window_start}),
+  );
+
+  $self->_record_chaos_event(%base, status => 'started');
+
+  my $evidence;
+  my $ok          = eval { $evidence = $self->_apply_net_action($hook, $guest); 1 };
+  my $duration_ms = int((time - $started_at) * 1000 + 0.5);
+
+  if (!$ok) {
+    my $error = $EVAL_ERROR || 'chaos hook failed';
+    chomp $error;
+    my %failed = (%base, status => 'failed', duration_ms => $duration_ms, error => $error);
+    push @{$self->{chaos_results}}, \%failed;
+    $self->_record_chaos_event(%failed);
+    croak "chaos hook $hook->{id} ($hook->{action} $hook->{target}) failed: $error\n";
+  }
+
+  my %completed = (%base, status => 'completed', duration_ms => $duration_ms, evidence => $evidence);
+  push @{$self->{chaos_results}}, \%completed;
+  $self->_record_chaos_event(%completed);
+
+  return 1;
+}
+
+sub _apply_net_action {
+  my ($self, $hook, $guest) = @_;
+
+  my $action = $hook->{action};
+  if ($action eq 'partition') {
+    $guest->engine->network_disconnect($self->{worker_network}, $guest->container);
+    $self->{guest_net_state}{$guest->name} = {partitioned => 1};
+    return $self->_route_evidence($guest);
+  }
+  if ($action eq 'heal') {
+    my $state = delete($self->{guest_net_state}{$guest->name}) || {};
+    if ($state->{partitioned}) {
+      $guest->engine->network_connect($self->{worker_network}, $guest->container);
+    } elsif ($state->{netem}) {
+      $self->_exec_net_command($guest, _tc_command(undef));
+    }
+    return $self->_route_evidence($guest);
+  }
+
+  my $netem =
+    $action eq 'net-delay'
+    ? "delay $hook->{delay_ms}ms" . (defined $hook->{jitter_ms} ? " $hook->{jitter_ms}ms" : q{})
+    : "loss $hook->{loss_percent}%";
+  my $evidence = $self->_exec_net_command($guest, _tc_command($netem));
+  $self->{guest_net_state}{$guest->name} = {netem => 1};
+
+  return $evidence;
+}
+
+sub _tc_command {
+  my ($netem) = @_;
+
+  my $resolve = "dev=\$(ip -o route show default); dev=\"\${dev#*dev }\"; dev=\"\${dev%% *}\"; [ -n \"\$dev\" ]";
+  my $apply =
+    defined $netem
+    ? "tc qdisc replace dev \"\$dev\" root netem $netem"
+    : "tc qdisc del dev \"\$dev\" root";
+
+  return "$resolve && $apply && tc qdisc show dev \"\$dev\"";
+}
+
+sub _exec_net_command {
+  my ($self, $guest, $command) = @_;
+
+  my ($output, $status) = $guest->engine->exec_capture($guest->container, $command);
+  if ($status != 0) {
+    croak 'guest ' . $guest->name . " could not run: $command\n";
+  }
+
+  return defined $output ? $output : q{};
+}
+
+sub _route_evidence {
+  my ($self, $guest) = @_;
+
+  return $self->_exec_net_command($guest, 'ip -o route show default');
+}
+
 sub _record_chaos_event {
   my ($self, %args) = @_;
 
@@ -685,9 +824,15 @@ recorded as explicitly skipped.
 
 It also executes the plan's chaos hooks under the contract in
 F<docs/chaos.md>: once every worker is ready the workload window opens, and
-each hook fires at its scheduled offset by running the target relay's
-topology provider lifecycle commands, recorded as C<chaos_hook> ledger
-events. A hook that cannot execute fails the run.
+each hook fires at its scheduled offset, recorded as C<chaos_hook> ledger
+events. Lifecycle hooks run the target relay's topology provider lifecycle
+commands. Network hooks act on container worker guests attached to the
+per-run network: C<net-delay> and C<net-loss> shape the guest's
+default-route interface with C<tc netem> through the container engine,
+C<partition> disconnects the guest from the per-run network, and C<heal>
+undoes whichever fault is active; each completed network hook records the
+captured post-action state as C<evidence>. A hook that cannot execute
+fails the run.
 
 =head1 VERSION
 

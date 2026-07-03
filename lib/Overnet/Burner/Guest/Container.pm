@@ -10,6 +10,7 @@ our $VERSION = '0.001';
 has engine    => (is => 'ro', required => 1);
 has container => (is => 'ro', required => 1);
 has image     => (is => 'ro');
+has cap_add   => (is => 'ro', default => sub { [] });
 
 no Moo;
 
@@ -87,6 +88,12 @@ collection and on failure cleanup so guests never outlive their run.
 =head2 container
 
 =head2 image
+
+=head2 cap_add
+
+The Linux capabilities the container was granted at creation (for example
+C<NET_ADMIN> for netem chaos actions), recorded so the guest ledger never
+understates the privilege a guest ran with.
 
 =head2 transport
 

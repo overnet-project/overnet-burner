@@ -217,7 +217,7 @@ sub _validate_provision_container {
   if (!(defined $network && !ref($network) && length $network)) {
     croak "$path.network must be a non-empty string\n";
   }
-  if ($network ne 'host') {
+  if ($network ne 'host' && $network ne 'bridge') {
     croak "$path.network $network is not implemented yet for worker guests\n";
   }
 
@@ -299,8 +299,8 @@ sub _total_duration {
 sub _validate_chaos {
   my ($config) = @_;
 
-  my %actions     = map { $_ => 1 } qw(restart start stop);
-  my %reserved    = map { $_ => 1 } qw(net-delay net-loss partition heal);
+  my %lifecycle   = map { $_ => 1 } qw(restart start stop);
+  my %network     = map { $_ => 1 } qw(net-delay net-loss partition heal);
   my $duration    = _total_duration($config);
   my $relay_count = $config->{topology}{relays}{count};
   my $hooks       = _require_array_of_mappings($config, 'chaos');
@@ -317,11 +317,13 @@ sub _validate_chaos {
     }
 
     my $action = $hook->{action};
-    if (defined $action && !ref($action) && $reserved{$action}) {
-      croak "chaos[$index].action $action is reserved for a future version\n";
+    if (!(defined $action && !ref($action) && ($lifecycle{$action} || $network{$action}))) {
+      croak "chaos[$index].action must be one of restart, start, stop, net-delay, net-loss, partition, heal\n";
     }
-    if (!(defined $action && !ref($action) && $actions{$action})) {
-      croak "chaos[$index].action must be one of restart, start, stop\n";
+
+    if ($network{$action}) {
+      _validate_network_hook($config, $hook, $index);
+      next;
     }
 
     my $target = $hook->{target};
@@ -333,6 +335,57 @@ sub _validate_chaos {
     if ($ordinal > $relay_count) {
       croak "chaos[$index].target must name a configured relay ($target of $relay_count)\n";
     }
+  }
+
+  return 1;
+}
+
+sub _validate_network_hook {
+  my ($config, $hook, $index) = @_;
+
+  my $action  = $hook->{action};
+  my $workers = $config->{provision}{workers} || {};
+  if (!(($workers->{how} || q{}) eq 'container' && ($workers->{network} || q{}) eq 'bridge')) {
+    croak "chaos[$index].action $action requires container-provisioned workers on a bridge network\n";
+  }
+
+  my $target = $hook->{target};
+  my ($ordinal) =
+    defined $target && !ref($target) ? $target =~ /\Aworker-guest:([1-9][0-9]*)\z/mxs : ();
+  if (!defined $ordinal) {
+    croak "chaos[$index].target must name a provisioned worker guest as worker-guest:<ordinal>\n";
+  }
+  my $count = $workers->{count} || 1;
+  if ($ordinal > $count) {
+    croak "chaos[$index].target must name a provisioned worker guest ($target of $count)\n";
+  }
+
+  if ($action eq 'net-delay') {
+    _validate_netem_milliseconds($hook, $index, 'delay_ms');
+    if (exists $hook->{jitter_ms}) {
+      _validate_netem_milliseconds($hook, $index, 'jitter_ms');
+    }
+  }
+  if ($action eq 'net-loss') {
+    my $loss = $hook->{loss_percent};
+    if ( ref $loss
+      || !defined $loss
+      || "$loss" !~ /\A(?:\d+(?:\.\d*)?|\.\d+)\z/mxs
+      || $loss <= 0
+      || $loss > 100) {
+      croak "chaos[$index].loss_percent must be a number greater than 0 and at most 100\n";
+    }
+  }
+
+  return 1;
+}
+
+sub _validate_netem_milliseconds {
+  my ($hook, $index, $field) = @_;
+
+  my $value = $hook->{$field};
+  if (ref $value || !defined $value || "$value" !~ /\A[1-9][0-9]*\z/mxs) {
+    croak "chaos[$index].$field must be a positive integer\n";
   }
 
   return 1;

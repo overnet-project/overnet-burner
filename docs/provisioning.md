@@ -8,10 +8,14 @@ the relays group — remains proposed design, rejected by scenario validation
 as not implemented yet. One deliberate deviation while relays run on the
 controller host: **worker containers default to host networking**, because
 a bridge-networked worker cannot reach relay endpoints declared as
-`ws://127.0.0.1`; the per-run bridge network applies when relay guests
-exist, and other worker network modes are rejected until then. Where this
-document conflicts with the implemented contracts, the implemented
-contracts win. This design deliberately borrows from
+`ws://127.0.0.1`. Worker containers MAY opt into the per-run bridge
+network with `network: bridge` — required by the network chaos actions in
+[chaos.md](chaos.md) — in which case the scenario author must declare
+relay endpoints that are reachable **from the run network** (a host
+address the containers can route to, with the relay listening on it);
+endpoint rewriting is deliberately not performed. Other worker network
+modes are rejected. Where this document conflicts with the implemented
+contracts, the implemented contracts win. This design deliberately borrows from
 [tmt](https://github.com/teemtee/tmt), whose provision step solved the same
 problem for test environments: one plan, interchangeable provisioning
 backends behind a single guest interface.
@@ -135,6 +139,12 @@ provision:
   ports, and teardown removes the network. Hosts where the controller
   cannot reach bridge networks directly (macOS engine VMs) will need a
   published-port fallback, which is explicitly a fallback, not the design.
+  Implemented today for the workers group as `network: bridge`: the run
+  creates `burner-<run-id>`, attaches every worker container to it,
+  records the network in `guests.json`, and removes it at teardown. When
+  the scenario contains netem chaos actions the containers are started
+  with `CAP_NET_ADMIN` (recorded per guest in `guests.json`); otherwise no
+  extra capability is granted.
 
 ## Hardware Requirements
 
