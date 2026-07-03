@@ -18,6 +18,8 @@ examples/metric-events-v1-sample.jsonl
 examples/report-v1-smoke.json
 examples/worker-input-v1-sample.json
 lib/Overnet/Burner/Config.pm
+lib/Overnet/Burner/Guest.pm
+lib/Overnet/Burner/Guest/Exec.pm
 lib/Overnet/Burner/Metrics.pm
 lib/Overnet/Burner/Plan.pm
 lib/Overnet/Burner/Report.pm
@@ -48,6 +50,7 @@ schemas/worker-input-v1.schema.json
 t/cli.t
 t/config.t
 t/github-ci.t
+t/guest-exec.t
 t/makemaker-metadata.t
 t/manifest-skip-policy.t
 t/metrics.t
