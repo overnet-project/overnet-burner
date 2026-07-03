@@ -59,6 +59,7 @@ sub build {
   my $config    = _read_json_file(_path($run_dir, 'config.normalized.json'));
   my $events    = _read_jsonl_file(_path($run_dir, 'logs', 'runner.jsonl'));
   my $inventory = _read_optional_json_file(_path($run_dir, 'artifacts', 'rex', 'inventory', 'hosts.json'),);
+  my $clocks    = _read_optional_json_file(_path($run_dir, 'clocks.json'));
 
   my ($metrics, $summary, $metrics_error) = _metrics($run_dir, $plan, $manifest);
   my $thresholds = _thresholds($config, $metrics, $manifest, $summary);
@@ -77,7 +78,7 @@ sub build {
     thresholds     => $thresholds,
     chaos          => $chaos,
     artifacts      => _artifacts($run_dir),
-    diagnostics    => _diagnostics($manifest, $metrics, $metrics_error),
+    diagnostics    => _diagnostics($manifest, $metrics, $metrics_error, $thresholds, $clocks),
     human_summary  => _human_summary($manifest, $metrics, $thresholds),
     extensions     => {},
   };
@@ -647,6 +648,7 @@ sub _artifacts {
     [plan                  => 'plan.json',                            'application/json',     'evidence',   1],
     [runner_log            => 'logs/runner.jsonl',                    'application/x-ndjson', 'log',        1],
     [metrics               => 'metrics.jsonl',                        'application/x-ndjson', 'metrics',    1],
+    [clocks                => 'clocks.json',                          'application/json',     'evidence',   0],
     [rex_bundle            => 'artifacts/rex/bundle.json',            'application/json',     'rex_bundle', 0],
     [rexfile               => 'artifacts/rex/Rexfile',                'text/x-perl',          'rex_bundle', 0],
     [rex_lifecycle         => 'artifacts/rex/lifecycle.json',         'application/json',     'rex_bundle', 0],
@@ -690,7 +692,7 @@ sub _artifact {
 }
 
 sub _diagnostics {
-  my ($manifest, $metrics, $metrics_error) = @_;
+  my ($manifest, $metrics, $metrics_error, $thresholds, $clocks) = @_;
   my @errors;
   my @warnings;
 
@@ -726,10 +728,64 @@ sub _diagnostics {
       };
   }
 
+  push @warnings, _clock_diagnostics($thresholds, $clocks);
+
   return {
     errors   => \@errors,
     warnings => \@warnings,
   };
+}
+
+# subscription_fanout is a subscriber's receive time minus the publisher's
+# sent_at stamp, so when the two sit on different hosts the measurement
+# crosses two clocks. When that metric is being judged and the run used
+# remote guests, the report surfaces whether the per-host clock offsets were
+# captured and whether any exceeds the fanout budget it is judged against.
+sub _clock_diagnostics {
+  my ($thresholds, $clocks) = @_;
+
+  my ($fanout) = grep { ($_->{id} || q{}) eq 'subscription_fanout_p99_ms' } @{$thresholds || []};
+  if (!$fanout) {
+    return ();
+  }
+
+  my @remote =
+    grep { ($_->{transport} || 'exec') ne 'exec' } @{(ref $clocks eq 'HASH' ? $clocks->{guests} : undef) || []};
+  if (!@remote) {
+    return ();
+  }
+
+  my @warnings;
+  my @unverified = grep { !defined $_->{offset_ms} } @remote;
+  if (@unverified) {
+    push @warnings,
+      {
+      severity => 'warning',
+      code     => 'cross_host_clock_unverified',
+      message  => 'subscription_fanout is judged across hosts but the clock offset of '
+        . join(q{, }, map { $_->{name} } @unverified)
+        . ' was not captured; cross-host fanout timing may be unreliable.',
+      source => 'clocks',
+      };
+  }
+
+  my $bound = $fanout->{configured_value};
+  my @skewed =
+    defined $bound ? grep { defined $_->{offset_ms} && abs($_->{offset_ms}) > $bound } @remote : ();
+  if (@skewed) {
+    push @warnings,
+      {
+      severity => 'warning',
+      code     => 'cross_host_clock_skew',
+      message  => 'host clock offsets exceed the subscription_fanout_p99_ms bound ('
+        . $bound . 'ms): '
+        . join(q{, }, map {"$_->{name} $_->{offset_ms}ms"} @skewed)
+        . '; cross-host fanout measurements may be corrupted.',
+      source => 'clocks',
+      };
+  }
+
+  return @warnings;
 }
 
 sub _human_summary {

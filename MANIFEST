@@ -62,6 +62,7 @@ MANIFEST.SKIP
 README.md
 scenarios/abuse-flood.yml
 scenarios/abuse-provenance.yml
+scenarios/distributed-scale.yml
 scenarios/single-relay-baseline.yml
 schemas/metric-event-v1.schema.json
 schemas/report-v1.schema.json

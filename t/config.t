@@ -745,6 +745,18 @@ subtest 'the shipped provenance abuse scenario loads and validates' => sub {
   ok exists $config->{thresholds}{'forge_publish.defended_ratio'}, 'the scenario gates on the forge defense ratio';
 };
 
+subtest 'the shipped distributed scale scenario loads and validates' => sub {
+  my $config = Overnet::Burner::Config->load_file("$repo/scenarios/distributed-scale.yml");
+  is $config->{provision}{workers}{how}, 'connect', 'the distributed scenario provisions workers over connect';
+  is $config->{provision}{relays}{how},  'connect', 'the distributed scenario provisions relays over connect';
+  is [map { $_->{address} } @{$config->{provision}{workers}{guests}}],
+    ['load-1.example.net', 'load-2.example.net'],
+    'workers spread across the declared host fleet';
+  is [map { $_->{address} } @{$config->{provision}{relays}{guests}}], ['relay-1.example.net'],
+    'the relay is provisioned on its own host';
+  ok exists $config->{thresholds}{'subscription_fanout_p99_ms'}, 'the distributed scenario judges cross-host fanout';
+};
+
 subtest 'provision configuration validates' => sub {
   my $valid = "$tmp/provision-valid.yml";
   _write_yaml($valid, <<'YAML');

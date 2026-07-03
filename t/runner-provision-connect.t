@@ -79,6 +79,12 @@ subtest 'connect-provisioned workers run over the ssh transport' => sub {
     },
     'actors are placed round-robin by ordinal within each role';
 
+  my $clocks = _read_json(File::Spec->catfile($run_dir, 'clocks.json'));
+  is [map { $_->{name} } @{$clocks->{guests}}], ['worker-guest-001', 'worker-guest-002'],
+    'clocks.json records a clock reading for every provisioned guest';
+  is [map { $_->{transport} } @{$clocks->{guests}}], ['ssh', 'ssh'], 'clock readings record the guest transport';
+  ok $clocks->{guests}[0]{offset_ms} =~ /\A-?\d/mxs, 'the guest clock offset is measured over the transport';
+
   my $aggregated = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics.jsonl'));
   is scalar @{$aggregated}, 3, 'every stream was pulled and aggregated';
 
@@ -124,6 +130,10 @@ YAML
   my $guests  = _read_json(File::Spec->catfile($run_dir, 'guests.json'));
   is [map { $_->{transport} } @{$guests->{guests}}], ['exec'], 'the default is one implicit exec guest';
   is $guests->{placement}{'publisher-001'},          'local',  'local placement names the implicit guest';
+
+  my $clocks = _read_json(File::Spec->catfile($run_dir, 'clocks.json'));
+  is [map { $_->{transport} } @{$clocks->{guests}}], ['exec'], 'the local guest is recorded in clocks.json';
+  is $clocks->{guests}[0]{offset_ms},                0, 'a local guest shares the controller clock at offset zero';
 };
 
 subtest 'connect-provisioned relays run their lifecycle on the relay guest' => sub {

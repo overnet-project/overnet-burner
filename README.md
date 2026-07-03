@@ -87,6 +87,13 @@ Implemented so far:
   provenance verification boundary (Overnet core section 7.9) rather than a
   relay defense, using the `Overnet::Burner::Provenance` reference oracle
   ([docs/abuse.md](docs/abuse.md))
+- distributed scale-out: a run is distributed by provisioning its worker and
+  relay groups onto `connect` guests, which places actors across many hosts,
+  launches and collects them remotely, and runs relay lifecycle on the relay
+  guest. Cross-host clock discipline records each guest's clock offset in
+  `clocks.json` and the report flags `subscription_fanout` numbers whose
+  hosts' clocks were unverified or skewed beyond the fanout budget
+  ([docs/distributed.md](docs/distributed.md))
 
 In progress, in decided order:
 

@@ -464,6 +464,66 @@ YAML
     'any threshold failure in a perturbation run is a single resilience_failed verdict';
 };
 
+subtest 'cross-host clock evidence is judged when fanout crosses hosts' => sub {
+  my $scenario_clock = File::Spec->catfile($tmp, 'clock.yml');
+  _write_text($scenario_clock, <<'YAML');
+run:
+  name: clock
+  duration: 60
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+  subscribers:
+    count: 1
+workload:
+  publish_rate_per_second: 10
+thresholds:
+  subscription_fanout_p99_ms: 1000
+YAML
+
+  # A remote host whose clock is off by more than the whole fanout budget
+  # makes any cross-host fanout number untrustworthy.
+  my $skew_dir = _run_with_metric_streams(
+    'report-clock-skew-001',
+    -scenario       => $scenario_clock,
+    'publisher-001' => [_metric_event(duration_ms => 20)],
+  );
+  _write_clocks($skew_dir,
+    [{name => 'worker-guest-001', transport => 'ssh', role => 'workers', offset_ms => 5000, round_trip_ms => 3}]);
+  my $skew          = _regenerated_report($skew_dir);
+  my %skew_warnings = map { $_->{code} => $_ } @{$skew->{diagnostics}{warnings}};
+  ok $skew_warnings{cross_host_clock_skew}, 'a remote clock beyond the fanout bound is flagged as skew';
+
+  # A remote host whose clock could not be measured is flagged as unverified.
+  my $unverified_dir = _run_with_metric_streams(
+    'report-clock-unverified-001',
+    -scenario       => $scenario_clock,
+    'publisher-001' => [_metric_event(duration_ms => 20)],
+  );
+  _write_clocks($unverified_dir,
+    [{name => 'worker-guest-001', transport => 'ssh', role => 'workers', offset_ms => undef, round_trip_ms => undef}]);
+  my $unverified          = _regenerated_report($unverified_dir);
+  my %unverified_warnings = map { $_->{code} => $_ } @{$unverified->{diagnostics}{warnings}};
+  ok $unverified_warnings{cross_host_clock_unverified}, 'an unmeasured remote clock is flagged as unverified';
+
+  # A local-only run has one clock, so cross-host skew cannot apply.
+  my $local_dir = _run_with_metric_streams(
+    'report-clock-local-001',
+    -scenario       => $scenario_clock,
+    'publisher-001' => [_metric_event(duration_ms => 20)],
+  );
+  _write_clocks($local_dir,
+    [{name => 'local', transport => 'exec', role => 'workers', offset_ms => 0, round_trip_ms => 0}]);
+  my $local = _regenerated_report($local_dir);
+  my @local_clock_warnings =
+    grep { $_->{code} =~ /\Across_host_clock/mxs } @{$local->{diagnostics}{warnings}};
+  is \@local_clock_warnings, [], 'a local-only run raises no cross-host clock warning';
+};
+
 subtest 'multi-phase runs are judged on the main phase only' => sub {
   my $scenario_phased = File::Spec->catfile($tmp, 'phased.yml');
   _write_text($scenario_phased, <<'YAML');
@@ -600,6 +660,16 @@ sub _write_text {
   open my $fh, '>', $path or die "open $path: $!";
   print {$fh} $content or die "print $path: $!";
   close $fh            or die "close $path: $!";
+  return;
+}
+
+sub _write_clocks {
+  my ($run_dir, $guests) = @_;
+  my $json = JSON->new->canonical(1);
+  _write_text(
+    File::Spec->catfile($run_dir, 'clocks.json'),
+    $json->encode({measured_at => '2026-06-27T20:01:57Z', guests => $guests}),
+  );
   return;
 }
 

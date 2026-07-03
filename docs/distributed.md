@@ -1,10 +1,18 @@
-# overnet-burner Distributed Scale Mode (Design)
+# overnet-burner Distributed Scale Mode
 
-**Status: proposed design.** Nothing in this document is normative until it
-is implemented and tested; where it conflicts with the implemented
-contracts ([workers.md](workers.md), [METRICS.md](METRICS.md),
-[chaos.md](chaos.md), [topology-providers.md](topology-providers.md)),
-the implemented contracts win.
+**Status: implemented through guest provisioning.** A distributed run is an
+ordinary run whose actor groups are provisioned onto remote guests: the
+`connect` method ([provisioning.md](provisioning.md)) places workers and
+relays round-robin across many hosts, stages their inputs, launches them
+remotely, polls readiness per host, runs relay lifecycle on the relay
+guest, and collects every metric stream back to the controller before
+reporting. This document's original `hosts:` inventory sketch was superseded
+by that provisioning contract (see [Host Inventory](#host-inventory)); the
+distinct distributed concern that provisioning did not cover — cross-host
+clock discipline — is now implemented and described below. Where this
+document conflicts with the implemented contracts
+([workers.md](workers.md), [METRICS.md](METRICS.md), [chaos.md](chaos.md),
+[provisioning.md](provisioning.md)), the implemented contracts win.
 
 ## Goal
 
@@ -36,22 +44,29 @@ failure modes distribution introduces.
 
 ## Host Inventory
 
-The scenario gains an optional `hosts` section (exact shape to be settled
-during implementation):
+This section's original `hosts:` sketch was superseded by the tmt-style
+provision contract in [provisioning.md](provisioning.md), which generalizes
+a bare host list into per-group provision methods behind a uniform guest
+interface. The distributed host inventory is expressed as `connect` guests:
 
 ```yaml
-hosts:
+provision:
   workers:
-    - ssh://load-1.example.net
-    - ssh://load-2.example.net
+    how: connect
+    guests:
+      - address: load-1.example.net
+        user: burner
+      - address: load-2.example.net
+        user: burner
   relays:
-    - ssh://relay-1.example.net
+    how: connect
+    guests:
+      - address: relay-1.example.net
+        user: burner
 ```
 
-Local mode remains the default: without `hosts`, everything runs on the
-controller host exactly as today. The rendered Rex inventory
-(`artifacts/rex/inventory/hosts.json`) stops being the static single-host
-placeholder and reflects the declared hosts.
+Local mode remains the default: without a `provision` block, everything runs
+on the controller host through an implicit local guest exactly as today.
 
 ## Placement
 
@@ -63,7 +78,9 @@ actor-to-host assignments) and in the report's topology section.
 
 ## Remote Worker Launch
 
-A new `rex-distributed` runner extends the workers runner:
+No separate distributed runner is needed: the `rex-local-workers` runner
+already performs every step below through the guest interface, so pointing a
+group at `connect` guests is what makes a run distributed.
 
 - **Stage**: push each actor's `workers/<actor-id>/input.json` and the
   worker executable (or a named, pre-provisioned binary) to its host.
@@ -96,12 +113,29 @@ and failure semantics are unchanged from [chaos.md](chaos.md).
 
 ## Clock Discipline
 
-`subscription_fanout` compares clocks across hosts. A distributed run
-SHOULD record each host's clock offset (for example an NTP query at run
-start) in the run ledger, and the report SHOULD surface a diagnostic when
-fanout thresholds are configured but clock offsets were not captured or
-exceed a sanity bound. This is the honesty mechanism the fanout timing
-convention in [workers.md](workers.md) already anticipates.
+`subscription_fanout` is a subscriber's receive time minus the publisher's
+`sent_at` stamp, so once those two actors run on different hosts the
+measurement crosses two clocks and a clock difference masquerades as fanout
+latency. This is the one distributed concern the guest contract did not
+already handle, and it is now implemented:
+
+- **Capture.** At run start, after guests are provisioned, the runner probes
+  each guest's clock over the guest transport (a single `date` round-trip)
+  and records its offset relative to the controller, together with the
+  round-trip time that bounds the estimate, in `clocks.json` in the run
+  directory. A local guest shares the controller clock and is recorded at
+  offset zero; a guest whose clock could not be read records a null offset.
+- **Diagnosis.** When `subscription_fanout_p99_ms` is judged and the run
+  used any remote guest, the report emits a diagnostic: a
+  `cross_host_clock_unverified` warning when a remote guest's offset was not
+  captured, and a `cross_host_clock_skew` warning when a remote guest's
+  offset exceeds the fanout budget it is being judged against — the point at
+  which a fanout number could be entirely clock skew.
+
+The diagnostic is an honesty signal, not a hard failure: a run with skewed
+clocks still reports its numbers, but it reports alongside them that those
+cross-host numbers cannot be trusted, which is exactly what the fanout
+timing convention in [workers.md](workers.md) anticipates.
 
 ## Failure Semantics
 
@@ -112,16 +146,20 @@ convention in [workers.md](workers.md) already anticipates.
 - Partial evidence (missing streams after fetch) yields the existing
   inconclusive verdicts rather than silently shrinking the denominator.
 
+## Resolved
+
+- Worker and relay provisioning, placement, remote launch, readiness
+  polling, and metric-stream collection are implemented through the
+  tmt-style provision methods in [provisioning.md](provisioning.md); the
+  `connect` method subsumes this document's original host inventory.
+- Cross-host clock discipline is implemented (see
+  [Clock Discipline](#clock-discipline)).
+
 ## Open Questions
 
-- Worker provisioning is designed separately in
-  [provisioning.md](provisioning.md), which generalizes this document's
-  `hosts` sketch into tmt-style provision methods (`local`, `connect`,
-  `container`, `virtual`) behind a uniform guest contract; its `connect`
-  method subsumes the host inventory described above.
 - Live progress: whether the controller should sample remote metric
   streams mid-run for operator feedback, and how to do that without
   perturbing the workload.
-- Readiness polling is settled in [provisioning.md](provisioning.md):
-  one aggregate probe per guest per poll cycle, agentless, through the
-  guest interface.
+- Clock discipline uses a single `date` round-trip per guest, which bounds
+  but does not minimize offset uncertainty; a multi-sample estimator or an
+  explicit NTP query would tighten it for very tight fanout budgets.

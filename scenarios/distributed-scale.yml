@@ -1,0 +1,51 @@
+run:
+  name: distributed-scale
+  duration: 120
+  seed: 12345
+
+# A distributed run is an ordinary run whose actor groups are provisioned
+# onto their own hosts. Workers spread across a load fleet and the relay
+# runs on its own host; the burner stages, launches, and collects each group
+# over the connect (ssh) transport and runs the relay lifecycle on the relay
+# host. See docs/distributed.md.
+topology:
+  relays:
+    count: 1
+    provider: external-command
+    command:
+      start: "systemctl --user start overnet-relay"
+      health: "curl -fsS http://127.0.0.1:7777/health"
+      stop: "systemctl --user stop overnet-relay"
+    endpoints:
+      - ws://relay-1.example.net:7777
+  publishers:
+    count: 8
+  subscribers:
+    count: 8
+  observers:
+    count: 1
+
+workload:
+  publish_rate_per_second: 50
+
+provision:
+  workers:
+    how: connect
+    guests:
+      - address: load-1.example.net
+        user: burner
+      - address: load-2.example.net
+        user: burner
+  relays:
+    how: connect
+    guests:
+      - address: relay-1.example.net
+        user: burner
+
+thresholds:
+  publish_p99_ms: 500
+  # subscription_fanout crosses hosts here (publishers and subscribers on the
+  # load fleet, the relay on its own host), so the report's clock-discipline
+  # diagnostic guards these numbers against host clock skew.
+  subscription_fanout_p99_ms: 1500
+  error_rate_max: 0.01

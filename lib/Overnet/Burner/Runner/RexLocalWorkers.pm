@@ -12,6 +12,7 @@ use File::Path     qw(make_path);
 use File::Spec;
 use IO::Socket::INET ();
 use JSON             ();
+use POSIX            qw(strftime);
 use Time::HiRes      qw(sleep time);
 
 use Overnet::Burner::ContainerEngine;
@@ -64,8 +65,67 @@ sub prepare {
   $self->{guest_net_state}  = {};
   $self->_provision_worker_guests;
   $self->_provision_relay_guests;
+  $self->_capture_guest_clocks;
 
   return 1;
+}
+
+# subscription_fanout compares a subscriber's receive time against a
+# publisher's sent_at stamp, which crosses two clocks once actors run on
+# different hosts. Recording each guest's clock offset relative to the
+# controller lets the report tell an honest cross-host fanout number from a
+# clock-skew artifact. Local guests share the controller clock, so their
+# offset is zero by construction.
+sub _capture_guest_clocks {
+  my ($self) = @_;
+
+  my %seen;
+  my @guests =
+    grep { !$seen{$_->name}++ } (@{$self->{worker_guests} || []}, @{$self->{relay_guests} || []});
+
+  my @records = map { $self->_measure_guest_clock($_) } @guests;
+
+  write_file(
+    File::Spec->catfile($self->{run_dir}, 'clocks.json'),
+    json_text(
+      {
+        measured_at => strftime('%Y-%m-%dT%H:%M:%SZ', gmtime),
+        guests      => \@records,
+      }
+    ),
+  );
+
+  return 1;
+}
+
+sub _measure_guest_clock {
+  my ($self, $guest) = @_;
+
+  my %reading = (name => $guest->name, transport => $guest->transport, role => $guest->role);
+
+  # A guest with the controller's own clock has no offset and needs no probe.
+  if ($guest->transport eq 'exec') {
+    $reading{offset_ms}     = 0;
+    $reading{round_trip_ms} = 0;
+    return \%reading;
+  }
+
+  my $before  = time * 1000;
+  my $outcome = eval { $guest->run_command(command => 'date +%s%N') };
+  my $after   = time * 1000;
+
+  my ($nanoseconds) = (ref $outcome eq 'HASH' && defined $outcome->{stdout}) ? $outcome->{stdout} =~ /(\d+)/mxs : ();
+  if (defined $nanoseconds && ref $outcome eq 'HASH' && ($outcome->{exit_code} // -1) == 0) {
+    my $guest_ms = $nanoseconds / 1_000_000;
+    my $midpoint = ($before + $after) / 2;
+    $reading{offset_ms}     = 0 + sprintf('%.1f', $guest_ms - $midpoint);
+    $reading{round_trip_ms} = 0 + sprintf('%.1f', $after - $before);
+  } else {
+    $reading{offset_ms}     = undef;
+    $reading{round_trip_ms} = undef;
+  }
+
+  return \%reading;
 }
 
 sub _provision_worker_guests {
