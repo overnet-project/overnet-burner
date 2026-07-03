@@ -429,6 +429,102 @@ YAML
     'chaos offsets are validated against the total workload window';
 };
 
+subtest 'provision configuration validates' => sub {
+  my $valid = "$tmp/provision-valid.yml";
+  _write_yaml($valid, <<'YAML');
+run:
+  name: provision-valid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: connect
+    guests:
+      - address: load-1.example.net
+        user: burner
+        port: 2222
+        key: /keys/burner
+      - address: load-2.example.net
+  relays:
+    how: local
+YAML
+  my $config = Overnet::Burner::Config->load_file($valid);
+  is $config->{provision}{workers}{how},              'connect', 'connect provisioning loads';
+  is scalar @{$config->{provision}{workers}{guests}}, 2,         'connect guests load';
+  is $config->{provision}{relays}{how},               'local',   'local provisioning loads';
+
+  my $default = Overnet::Burner::Config->load_file($scenario_path);
+  is $default->{provision}{workers}{how}, 'local', 'omitting provision means local for every group';
+  is $default->{provision}{relays}{how},  'local', 'omitting provision means local for relays too';
+
+  my @rejections = (
+    [
+      'unknown group',
+      "provision:\n  gateways:\n    how: local",
+      qr/provision\ groups\ must\ be\ relays\ or\ workers/mx,
+    ],
+    [
+      'unknown how',
+      "provision:\n  workers:\n    how: teleport",
+      qr/provision\.workers\.how\ must\ be\ one\ of\ connect,\ container,\ local,\ virtual/mx,
+    ],
+    [
+      'reserved how',
+      "provision:\n  workers:\n    how: virtual",
+      qr/provision\.workers\.how\ virtual\ is\ not\ implemented\ yet/mx,
+    ],
+    [
+      'relay connect unimplemented',
+      "provision:\n  relays:\n    how: connect\n    guests:\n      - address: r1",
+      qr/provision\.relays\.how\ connect\ is\ not\ implemented\ yet/mx,
+    ],
+    [
+      'connect without guests',
+      "provision:\n  workers:\n    how: connect",
+      qr/provision\.workers\.guests\ must\ list\ at\ least\ one\ guest/mx,
+    ],
+    [
+      'guest without address',
+      "provision:\n  workers:\n    how: connect\n    guests:\n      - user: burner",
+      qr/provision\.workers\.guests\[0\]\.address\ must\ be\ a\ non-empty\ string/mx,
+    ],
+    [
+      'local with guests',
+      "provision:\n  workers:\n    how: local\n    guests:\n      - address: nope",
+      qr/provision\.workers\.guests\ is\ only\ valid\ for\ how:\ connect/mx,
+    ],
+  );
+
+  for my $case (@rejections) {
+    my ($name, $provision_yaml, $pattern) = @{$case};
+    my $path = "$tmp/provision-$name.yml";
+    $path =~ s/\ /-/gmx;
+    _write_yaml($path, <<"YAML");
+run:
+  name: provision-invalid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+$provision_yaml
+YAML
+    eval { Overnet::Burner::Config->load_file($path) };
+    like $@, $pattern, "$name is rejected";
+  }
+};
+
 subtest 'valid chaos hooks load' => sub {
   my $path = "$tmp/chaos-valid.yml";
   _write_yaml($path, <<'YAML');

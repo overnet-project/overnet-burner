@@ -20,6 +20,7 @@ examples/worker-input-v1-sample.json
 lib/Overnet/Burner/Config.pm
 lib/Overnet/Burner/Guest.pm
 lib/Overnet/Burner/Guest/Exec.pm
+lib/Overnet/Burner/Guest/SSH.pm
 lib/Overnet/Burner/Metrics.pm
 lib/Overnet/Burner/Plan.pm
 lib/Overnet/Burner/Report.pm
@@ -51,6 +52,7 @@ t/cli.t
 t/config.t
 t/github-ci.t
 t/guest-exec.t
+t/guest-ssh.t
 t/makemaker-metadata.t
 t/manifest-skip-policy.t
 t/metrics.t
@@ -60,6 +62,7 @@ t/report-generation.t
 t/rex-bundle.t
 t/run-ledger.t
 t/runner-noop.t
+t/runner-provision-connect.t
 t/runner-rex-local-provider.t
 t/runner-rex-local-workers.t
 t/runner-rex-local.t

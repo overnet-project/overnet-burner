@@ -47,18 +47,39 @@ sub normalize {
   _require_optional_mapping($copy, 'thresholds');
   _require_optional_mapping($copy, 'workload.object_reads');
 
-  $copy->{topology}                 ||= {};
-  $copy->{topology}{publishers}     ||= {};
-  $copy->{topology}{subscribers}    ||= {};
-  $copy->{topology}{query_readers}  ||= {};
-  $copy->{topology}{object_readers} ||= {};
-  $copy->{topology}{observers}      ||= {};
+  _normalize_topology($copy);
+  _normalize_workload($copy);
 
+  $copy->{chaos}      ||= [];
+  $copy->{thresholds} ||= {};
+
+  $copy->{provision} ||= {};
+  for my $group (qw(relays workers)) {
+    $copy->{provision}{$group} ||= {};
+    if (!exists $copy->{provision}{$group}{how}) {
+      $copy->{provision}{$group}{how} = 'local';
+    }
+  }
+
+  return $copy;
+}
+
+sub _normalize_topology {
+  my ($copy) = @_;
+
+  $copy->{topology} ||= {};
   for my $role (qw(publishers subscribers query_readers object_readers observers)) {
+    $copy->{topology}{$role} ||= {};
     if (!exists $copy->{topology}{$role}{count}) {
       $copy->{topology}{$role}{count} = 0;
     }
   }
+
+  return 1;
+}
+
+sub _normalize_workload {
+  my ($copy) = @_;
 
   $copy->{workload}                        ||= {};
   $copy->{workload}{subscription_filters}  ||= [];
@@ -75,10 +96,8 @@ sub normalize {
   if (!exists $copy->{workload}{observer}{probe_interval_seconds}) {
     $copy->{workload}{observer}{probe_interval_seconds} = 1;
   }
-  $copy->{chaos}      ||= [];
-  $copy->{thresholds} ||= {};
 
-  return $copy;
+  return 1;
 }
 
 sub validate {
@@ -116,7 +135,77 @@ sub validate {
   _validate_workload_phase($config, 'warmup');
   _validate_workload_phase($config, 'cooldown');
   _validate_chaos($config);
+  _validate_provision($config);
   _require_hash($config, 'thresholds');
+
+  return 1;
+}
+
+sub _validate_provision {
+  my ($config) = @_;
+
+  my $provision = _require_hash($config, 'provision');
+  my %known     = map { $_ => 1 } qw(relays workers);
+  for my $group (sort keys %{$provision}) {
+    if (!$known{$group}) {
+      croak "provision groups must be relays or workers, not $group\n";
+    }
+  }
+
+  my %implemented = (
+    relays  => {local => 1},
+    workers => {local => 1, connect => 1},
+  );
+  my %designed = map { $_ => 1 } qw(local connect container virtual);
+
+  for my $group (qw(relays workers)) {
+    my $spec = _require_hash($config, "provision.$group");
+    my $how  = $spec->{how};
+    if (!(defined $how && !ref($how) && $designed{$how})) {
+      croak "provision.$group.how must be one of connect, container, local, virtual\n";
+    }
+    if (!$implemented{$group}{$how}) {
+      croak "provision.$group.how $how is not implemented yet\n";
+    }
+
+    if ($how eq 'connect') {
+      _validate_provision_guests($config, $group);
+    } elsif (exists $spec->{guests}) {
+      croak "provision.$group.guests is only valid for how: connect\n";
+    }
+  }
+
+  return 1;
+}
+
+sub _validate_provision_guests {
+  my ($config, $group) = @_;
+
+  my $path   = "provision.$group.guests";
+  my $guests = _value_at($config, $path);
+  if (!(ref $guests eq 'ARRAY' && @{$guests})) {
+    croak "$path must list at least one guest\n";
+  }
+
+  for my $index (0 .. $#{$guests}) {
+    _require_mapping_ref($guests->[$index], "$path\[$index\]");
+    my $address = $guests->[$index]{address};
+    if (!(defined $address && !ref($address) && length $address)) {
+      croak "$path\[$index\].address must be a non-empty string\n";
+    }
+    for my $field (qw(user key)) {
+      my $value = $guests->[$index]{$field};
+      if (exists $guests->[$index]{$field} && !(defined $value && !ref($value) && length $value)) {
+        croak "$path\[$index\].$field must be a non-empty string\n";
+      }
+    }
+    if (exists $guests->[$index]{port}) {
+      my $port = $guests->[$index]{port};
+      if (ref $port || !defined $port || "$port" !~ /\A[1-9][0-9]*\z/mxs) {
+        croak "$path\[$index\].port must be a positive integer\n";
+      }
+    }
+  }
 
   return 1;
 }

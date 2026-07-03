@@ -66,11 +66,15 @@ Implemented so far:
 - the observer reference worker (relay-side black-box evidence via
   relay_ping probes of every endpoint)
 
+- the guest interface with the local exec transport and the connect (SSH)
+  provisioning method for workers, with deterministic placement recorded in
+  guests.json
+
 In progress, in decided order:
 
-- guest provisioning: local, connect, container (Docker and podman), and
-  virtual (design proposals in [docs/provisioning.md](docs/provisioning.md)
-  and [docs/distributed.md](docs/distributed.md))
+- guest provisioning continued: container (Docker and podman) and virtual
+  (design in [docs/provisioning.md](docs/provisioning.md) and
+  [docs/distributed.md](docs/distributed.md))
 - network chaos actions on provisioned guests (names reserved in
   [docs/chaos.md](docs/chaos.md))
 

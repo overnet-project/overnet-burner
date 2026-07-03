@@ -1,10 +1,13 @@
 # overnet-burner Guest Provisioning (Design)
 
-**Status: proposed design.** Nothing in this document is normative until it
-is implemented and tested; where it conflicts with the implemented
-contracts, the implemented contracts win. This design deliberately borrows
-from [tmt](https://github.com/teemtee/tmt), whose provision step solved the
-same problem for test environments: one plan, interchangeable provisioning
+**Status: partially implemented.** The guest interface, the `local` method,
+and the `connect` method for the workers group are implemented and tested;
+`container` and `virtual` (and `connect` for the relays group) remain
+proposed design, rejected by scenario validation as not implemented yet.
+Where this document conflicts with the implemented contracts, the
+implemented contracts win. This design deliberately borrows from
+[tmt](https://github.com/teemtee/tmt), whose provision step solved the same
+problem for test environments: one plan, interchangeable provisioning
 backends behind a single guest interface.
 
 ## The Problem

@@ -13,6 +13,7 @@ use JSON        ();
 use Time::HiRes qw(sleep time);
 
 use Overnet::Burner::Guest::Exec;
+use Overnet::Burner::Guest::SSH;
 use Overnet::Burner::Util qw(json_text read_json_file write_file);
 
 our $VERSION = '0.001';
@@ -39,9 +40,75 @@ sub prepare {
   $self->{worker_results} = [];
   $self->{worker_pids}    = {};
   $self->{chaos_results}  = [];
-  $self->{guest}          = Overnet::Burner::Guest::Exec->new(name => 'local', role => 'workers');
+  $self->_provision_worker_guests;
 
   return 1;
+}
+
+sub _provision_worker_guests {
+  my ($self) = @_;
+
+  my $config    = read_json_file(File::Spec->catfile($self->{run_dir}, 'config.normalized.json'));
+  my $provision = ref $config->{provision} eq 'HASH'  ? $config->{provision}  : {};
+  my $workers   = ref $provision->{workers} eq 'HASH' ? $provision->{workers} : {};
+  my $how       = $workers->{how} || 'local';
+
+  my @guests;
+  if ($how eq 'connect') {
+    my $ordinal = 0;
+    for my $entry (@{$workers->{guests} || []}) {
+      $ordinal++;
+      push @guests,
+        Overnet::Burner::Guest::SSH->new(
+        name    => sprintf('worker-guest-%03d', $ordinal),
+        role    => 'workers',
+        address => $entry->{address},
+        exists $entry->{user} ? (user => $entry->{user}) : (),
+        exists $entry->{port} ? (port => $entry->{port}) : (),
+        exists $entry->{key}  ? (key  => $entry->{key})  : (),
+        );
+    }
+  } else {
+    push @guests, Overnet::Burner::Guest::Exec->new(name => 'local', role => 'workers');
+  }
+
+  $self->{worker_guests} = \@guests;
+  $self->{actor_guests}  = {};
+  for my $actor ($self->_worker_actors) {
+    my $guest = $guests[(($actor->{ordinal} || 1) - 1) % @guests];
+    $self->{actor_guests}{$actor->{id}} = $guest;
+  }
+
+  my @guest_records;
+  for my $guest (@guests) {
+    push @guest_records,
+      {
+      name      => $guest->name,
+      role      => $guest->role,
+      transport => $guest->transport,
+      $guest->transport eq 'ssh'
+      ? (
+        address => $guest->address,
+        defined $guest->user ? (user => $guest->user) : (),
+        defined $guest->port ? (port => $guest->port) : (),
+        defined $guest->key  ? (key  => $guest->key)  : (),
+        )
+      : (),
+      };
+  }
+  my %placement = map { $_ => $self->{actor_guests}{$_}->name } keys %{$self->{actor_guests}};
+  write_file(
+    File::Spec->catfile($self->{run_dir}, 'guests.json'),
+    json_text({guests => \@guest_records, placement => \%placement}),
+  );
+
+  return 1;
+}
+
+sub _guest_for {
+  my ($self, $actor_id) = @_;
+
+  return $self->{actor_guests}{$actor_id} || $self->{worker_guests}[0];
 }
 
 sub observe {
@@ -99,10 +166,14 @@ sub collect {
   my @collected;
   my $aggregated = q{};
   for my $stream (@{$plan->{metric_streams} || []}) {
+    my $guest   = $self->_guest_for($stream->{actor_id});
     my $path    = File::Spec->catfile($self->{run_dir}, $stream->{path});
-    my $content = $self->{guest}->read_file($path);
+    my $content = $guest->read_file($path);
     if (!(defined $content && length $content)) {
       next;
+    }
+    if ($guest->transport ne 'exec') {
+      write_file($path, $content);
     }
     $aggregated .= $content;
     push @collected, $stream->{path};
@@ -167,12 +238,13 @@ sub _launch_worker {
 
   my $actor      = $args{actor};
   my $actor_id   = $actor->{id};
+  my $guest      = $self->_guest_for($actor_id);
   my $manifest   = read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
   my $worker_dir = File::Spec->catdir($self->{run_dir}, 'workers', $actor_id);
   my $logs_dir   = File::Spec->catdir($self->{run_dir}, 'logs',    'workers');
   my $stream_dir = dirname(File::Spec->catfile($self->{run_dir}, $actor->{metric_stream}));
   for my $dir ($worker_dir, $logs_dir, $stream_dir) {
-    $self->{guest}->make_path($dir);
+    $guest->make_path($dir);
   }
 
   my @phases;
@@ -198,13 +270,13 @@ sub _launch_worker {
     @phases ? (phases => \@phases) : (),
   };
   my $input_path = File::Spec->catfile($worker_dir, 'input.json');
-  $self->{guest}->write_file($input_path, json_text($input));
+  $guest->write_file($input_path, json_text($input));
 
   my $command = $ENV{OVERNET_BURNER_WORKER} || 'overnet-burner-worker';
   my $stdout  = File::Spec->catfile($logs_dir, "$actor_id.stdout");
   my $stderr  = File::Spec->catfile($logs_dir, "$actor_id.stderr");
 
-  $self->{worker_pids}{$actor_id} = $self->{guest}->launch(
+  $self->{worker_pids}{$actor_id} = $guest->launch(
     command => $command,
     env     => {OVERNET_BURNER_WORKER_INPUT => File::Spec->rel2abs($input_path)},
     stdout  => $stdout,
@@ -215,6 +287,7 @@ sub _launch_worker {
     role     => $actor->{role},
     status   => 'launched',
     command  => $command,
+    guest    => $guest->name,
   );
 
   return 1;
@@ -232,7 +305,15 @@ sub _await_wave_ready {
   my %pending      = map { $_->{id} => 1 } @{$wave_actors};
 
   while (time < $deadline) {
-    my %ready = map { $_ => 1 } @{$self->{guest}->ready_actors($workers_root)};
+    my %ready;
+    my %polled;
+    for my $actor (@{$wave_actors}) {
+      my $guest = $self->_guest_for($actor->{id});
+      if ($polled{$guest->name}++) {
+        next;
+      }
+      %ready = (%ready, map { $_ => 1 } @{$guest->ready_actors($workers_root)});
+    }
     for my $actor (@{$wave_actors}) {
       if ($pending{$actor->{id}} && $ready{$actor->{id}}) {
         delete $pending{$actor->{id}};
@@ -247,10 +328,17 @@ sub _await_wave_ready {
       if (!$pending{$actor->{id}}) {
         next;
       }
+      my $guest  = $self->_guest_for($actor->{id});
       my $handle = $self->{worker_pids}{$actor->{id}};
-      my $status = $handle ? $self->{guest}->try_reap($handle) : undef;
+      my $status = $handle ? $guest->try_reap($handle) : undef;
       if (defined $status) {
         $self->_reap_worker($actor->{id}, $status);
+        my %now_ready = map { $_ => 1 } @{$guest->ready_actors($workers_root)};
+        if ($now_ready{$actor->{id}}) {
+          delete $pending{$actor->{id}};
+          $self->_record_worker_event(actor_id => $actor->{id}, role => $actor->{role}, status => 'ready',);
+          next;
+        }
         croak "worker $actor->{id} exited before becoming ready\n";
       }
     }
@@ -282,13 +370,13 @@ sub _await_worker_exits {
 
   if (%{$self->{worker_pids}}) {
     for my $actor_id (sort keys %{$self->{worker_pids}}) {
-      $self->{guest}->signal($self->{worker_pids}{$actor_id}, 'TERM');
+      $self->_guest_for($actor_id)->signal($self->{worker_pids}{$actor_id}, 'TERM');
     }
     $self->_reap_until(time + $KILL_GRACE_SECONDS);
   }
   if (%{$self->{worker_pids}}) {
     for my $actor_id (sort keys %{$self->{worker_pids}}) {
-      $self->{guest}->signal($self->{worker_pids}{$actor_id}, 'KILL');
+      $self->_guest_for($actor_id)->signal($self->{worker_pids}{$actor_id}, 'KILL');
     }
     $self->_reap_until(time + $KILL_GRACE_SECONDS);
   }
@@ -324,7 +412,7 @@ sub _reap_pass {
 
   my $reaped = 0;
   for my $actor_id (sort keys %{$self->{worker_pids}}) {
-    my $status = $self->{guest}->try_reap($self->{worker_pids}{$actor_id});
+    my $status = $self->_guest_for($actor_id)->try_reap($self->{worker_pids}{$actor_id});
     if (defined $status) {
       $self->_reap_worker($actor_id, $status);
       $reaped = 1;
