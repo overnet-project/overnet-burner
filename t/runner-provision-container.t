@@ -24,6 +24,8 @@ local $ENV{OVERNET_BURNER_TEST_REX_LOG} = File::Spec->catfile($tmp, 'fake-rex.lo
 subtest 'container-provisioned workers run through the engine adapter' => sub {
   local $ENV{OVERNET_BURNER_TEST_ENGINE_LOG} = $engine_log;
   local $ENV{OVERNET_BURNER_DOCKER}          = _write_emulating_engine($tmp);
+  local $ENV{OVERNET_BURNER_TEST_REMAP_FROM} = File::Spec->catdir($tmp, 'runs');
+  local $ENV{OVERNET_BURNER_TEST_REMAP_TO}   = File::Spec->catdir($tmp, 'guest-fs', 'runs');
 
   my $scenario = _write_scenario($tmp, 'container.yml', <<"YAML");
 provision:
@@ -60,6 +62,13 @@ YAML
   my $aggregated = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics.jsonl'));
   is scalar @{$aggregated}, 3, 'every stream was pulled from its container and aggregated';
 
+  for my $actor_id (qw(publisher-001 publisher-002 subscriber-001)) {
+    ok -s File::Spec->catfile($run_dir, 'metrics', "$actor_id.jsonl"),
+      "the $actor_id stream was pulled into the local run directory";
+    ok -e File::Spec->catfile($run_dir, 'logs', 'workers', "$actor_id.stdout"),
+      "the $actor_id stdout log was pulled into the local run directory";
+  }
+
   my $argv = _slurp($engine_log);
   my @runs = grep {/\Arun\x{0}-d\x{0}--name\x{0}burner-\Q$run_id\E/mx} split /\n/, $argv;
   is scalar @runs, 2, 'two containers were started';
@@ -73,6 +82,8 @@ YAML
 subtest 'containers are removed even when the run fails' => sub {
   local $ENV{OVERNET_BURNER_TEST_ENGINE_LOG}  = $engine_log;
   local $ENV{OVERNET_BURNER_DOCKER}           = _write_emulating_engine($tmp);
+  local $ENV{OVERNET_BURNER_TEST_REMAP_FROM}  = File::Spec->catdir($tmp, 'runs');
+  local $ENV{OVERNET_BURNER_TEST_REMAP_TO}    = File::Spec->catdir($tmp, 'guest-fs', 'runs');
   local $ENV{OVERNET_BURNER_TEST_WORKER_FAIL} = 1;
 
   my $scenario = _write_scenario($tmp, 'container-fail.yml', <<"YAML");
@@ -94,6 +105,10 @@ YAML
 
   my @removed = grep {/\Arm\x{0}-f\x{0}burner-\Q$run_id\E/mx} split /\n/, _slurp($engine_log);
   is scalar @removed, 2, 'failure cleanup still removes every container';
+
+  my $pulled_stderr = File::Spec->catfile($tmp, 'runs', $run_id, 'logs', 'workers', 'subscriber-001.stderr');
+  ok -e $pulled_stderr, 'failure cleanup pulls worker logs back as evidence';
+  like _slurp($pulled_stderr), qr/fake\sworker\sfailing\son\srequest/mx, 'the pulled stderr explains the failure';
 };
 
 subtest 'a real engine runs the whole container path when available' => sub {
@@ -183,7 +198,18 @@ sub _write_emulating_engine {
 #!/usr/bin/env perl
 use strict;
 use warnings;
-use File::Copy qw(copy);
+
+# Emulates a container with its own filesystem: every guest-side path is
+# relocated under a shadow root, so nothing the "container" writes ever
+# appears at the controller-side path.
+sub remap {
+  my ($value) = @_;
+  my $from = $ENV{OVERNET_BURNER_TEST_REMAP_FROM};
+  my $to   = $ENV{OVERNET_BURNER_TEST_REMAP_TO};
+  return $value if !(defined $from && defined $to);
+  $value =~ s/\Q$from\E/$to/g;
+  return $value;
+}
 
 if (my $log = $ENV{OVERNET_BURNER_TEST_ENGINE_LOG}) {
   open my $fh, '>>', $log or die "log: $!";
@@ -202,12 +228,18 @@ if ($subcommand eq 'run') {
 }
 if ($subcommand eq 'exec') {
   my (undef, undef, undef, $command) = @ARGV;
-  exec '/bin/sh', '-c', $command or die "exec: $!";
+  exec '/bin/sh', '-c', remap($command) or die "exec: $!";
 }
 if ($subcommand eq 'cp') {
   my ($src, $dst) = @ARGV;
   $dst =~ s/\A[^:]+://;
-  copy($src, $dst) or die "copy $src -> $dst: $!";
+  $dst = remap($dst);
+  open my $in, '<', $src or die "open $src: $!";
+  my $content = do { local $/; <$in> };
+  close $in or die "close $src: $!";
+  open my $out, '>', $dst or die "open $dst: $!";
+  print {$out} remap($content) or die "print $dst: $!";
+  close $out or die "close $dst: $!";
   exit 0;
 }
 exit 0;

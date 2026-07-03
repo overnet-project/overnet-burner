@@ -53,6 +53,9 @@ provision:
 YAML
 
 subtest 'connect-provisioned workers run over the ssh transport' => sub {
+  local $ENV{OVERNET_BURNER_TEST_REMAP_FROM} = File::Spec->catdir($tmp, 'runs');
+  local $ENV{OVERNET_BURNER_TEST_REMAP_TO}   = File::Spec->catdir($tmp, 'guest-fs', 'runs');
+
   my $run_id = 'connect-run-001';
   my $output =
     `$^X $bin run --scenario $scenario --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
@@ -82,6 +85,8 @@ subtest 'connect-provisioned workers run over the ssh transport' => sub {
   for my $actor_id (qw(publisher-001 publisher-002 subscriber-001)) {
     ok -s File::Spec->catfile($run_dir, 'metrics', "$actor_id.jsonl"),
       "the $actor_id stream was pulled into the local run directory";
+    ok -e File::Spec->catfile($run_dir, 'logs', 'workers', "$actor_id.stdout"),
+      "the $actor_id stdout log was pulled into the local run directory";
   }
 
   my @launched =
@@ -131,6 +136,19 @@ sub _write_fake_ssh_tools {
 #!/usr/bin/env perl
 use strict;
 use warnings;
+
+# Emulates a remote host with its own filesystem: every guest-side path is
+# relocated under a shadow root, so nothing the "remote host" writes ever
+# appears at the controller-side path.
+sub remap {
+  my ($value) = @_;
+  my $from = $ENV{OVERNET_BURNER_TEST_REMAP_FROM};
+  my $to   = $ENV{OVERNET_BURNER_TEST_REMAP_TO};
+  return $value if !(defined $from && defined $to);
+  $value =~ s/\Q$from\E/$to/g;
+  return $value;
+}
+
 my @args = @ARGV;
 my @rest;
 while (@args) {
@@ -140,7 +158,7 @@ while (@args) {
 }
 my $target  = shift @rest;
 my $command = join ' ', @rest;
-exec '/bin/sh', '-c', $command or die "exec: $!";
+exec '/bin/sh', '-c', remap($command) or die "exec: $!";
 PERL
   chmod 0755, $ssh or die "chmod: $!";
 
@@ -149,7 +167,16 @@ PERL
 #!/usr/bin/env perl
 use strict;
 use warnings;
-use File::Copy qw(copy);
+
+sub remap {
+  my ($value) = @_;
+  my $from = $ENV{OVERNET_BURNER_TEST_REMAP_FROM};
+  my $to   = $ENV{OVERNET_BURNER_TEST_REMAP_TO};
+  return $value if !(defined $from && defined $to);
+  $value =~ s/\Q$from\E/$to/g;
+  return $value;
+}
+
 my @args = @ARGV;
 my @rest;
 while (@args) {
@@ -159,7 +186,13 @@ while (@args) {
 }
 my ($src, $dst) = @rest;
 $dst =~ s/\A[^:]+://;
-copy($src, $dst) or die "copy $src -> $dst: $!";
+$dst = remap($dst);
+open my $in, '<', $src or die "open $src: $!";
+my $content = do { local $/; <$in> };
+close $in or die "close $src: $!";
+open my $out, '>', $dst or die "open $dst: $!";
+print {$out} remap($content) or die "print $dst: $!";
+close $out or die "close $dst: $!";
 PERL
   chmod 0755, $scp or die "chmod: $!";
 

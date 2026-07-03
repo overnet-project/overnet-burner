@@ -8,6 +8,7 @@ extends 'Overnet::Burner::Runner::RexLocalProvider';
 use Carp           qw(croak);
 use English        qw(-no_match_vars);
 use File::Basename qw(dirname);
+use File::Path     qw(make_path);
 use File::Spec;
 use JSON        ();
 use Time::HiRes qw(sleep time);
@@ -39,9 +40,10 @@ sub prepare {
   my ($self) = @_;
 
   $self->SUPER::prepare;
-  $self->{worker_results} = [];
-  $self->{worker_pids}    = {};
-  $self->{chaos_results}  = [];
+  $self->{worker_results}   = [];
+  $self->{worker_pids}      = {};
+  $self->{worker_log_files} = {};
+  $self->{chaos_results}    = [];
   $self->_provision_worker_guests;
 
   return 1;
@@ -178,6 +180,9 @@ sub _destroy_worker_guests {
 sub cleanup_after_lifecycle_failure {
   my ($self, %args) = @_;
 
+  if (!eval { $self->_pull_worker_logs; 1 }) {
+    $self->_record_worker_event(status => 'worker_log_pull_failed', phase => 'cleanup');
+  }
   $self->_destroy_worker_guests;
 
   return $self->SUPER::cleanup_after_lifecycle_failure(%args);
@@ -250,12 +255,11 @@ sub collect {
     if (!(defined $content && length $content)) {
       next;
     }
-    if ($guest->transport ne 'exec') {
-      write_file($path, $content);
-    }
+    _store_local_copy($guest, $path, $content);
     $aggregated .= $content;
     push @collected, $stream->{path};
   }
+  $self->_pull_worker_logs;
 
   if (@collected) {
     write_file(File::Spec->catfile($self->{run_dir}, 'metrics.jsonl'), $aggregated);
@@ -266,6 +270,39 @@ sub collect {
     streams_collected => \@collected,
   );
   $self->_destroy_worker_guests;
+
+  return 1;
+}
+
+sub _store_local_copy {
+  my ($guest, $path, $content) = @_;
+
+  if ($guest->transport eq 'exec') {
+    return 1;
+  }
+  make_path(dirname($path));
+  write_file($path, $content);
+
+  return 1;
+}
+
+sub _pull_worker_logs {
+  my ($self) = @_;
+
+  for my $actor_id (sort keys %{$self->{worker_log_files} || {}}) {
+    my $guest = $self->_guest_for($actor_id);
+    if ($guest->transport eq 'exec') {
+      next;
+    }
+    for my $path (@{$self->{worker_log_files}{$actor_id}}) {
+      my $content = $guest->read_file($path);
+      if (!defined $content) {
+        next;
+      }
+      make_path(dirname($path));
+      write_file($path, $content);
+    }
+  }
 
   return 1;
 }
@@ -354,6 +391,7 @@ sub _launch_worker {
   my $command = $self->{worker_command} || $ENV{OVERNET_BURNER_WORKER} || 'overnet-burner-worker';
   my $stdout  = File::Spec->catfile($logs_dir, "$actor_id.stdout");
   my $stderr  = File::Spec->catfile($logs_dir, "$actor_id.stderr");
+  $self->{worker_log_files}{$actor_id} = [$stdout, $stderr];
 
   $self->{worker_pids}{$actor_id} = $guest->launch(
     command => $command,

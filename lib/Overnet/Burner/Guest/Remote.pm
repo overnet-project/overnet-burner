@@ -113,9 +113,9 @@ sub launch {
 sub try_reap {
   my ($self, $handle) = @_;
 
-  my ($code, $status) = $self->_capture('cat ' . $self->shell_quote($handle->{status_file}) . ' 2>/dev/null');
-  if ($status == 0 && defined $code && $code =~ /\A\s*(\d+)\s*\z/mxs) {
-    return $1 << 8;
+  my $reaped = $self->_read_exit_status($handle);
+  if (defined $reaped) {
+    return $reaped;
   }
 
   my (undef, $alive) = $self->_capture("kill -0 $handle->{supervisor_pid} 2>/dev/null");
@@ -123,7 +123,26 @@ sub try_reap {
     return;
   }
 
+  # The supervisor can write the status file and exit between the read above
+  # and the liveness probe; only a status file that is still missing after
+  # the supervisor is known dead means the worker was killed.
+  $reaped = $self->_read_exit_status($handle);
+  if (defined $reaped) {
+    return $reaped;
+  }
+
   return 9;
+}
+
+sub _read_exit_status {
+  my ($self, $handle) = @_;
+
+  my ($code, $status) = $self->_capture('cat ' . $self->shell_quote($handle->{status_file}) . ' 2>/dev/null');
+  if ($status == 0 && defined $code && $code =~ /\A\s*(\d+)\s*\z/mxs) {
+    return $1 << 8;
+  }
+
+  return;
 }
 
 sub signal {

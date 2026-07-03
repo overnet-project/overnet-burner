@@ -202,7 +202,10 @@ Provisioning slots into the existing runner phases:
 3. **start / observe / collect** — unchanged semantics, executed through
    the guest interface; metric streams are pulled back to the controller
    before aggregation, and a stream that cannot be pulled is a missing
-   stream under the existing report rules.
+   stream under the existing report rules. Worker stdout and stderr are
+   also pulled back into the controller's run directory for non-local
+   guests — including, best-effort, when the run fails — so guest
+   teardown never destroys the evidence needed to diagnose a failure.
 4. **finish** — orderly guest teardown, unless guests are kept.
 
 **Guest reuse:** a `--keep-guests` run leaves guests provisioned and

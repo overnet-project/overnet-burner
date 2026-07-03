@@ -57,6 +57,7 @@ t/container-engine.t
 t/github-ci.t
 t/guest-container.t
 t/guest-exec.t
+t/guest-remote.t
 t/guest-ssh.t
 t/makemaker-metadata.t
 t/manifest-skip-policy.t
