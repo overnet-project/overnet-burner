@@ -79,6 +79,8 @@ In progress, in decided order:
 - guest provisioning continued: connect/container/virtual for relay
   guests (design in [docs/provisioning.md](docs/provisioning.md) and
   [docs/distributed.md](docs/distributed.md))
+- abuse simulation: adversarial worker roles that measure relay defenses
+  and their blast radius (design in [docs/abuse.md](docs/abuse.md))
 
 ## Testing
 
