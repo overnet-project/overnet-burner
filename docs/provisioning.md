@@ -1,12 +1,22 @@
 # overnet-burner Guest Provisioning (Design)
 
-**Status: implemented for the workers group.** The guest interface, the
-`local` method, and the `connect`, `container`, and `virtual` methods for
-the workers group are implemented and tested (containers on both Docker
-and podman with the engine adapter and detection rules below; virtual
-machines with direct QEMU per the decisions below); every method other
-than `local` for the relays group remains proposed design, rejected by
-scenario validation as not implemented yet. One deliberate deviation while relays run on the
+**Status: implemented for the workers group and `connect` for relays.** The
+guest interface, the `local` method, and the `connect`, `container`, and
+`virtual` methods for the workers group are implemented and tested
+(containers on both Docker and podman with the engine adapter and detection
+rules below; virtual machines with direct QEMU per the decisions below).
+The relays group supports `local` and `connect`: a relay placed on a
+`connect` guest has its topology-provider lifecycle (start, health, stop)
+run on that guest over the guest's transport, through the same one-shot
+`run_command` guest primitive the runner uses for the controller host.
+Relay endpoint reachability from the workers is the scenario author's
+responsibility for `connect` relays — the burner runs the declared
+lifecycle commands on the declared guest and does not rewrite endpoints. The
+`container` and `virtual` methods for relays remain proposed design,
+rejected by scenario validation as not implemented yet, because a relay the
+burner constructs inside a container or VM needs an endpoint-routing story
+(how workers reach a relay listening inside a constructed guest) that
+`connect` sidesteps. One deliberate deviation while relays run on the
 controller host: **worker containers default to host networking**, because
 a bridge-networked worker cannot reach relay endpoints declared as
 `ws://127.0.0.1`. Worker containers MAY opt into the per-run bridge

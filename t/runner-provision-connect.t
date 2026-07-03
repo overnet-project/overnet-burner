@@ -126,6 +126,65 @@ YAML
   is $guests->{placement}{'publisher-001'},          'local',  'local placement names the implicit guest';
 };
 
+subtest 'connect-provisioned relays run their lifecycle on the relay guest' => sub {
+  my $relay_scenario = "$tmp/relay-connect.yml";
+  _spew($relay_scenario, <<'YAML');
+run:
+  name: relay-connect
+  duration: 2
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: external-command
+    command:
+      start: "printf relay-start-ran"
+      health: "printf relay-health-ran"
+      stop: "printf relay-stop-ran"
+    endpoints:
+      - ws://127.0.0.1:59999
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 5
+provision:
+  relays:
+    how: connect
+    guests:
+      - address: fake-relay-1
+        user: burner
+YAML
+
+  my $run_id = 'relay-connect-001';
+  my $output =
+    `$^X $bin run --scenario $relay_scenario --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
+  is $?, 0, 'the relay-connect run completes' or diag($output);
+
+  my $run_dir = File::Spec->catdir($tmp, 'runs', $run_id);
+
+  my $manifest = _read_json(File::Spec->catfile($run_dir, 'manifest.json'));
+  is $manifest->{status}, 'completed', 'manifest records completion';
+
+  my $relay_guests = _read_json(File::Spec->catfile($run_dir, 'relay-guests.json'));
+  is [map { $_->{name} } @{$relay_guests->{guests}}], ['relay-guest-001'],
+    'relay-guests.json records the provisioned relay guest';
+  is [map { $_->{transport} } @{$relay_guests->{guests}}], ['ssh'], 'the relay guest uses the ssh transport';
+  is $relay_guests->{placement}, {'relay-001' => 'relay-guest-001'}, 'the relay actor is placed on the relay guest';
+
+  my $commands = $manifest->{lifecycle}{topology_provider_commands};
+  is [map { $_->{command_kind} } @{$commands}], [qw(start health stop)], 'the full relay lifecycle ran';
+  is [map { $_->{guest} } @{$commands}], [qw(relay-guest-001 relay-guest-001 relay-guest-001)],
+    'every lifecycle command ran on the relay guest';
+  is [map { $_->{status} } @{$commands}], [qw(completed completed completed)], 'every lifecycle command completed';
+
+  # The command output crossing back from the guest proves it really ran
+  # there rather than on the controller.
+  is _slurp(File::Spec->catfile($run_dir, 'logs', 'provider', 'relay-001-health.stdout')), 'relay-health-ran',
+    'the health command output was captured back from the relay guest';
+  is _slurp(File::Spec->catfile($run_dir, 'logs', 'provider', 'relay-001-start.stdout')), 'relay-start-ran',
+    'the start command output was captured back from the relay guest';
+};
+
 done_testing;
 
 sub _write_fake_ssh_tools {
@@ -274,4 +333,13 @@ sub _spew {
   print {$fh} $content or die "print $path: $!";
   close $fh            or die "close $path: $!";
   return;
+}
+
+sub _slurp {
+  my ($path) = @_;
+  open my $fh, '<', $path or die "open $path: $!";
+  local $/ = undef;
+  my $content = <$fh>;
+  close $fh or die "close $path: $!";
+  return $content;
 }

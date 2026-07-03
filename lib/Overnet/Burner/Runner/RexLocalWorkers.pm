@@ -63,6 +63,7 @@ sub prepare {
   $self->{chaos_results}    = [];
   $self->{guest_net_state}  = {};
   $self->_provision_worker_guests;
+  $self->_provision_relay_guests;
 
   return 1;
 }
@@ -81,7 +82,7 @@ sub _provision_worker_guests {
   # through provisioning still tears down everything already built.
   $self->{worker_guests} = [];
   if ($how eq 'connect') {
-    push @{$self->{worker_guests}}, $self->_connect_guests($workers);
+    push @{$self->{worker_guests}}, $self->_connect_guests($workers, 'workers');
   } elsif ($how eq 'container') {
     $self->_container_guests($workers, $config->{chaos} || []);
   } elsif ($how eq 'virtual') {
@@ -119,16 +120,18 @@ sub _provision_worker_guests {
 }
 
 sub _connect_guests {
-  my ($self, $workers) = @_;
+  my ($self, $spec, $group) = @_;
+  $group ||= 'workers';
+  my $prefix = $group eq 'relays' ? 'relay' : 'worker';
 
   my @guests;
   my $ordinal = 0;
-  for my $entry (@{$workers->{guests} || []}) {
+  for my $entry (@{$spec->{guests} || []}) {
     $ordinal++;
     push @guests,
       Overnet::Burner::Guest::SSH->new(
-      name    => sprintf('worker-guest-%03d', $ordinal),
-      role    => 'workers',
+      name    => sprintf('%s-guest-%03d', $prefix, $ordinal),
+      role    => $group,
       address => $entry->{address},
       exists $entry->{user} ? (user => $entry->{user}) : (),
       exists $entry->{port} ? (port => $entry->{port}) : (),
@@ -137,6 +140,58 @@ sub _connect_guests {
   }
 
   return @guests;
+}
+
+sub _provision_relay_guests {
+  my ($self) = @_;
+
+  my $config    = read_json_file(File::Spec->catfile($self->{run_dir}, 'config.normalized.json'));
+  my $provision = ref $config->{provision} eq 'HASH' ? $config->{provision} : {};
+  my $relays    = ref $provision->{relays} eq 'HASH' ? $provision->{relays} : {};
+  my $how       = $relays->{how} || 'local';
+
+  # Only connect places relays on their own guests today; local keeps them on
+  # the controller host, where the base runner already runs their lifecycle.
+  $self->{relay_actor_guests} = {};
+  if ($how ne 'connect') {
+    return 1;
+  }
+
+  my @guests = $self->_connect_guests($relays, 'relays');
+  if (!@guests) {
+    return 1;
+  }
+  $self->{relay_guests} = \@guests;
+
+  for my $actor ($self->_relay_actors) {
+    my $guest = $guests[(($actor->{ordinal} || 1) - 1) % @guests];
+    $self->{relay_actor_guests}{$actor->{id}} = $guest;
+  }
+
+  my @guest_records = map { _guest_record($_) } @guests;
+  my %placement     = map { $_ => $self->{relay_actor_guests}{$_}->name } keys %{$self->{relay_actor_guests}};
+  write_file(
+    File::Spec->catfile($self->{run_dir}, 'relay-guests.json'),
+    json_text({guests => \@guest_records, placement => \%placement}),
+  );
+
+  return 1;
+}
+
+sub _relay_actors {
+  my ($self) = @_;
+
+  return @{$self->{plan}{relays} || []};
+}
+
+sub _relay_guest_for {
+  my ($self, $actor_id) = @_;
+
+  if (defined $actor_id && ref $self->{relay_actor_guests} eq 'HASH' && $self->{relay_actor_guests}{$actor_id}) {
+    return $self->{relay_actor_guests}{$actor_id};
+  }
+
+  return $self->SUPER::_relay_guest_for($actor_id);
 }
 
 sub _container_guests {

@@ -781,6 +781,33 @@ YAML
   is $default->{provision}{workers}{how}, 'local', 'omitting provision means local for every group';
   is $default->{provision}{relays}{how},  'local', 'omitting provision means local for relays too';
 
+  my $relay_connect = "$tmp/provision-relay-connect.yml";
+  _write_yaml($relay_connect, <<'YAML');
+run:
+  name: provision-relay-connect
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+    endpoints:
+      - ws://relay-1.example.net:7000
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+provision:
+  relays:
+    how: connect
+    guests:
+      - address: relay-1.example.net
+        user: burner
+YAML
+  my $relay_connect_config = Overnet::Burner::Config->load_file($relay_connect);
+  is $relay_connect_config->{provision}{relays}{how}, 'connect', 'relays may be provisioned over connect';
+  is $relay_connect_config->{provision}{relays}{guests}[0]{address}, 'relay-1.example.net', 'relay connect guests load';
+
   my $container = "$tmp/provision-container.yml";
   _write_yaml($container, <<'YAML');
 run:
@@ -897,11 +924,6 @@ YAML
       'relay virtual unimplemented',
       "provision:\n  relays:\n    how: virtual\n    image: r.qcow2",
       qr/provision\.relays\.how\ virtual\ is\ not\ implemented\ yet/mx,
-    ],
-    [
-      'relay connect unimplemented',
-      "provision:\n  relays:\n    how: connect\n    guests:\n      - address: r1",
-      qr/provision\.relays\.how\ connect\ is\ not\ implemented\ yet/mx,
     ],
     [
       'virtual without image',

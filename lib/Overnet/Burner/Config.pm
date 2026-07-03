@@ -201,7 +201,7 @@ sub _validate_provision {
   }
 
   my %implemented = (
-    relays  => {local => 1},
+    relays  => {local => 1, connect => 1},
     workers => {local => 1, connect => 1, container => 1, virtual => 1},
   );
   my %designed = map { $_ => 1 } qw(local connect container virtual);
