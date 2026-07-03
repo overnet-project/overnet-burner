@@ -1,0 +1,39 @@
+run:
+  name: abuse-provenance
+  duration: 60
+  seed: 12345
+
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 2
+  subscribers:
+    count: 2
+  observers:
+    count: 1
+  provenance_forgers:
+    count: 2
+
+workload:
+  publish_rate_per_second: 10
+  abuse:
+    provenance_forger:
+      publish_rate_per_second: 20
+      protocol: irc
+      origin: irc.libera.chat/#overnet
+      authority_origin: irc.libera.chat
+      origin_match: prefix
+
+thresholds:
+  # Defense: the verification boundary must catch forged provenance. Unlike
+  # the relay-facing roles, the defense here is a consumer-side provenance
+  # verifier resolving each forgery to `forged` (Overnet core section 7.9),
+  # not a relay rejection.
+  forge_publish.defended_ratio: 0.99
+  forge_publish.defended_correct_ratio: 0.99
+  # Collateral: honest publishers must still meet their latency target while
+  # the forgeries are in flight.
+  publish_p99_ms: 250
+  subscription_fanout_p99_ms: 1000

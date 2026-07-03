@@ -255,8 +255,12 @@ sub _abuse_once {
   my $relay_url = $self->input->{endpoints}{relays}[0];
   my ($accepted, $message, $started_at, $finished_at) = $self->perform_abuse(%args, relay_url => $relay_url);
 
-  my $classification = $self->classify_response($accepted, $message);
-  my $defense        = $self->defense_for($self->expected_role, $classification);
+  my ($classification, $defense) = $self->classify_abuse(
+    %args,
+    accepted  => $accepted,
+    message   => $message,
+    relay_url => $relay_url,
+  );
 
   $self->emit_metric(
     operation        => $self->abuse_operation,
@@ -278,6 +282,19 @@ sub _abuse_once {
   );
 
   return;
+}
+
+sub classify_abuse {
+  my ($self, %args) = @_;
+
+  # The default abuse flow classifies the relay's own acknowledgement.
+  # Roles whose defense lives at a different boundary (for example the
+  # provenance verification boundary) override this to classify that
+  # boundary's decision instead.
+  my $classification = $self->classify_response($args{accepted}, $args{message});
+  my $defense        = $self->defense_for($self->expected_role, $classification);
+
+  return ($classification, $defense);
 }
 
 sub perform_abuse {
@@ -359,6 +376,8 @@ deployment's own defenses, never third-party relays.
 =head1 SUBROUTINES/METHODS
 
 =head2 classify_response
+
+=head2 classify_abuse
 
 =head2 defense_for
 

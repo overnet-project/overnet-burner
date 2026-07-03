@@ -74,17 +74,19 @@ Implemented so far:
   bridge-networked container guests, with post-action evidence recorded in
   the run ledger ([docs/chaos.md](docs/chaos.md))
 - abuse simulation: the flooder, malformed publisher, replayer,
-  subscription abuser, sybil, and connection flood adversarial worker
-  roles, judged as an abuse experiment that measures both relay defenses
-  and their blast radius on honest traffic ([docs/abuse.md](docs/abuse.md))
+  subscription abuser, sybil, connection flood, and provenance forger
+  adversarial worker roles, judged as an abuse experiment that measures both
+  relay defenses and their blast radius on honest traffic. The provenance
+  forger measures a consumer-side provenance verification boundary (Overnet
+  core section 7.9) rather than a relay defense, using the
+  `Overnet::Burner::Provenance` reference oracle
+  ([docs/abuse.md](docs/abuse.md))
 
 In progress, in decided order:
 
 - guest provisioning continued: connect/container/virtual for relay
   guests (design in [docs/provisioning.md](docs/provisioning.md) and
   [docs/distributed.md](docs/distributed.md))
-- abuse simulation continued: the provenance forger role (design in
-  [docs/abuse.md](docs/abuse.md))
 
 ## Testing
 

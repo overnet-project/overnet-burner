@@ -664,6 +664,8 @@ topology:
     count: 1
   connection_floods:
     count: 1
+  provenance_forgers:
+    count: 1
 workload:
   publish_rate_per_second: 5
   abuse:
@@ -677,15 +679,19 @@ workload:
       publish_rate_per_second: 30
     connection_flood:
       publish_rate_per_second: 40
+    provenance_forger:
+      publish_rate_per_second: 20
 YAML
   my $config = Overnet::Burner::Config->load_file($valid);
-  is $config->{topology}{flooders}{count},                         2,    'flooder count loads';
-  is $config->{topology}{malformed_publishers}{count},             1,    'malformed publisher count loads';
-  is $config->{topology}{replayers}{count},                        1,    'replayer count loads';
-  is $config->{topology}{subscription_abusers}{count},             1,    'subscription abuser count loads';
-  is $config->{topology}{sybils}{count},                           1,    'sybil count loads';
-  is $config->{topology}{connection_floods}{count},                1,    'connection flood count loads';
-  is $config->{workload}{abuse}{flooder}{publish_rate_per_second}, 5000, 'abuse rates are preserved';
+  is $config->{topology}{flooders}{count},                                   2,    'flooder count loads';
+  is $config->{topology}{malformed_publishers}{count},                       1,    'malformed publisher count loads';
+  is $config->{topology}{replayers}{count},                                  1,    'replayer count loads';
+  is $config->{topology}{subscription_abusers}{count},                       1,    'subscription abuser count loads';
+  is $config->{topology}{sybils}{count},                                     1,    'sybil count loads';
+  is $config->{topology}{connection_floods}{count},                          1,    'connection flood count loads';
+  is $config->{topology}{provenance_forgers}{count},                         1,    'provenance forger count loads';
+  is $config->{workload}{abuse}{flooder}{publish_rate_per_second},           5000, 'abuse rates are preserved';
+  is $config->{workload}{abuse}{provenance_forger}{publish_rate_per_second}, 20, 'provenance forger rate is preserved';
 
   my $default = Overnet::Burner::Config->load_file($scenario_path);
   is $default->{topology}{flooders}{count}, 0, 'abuse roles default to zero';
@@ -727,6 +733,16 @@ YAML
     eval { Overnet::Burner::Config->load_file($path) };
     like $@, $pattern, "$name is rejected";
   }
+};
+
+subtest 'the shipped provenance abuse scenario loads and validates' => sub {
+  my $config = Overnet::Burner::Config->load_file("$repo/scenarios/abuse-provenance.yml");
+  is $config->{topology}{provenance_forgers}{count}, 2, 'the scenario declares provenance forgers';
+  is $config->{workload}{abuse}{provenance_forger}{origin}, 'irc.libera.chat/#overnet',
+    'the forged origin is preserved';
+  is $config->{workload}{abuse}{provenance_forger}{authority_origin}, 'irc.libera.chat',
+    'the authority origin scope is preserved';
+  ok exists $config->{thresholds}{'forge_publish.defended_ratio'}, 'the scenario gates on the forge defense ratio';
 };
 
 subtest 'provision configuration validates' => sub {

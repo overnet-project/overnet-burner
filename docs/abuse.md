@@ -1,13 +1,11 @@
 # overnet-burner Abuse Simulation
 
-**Status: implemented, expanding.** The `flooder`, `malformed_publisher`,
-`replayer`, `subscription_abuser`, `sybil`, and `connection_flood` abuse
-roles, the metric outcome members, the derived defense ratios, and the
-`abuse` experiment verdict are implemented and tested; the
-`provenance_forger` role remains proposed design, named here so scenarios
-and reports stay forward-compatible. This document is the language-neutral
-contract; where it conflicts with a later implemented contract, the
-implemented contract wins.
+**Status: implemented.** The `flooder`, `malformed_publisher`,
+`replayer`, `subscription_abuser`, `sybil`, `connection_flood`, and
+`provenance_forger` abuse roles, the metric outcome members, the derived
+defense ratios, and the `abuse` experiment verdict are implemented and
+tested. This document is the language-neutral contract; where it conflicts
+with a later implemented contract, the implemented contract wins.
 
 Every worker overnet-burner has today is a cooperative, well-behaved
 participant: it sends valid events at a configured rate and measures its own
@@ -96,11 +94,18 @@ is named now and built after.
   connections. It uses no persistent client and tears down every held
   connection at the end of the run; connection *rate* limiting (rapid
   open/drop) is a future variant.
-- **`provenance_forger`** — publishes events asserting forged external
-  mappings or misleading provenance. Especially sharp against the IRC
-  adapter's authoritative mappings; its defense lives in the adapter or
-  program layer rather than the base relay, so its measurement target is
-  still being designed.
+- **`provenance_forger`** — publishes adapted events that claim an external
+  origin the worker is not authoritative for: each event carries adapted
+  provenance for a target origin but is signed by the worker's own identity
+  rather than the adapter identity an authority record binds to that origin.
+  Its defense does not live at the relay. A relay is a dumb carrier and
+  accepts the forged event (Overnet core section 7.7); the forgery is caught
+  at the consumer-side provenance verification boundary (section 7.9). The
+  worker therefore measures the **verification outcome**, not the relay
+  acknowledgement: it verifies each forged event with the reference oracle
+  against the authority record a consumer would hold and records `forged` as
+  the correct defense and `authoritative` as the forgery succeeding. See
+  [Provenance Verification As The Defense Boundary](#provenance-verification-as-the-defense-boundary).
 
 ## The Outcome Model
 
@@ -136,6 +141,54 @@ limiting; a `malformed_publisher` that failed to construct its malformed
 event tested nothing. An abuse operation the worker could not perform as
 designed is an orchestration failure, never a defense result — the same
 rule chaos hooks follow ([chaos.md](chaos.md)).
+
+## Provenance Verification As The Defense Boundary
+
+Every abuse role except `provenance_forger` measures a defense the relay
+performs: the relay rejects, limits, deduplicates, or refuses, and the
+worker classifies that acknowledgement. Provenance forgery has no such
+relay defense, and that is by design. Adapted provenance is self-asserted:
+any identity can sign an event claiming any external origin and external
+identity, and a relay that accepts it validates the Nostr signature and
+structure but not whether the signer is authoritative for the origin
+(Overnet core section 7.7). Making the relay reject forged provenance would
+require it to know which identity is the legitimate adapter for every
+external origin — which would break permissionless publication.
+
+The Overnet core instead defines the defense at a **consumer-side
+verification boundary** (section 7.9). An adapter authority record
+(section 6.15) binds an external origin to the adapter pubkeys authoritative
+for it, and a consumer that trusts that record as an anchor verifies each
+adapted event against it, yielding one of `authoritative`, `forged`,
+`unverified`, or `unresolvable`. A forged event — one signed by a pubkey the
+anchored record does not list — resolves to `forged` and MUST NOT be
+rendered as authoritative external attribution.
+
+The `provenance_forger` role measures that boundary, not the relay:
+
+1. it builds an adapted event for a target origin, signed by its own
+   identity rather than the origin's authoritative adapter identity;
+2. it publishes the event so the run exercises the relay carrying it — the
+   relay accepts it, which is expected and not itself measured;
+3. it verifies the event against the authority record a consumer would hold
+   for that origin, using the reference oracle, and records the verification
+   outcome.
+
+The measured population is the forged events, exactly as `flooder` measures
+floods. The forgery is **defended** when verification does not render it
+authoritative (`forged`, `unverified`, or `unresolvable`) and **defended
+with the correct mechanism** when verification resolves it to `forged` — a
+positive detection given the anchor. Verification resolving a forged event
+to `authoritative` is the forgery succeeding, the defense failure the
+experiment exists to catch. A run that supplies the anchor and still sees
+`unverified` or `unresolvable` is measuring a verifier that failed to apply
+an authority record it was given.
+
+The system under test for this role is therefore a provenance verifier — an
+ordinary Overnet consumer, in any language, that implements the section 7.9
+operation. The Perl `Overnet::Burner::Provenance` module is the reference
+oracle the forger measures against, the same way the other roles are judged
+against the reference relay's behavior.
 
 ## Scenario Configuration
 
@@ -179,15 +232,23 @@ other worker.
 Abuse workers emit `metric-event-v1` events on their assigned stream. Each
 abuse role uses distinct `operation` names (for example `flood_publish`,
 `malformed_publish`, `replay_submit`, `abusive_subscribe`, `sybil_publish`,
-`abusive_connect`) so their
+`abusive_connect`, `forge_publish`) so their
 summaries never mix with honest-worker operations. Beyond the core fields,
 an abuse event carries:
 
 | Member | Type | Description |
 |---|---|---|
-| `outcome` | string | Core outcome category (section 8.6) the relay returned |
+| `outcome` | string | Core outcome category (section 8.6) the relay returned; for `forge_publish` the provenance verification outcome (section 7.9: `authoritative`, `forged`, `unverified`, `unresolvable`) the verification boundary returned |
 | `error_category` | string | Core error category (section 8.7) for a rejection; absent otherwise |
 | `defended` | boolean | Whether this operation was correctly defended |
+
+The `forge_publish` operation records the verification boundary's decision
+rather than a relay acknowledgement: its `status` is `success` because the
+forge-and-verify operation ran and the relay carried the event, and its
+`outcome` is the verification verdict. A forged event resolved to `forged`
+is `defended` and `defended_correct`; `unverified` or `unresolvable` is
+`defended` but not a correct positive detection; `authoritative` is the
+forgery succeeding and is neither.
 
 `status` follows the worker contract: an operation the relay rejected is
 `status: "error"` with the rejection reason, so an abuse operation's
@@ -251,8 +312,12 @@ thresholds have.
   error semantics. A relay that fails silently (accepts and drops, or
   rejects with no category) is recorded as a defense gap, because silence is
   exactly what section 9.6 and section 13.6 forbid.
-- Provenance and sybil roles depend on identity and adapter machinery that
-  the v1 slice does not require; they are deliberately deferred.
+- The `provenance_forger` role measures a consumer-side verifier, not the
+  relay, and depends on the run supplying the authority record the verifier
+  anchors. It does not measure how a verifier discovers or decides to trust
+  an authority record — anchor selection is the consumer's policy (Overnet
+  core section 7.9.1), out of scope for the forger, which supplies the
+  anchor directly.
 
 ## Implementation Order
 
@@ -272,5 +337,9 @@ thresholds have.
 6. ~~`sybil` and `connection_flood`~~ — identity churn (verified against a
    per-connection rate limit) and connection exhaustion (verified against
    the reference relay's `max_connections_per_ip`).
-7. **The remaining role** (proposed) — `provenance_forger`, once its
-   measurement target (adapter or program layer) is designed.
+7. ~~`provenance_forger`~~ — publishes adapted events forging an external
+   origin and measures whether the consumer-side provenance verification
+   boundary (Overnet core section 7.9) resolves them to `forged` rather than
+   `authoritative`, verified end to end against the reference oracle
+   `Overnet::Burner::Provenance` with the reference relay carrying the
+   forgeries.

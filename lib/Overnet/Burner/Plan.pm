@@ -101,11 +101,17 @@ sub build {
     role     => 'connection_flood',
     prefix   => 'connection-flood',
   );
+  my @provenance_forgers = _actors(
+    scenario => $scenario,
+    field    => 'provenance_forgers',
+    role     => 'provenance_forger',
+    prefix   => 'provenance-forger',
+  );
 
   my @actors = (
-    @relays,               @publishers, @subscribers,          @query_readers,
-    @object_readers,       @observers,  @malformed_publishers, @replayers,
-    @subscription_abusers, @sybils,     @connection_floods,    @flooders,
+    @relays,            @publishers,           @subscribers, @query_readers,        @object_readers,
+    @observers,         @malformed_publishers, @replayers,   @subscription_abusers, @sybils,
+    @connection_floods, @flooders,             @provenance_forgers,
   );
   my @phases = _phases($scenario, \@actors);
   my $total  = 0;
@@ -137,6 +143,7 @@ sub build {
     subscription_abusers => \@subscription_abusers,
     sybils               => \@sybils,
     connection_floods    => \@connection_floods,
+    provenance_forgers   => \@provenance_forgers,
     workload             => {
       phases => \@phases,
     },

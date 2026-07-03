@@ -30,6 +30,7 @@ lib/Overnet/Burner/Guest/Virtual.pm
 lib/Overnet/Burner/Hardware.pm
 lib/Overnet/Burner/Metrics.pm
 lib/Overnet/Burner/Plan.pm
+lib/Overnet/Burner/Provenance.pm
 lib/Overnet/Burner/Report.pm
 lib/Overnet/Burner/RexBundle.pm
 lib/Overnet/Burner/RunLedger.pm
@@ -47,6 +48,7 @@ lib/Overnet/Burner/Worker/Flooder.pm
 lib/Overnet/Burner/Worker/MalformedPublisher.pm
 lib/Overnet/Burner/Worker/Observer.pm
 lib/Overnet/Burner/Worker/ObjectReader.pm
+lib/Overnet/Burner/Worker/ProvenanceForger.pm
 lib/Overnet/Burner/Worker/Publisher.pm
 lib/Overnet/Burner/Worker/QueryReader.pm
 lib/Overnet/Burner/Worker/Replayer.pm
@@ -59,6 +61,7 @@ MANIFEST			This list of files
 MANIFEST.SKIP
 README.md
 scenarios/abuse-flood.yml
+scenarios/abuse-provenance.yml
 scenarios/single-relay-baseline.yml
 schemas/metric-event-v1.schema.json
 schemas/report-v1.schema.json
@@ -77,6 +80,7 @@ t/makemaker-metadata.t
 t/manifest-skip-policy.t
 t/metrics.t
 t/plan.t
+t/provenance.t
 t/report-contract.t
 t/report-generation.t
 t/rex-bundle.t

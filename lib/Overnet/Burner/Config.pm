@@ -79,7 +79,8 @@ sub _normalize_topology {
   $copy->{topology} ||= {};
   for my $role (
     qw(publishers subscribers query_readers object_readers observers
-    flooders malformed_publishers replayers subscription_abusers sybils connection_floods)
+    flooders malformed_publishers replayers subscription_abusers sybils connection_floods
+    provenance_forgers)
   ) {
     $copy->{topology}{$role} ||= {};
     if (!exists $copy->{topology}{$role}{count}) {
@@ -139,6 +140,7 @@ sub validate {
     topology.subscription_abusers.count
     topology.sybils.count
     topology.connection_floods.count
+    topology.provenance_forgers.count
     )
   ) {
     _require_nonnegative_integer($config, $path);
@@ -169,13 +171,14 @@ sub _validate_abuse_workload {
   my ($config) = @_;
 
   my $abuse = _require_hash($config, 'workload.abuse');
-  my %known =
-    map { $_ => 1 } qw(flooder malformed_publisher replayer subscription_abuser sybil connection_flood);
+  my %known = map { $_ => 1 }
+    qw(flooder malformed_publisher replayer subscription_abuser sybil connection_flood provenance_forger);
 
   for my $role (sort keys %{$abuse}) {
     if (!$known{$role}) {
       croak "workload.abuse.$role is not a known abuse role"
-        . " (flooder, malformed_publisher, replayer, subscription_abuser, sybil, connection_flood)\n";
+        . " (flooder, malformed_publisher, replayer, subscription_abuser, sybil, connection_flood,"
+        . " provenance_forger)\n";
     }
     _require_mapping_ref($abuse->{$role}, "workload.abuse.$role");
     if (exists $abuse->{$role}{publish_rate_per_second}) {

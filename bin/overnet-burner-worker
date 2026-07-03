@@ -21,6 +21,7 @@ my %ROLE_CLASS = (
   subscription_abuser => 'Overnet::Burner::Worker::SubscriptionAbuser',
   sybil               => 'Overnet::Burner::Worker::Sybil',
   connection_flood    => 'Overnet::Burner::Worker::ConnectionFlood',
+  provenance_forger   => 'Overnet::Burner::Worker::ProvenanceForger',
 );
 
 if (!caller) {

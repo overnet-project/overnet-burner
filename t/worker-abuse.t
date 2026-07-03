@@ -16,6 +16,7 @@ use Overnet::Burner::Metrics;
 use Overnet::Burner::Worker::ConnectionFlood;
 use Overnet::Burner::Worker::Flooder;
 use Overnet::Burner::Worker::MalformedPublisher;
+use Overnet::Burner::Worker::ProvenanceForger;
 use Overnet::Burner::Worker::Replayer;
 use Overnet::Burner::Worker::SubscriptionAbuser;
 use Overnet::Burner::Worker::Sybil;
@@ -231,6 +232,43 @@ subtest 'connection_flood measures the connection bound honestly' => sub {
   my ($refused) = grep { $_->{defended} } @{$events};
   is $refused->{outcome}, 'rejected', 'a refused connection is a rejection';
   is $refused->{status},  'error',    'a refused connection is an error status';
+};
+
+subtest 'provenance_forger catches forged provenance at the verification boundary' => sub {
+  my $port  = _free_port();
+  my $relay = Net::Nostr::Relay->new;
+  $relay->start('127.0.0.1', $port);
+
+  my $run_dir = _run_layout('provenance-forger-001');
+  my $input   = _worker_input(
+    $run_dir, $port,
+    worker_id        => 'provenance-forger-001',
+    role             => 'provenance_forger',
+    abuse            => {provenance_forger => {publish_rate_per_second => 20}},
+    duration_seconds => 2,
+  );
+
+  Overnet::Burner::Worker::ProvenanceForger->new(input => $input)->run;
+
+  my $events = _events($run_dir, 'provenance-forger-001');
+  ok @{$events} >= 1, 'the forger produced attempts' or diag(scalar @{$events});
+
+  my @operations = grep { $_->{operation} ne 'forge_publish' } @{$events};
+  is \@operations, [], 'every event is a forge_publish operation';
+
+  # The relay is a dumb carrier and accepts the forgery; the defense is the
+  # verification boundary resolving it to forged, not a relay rejection.
+  my @not_forged = grep { $_->{outcome} ne 'forged' } @{$events};
+  is \@not_forged, [], 'the verification boundary resolves every forgery to forged';
+
+  my @undefended = grep { !$_->{defended} } @{$events};
+  is \@undefended, [], 'a forgery caught as forged is a defense';
+
+  my @incorrect = grep { $_->{defended} && !$_->{defended_correct} } @{$events};
+  is \@incorrect, [], 'catching the forgery as forged is the correct defense';
+
+  my ($sample) = @{$events};
+  is $sample->{status}, 'success', 'the forge operation completed against the carrying relay';
 };
 
 done_testing;
