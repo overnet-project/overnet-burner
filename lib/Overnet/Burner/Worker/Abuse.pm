@@ -13,6 +13,7 @@ use Time::HiRes qw(sleep time);
 
 our $VERSION = '0.001';
 
+my $JSON            = JSON->new->utf8->canonical;
 my $PUBLISH_TIMEOUT = 5;
 
 my %REJECTED_CATEGORY = (
@@ -25,10 +26,56 @@ my %REJECTED_CATEGORY = (
   error           => 'internal failure',
 );
 
+# Per-role defense model: category is the error category a correct defense
+# must use (undef when refusing is itself the correct mechanism);
+# duplicate_is_defended lets the replayer treat an explicit duplicate accept
+# as a defense. Identity churn (sybil) does not change the flooder's model.
+my %DEFENSE_MODEL = (
+  flooder             => {category => 'policy rejection'},
+  malformed_publisher => {category => 'invalid input'},
+  sybil               => {category => 'policy rejection'},
+  replayer            => {category => undef, duplicate_is_defended => 1},
+  subscription_abuser => {category => undef},
+  connection_flood    => {category => undef},
+);
+
 no Moo;
 
 sub abuse_operation {
   croak "abuse worker classes must define abuse_operation\n";
+}
+
+sub wants_persistent_client {
+  return 1;
+}
+
+sub teardown_abuse {
+  return 1;
+}
+
+sub native_event {
+  my ($self, $key, $sequence, $text) = @_;
+
+  my $input = $self->input;
+
+  return $key->create_event(
+    kind    => 7800,
+    content => $JSON->encode(
+      {
+        provenance => {type => 'native'},
+        body       => {text => $text, sequence => $sequence, sent_at => time * 1000},
+      }
+    ),
+    tags => [
+      ['overnet_v',   '0.1.0'],
+      ['overnet_et',  'burner.publish'],
+      ['overnet_ot',  'burner.workload'],
+      ['overnet_oid', "burner-$input->{run_id}-$input->{worker_id}"],
+      ['v',           '0.1.0'],
+      ['t',           'burner.publish'],
+      ['o',           'burner.workload'],
+    ],
+  );
 }
 
 sub register_response_handlers {
@@ -84,32 +131,24 @@ sub classify_response {
 sub defense_for {
   my ($class, $role, $classification) = @_;
 
+  if (!exists $DEFENSE_MODEL{$role}) {
+    croak "no defense model for abuse role $role\n";
+  }
+  my $model = $DEFENSE_MODEL{$role};
+
+  # A publish/subscription/connection the relay refused is defended; a
+  # replay is also defended when the relay recognized it as a duplicate. The
+  # defense is *correct* when the role's required category is met, or
+  # unconditionally when refusing is itself the correct mechanism (replays,
+  # subscriptions, connections).
   my $accepted = $classification->{outcome} eq 'accepted';
-  my $category = $classification->{error_category};
+  my $defended = !$accepted || ($model->{duplicate_is_defended} && $classification->{duplicate});
+  my $correct =
+      !$defended                  ? 0
+    : !defined $model->{category} ? 1
+    :   (defined $classification->{error_category} && $classification->{error_category} eq $model->{category});
 
-  if ($role eq 'flooder') {
-    my $defended = !$accepted;
-    my $correct  = $defended && defined $category && $category eq 'policy rejection';
-    return {defended => $defended ? 1 : 0, defended_correct => $correct ? 1 : 0};
-  }
-  if ($role eq 'malformed_publisher') {
-    my $defended = !$accepted;
-    my $correct  = $defended && defined $category && $category eq 'invalid input';
-    return {defended => $defended ? 1 : 0, defended_correct => $correct ? 1 : 0};
-  }
-  if ($role eq 'replayer') {
-    my $defended = !$accepted || $classification->{duplicate};
-    return {defended => $defended ? 1 : 0, defended_correct => $defended ? 1 : 0};
-  }
-  if ($role eq 'subscription_abuser') {
-
-    # The correct defense against subscription-count abuse is refusing the
-    # excess subscription (a CLOSED), so any refusal is a correct defense.
-    my $defended = !$accepted;
-    return {defended => $defended ? 1 : 0, defended_correct => $defended ? 1 : 0};
-  }
-
-  croak "no defense model for abuse role $role\n";
+  return {defended => $defended ? 1 : 0, defended_correct => $correct ? 1 : 0};
 }
 
 sub run {
@@ -121,9 +160,12 @@ sub run {
   $self->open_metric_stream;
 
   my %pending;
-  my $client = Net::Nostr::Client->new;
-  $self->register_response_handlers($client, \%pending);
-  $client->connect($input->{endpoints}{relays}[0]);
+  my $client;
+  if ($self->wants_persistent_client) {
+    $client = Net::Nostr::Client->new;
+    $self->register_response_handlers($client, \%pending);
+    $client->connect($input->{endpoints}{relays}[0]);
+  }
 
   $self->write_ready_file;
 
@@ -146,7 +188,10 @@ sub run {
     );
   }
 
-  $client->disconnect;
+  $self->teardown_abuse;
+  if ($client) {
+    $client->disconnect;
+  }
   $self->close_metric_stream;
 
   return;
@@ -318,6 +363,12 @@ deployment's own defenses, never third-party relays.
 =head2 defense_for
 
 =head2 register_response_handlers
+
+=head2 wants_persistent_client
+
+=head2 teardown_abuse
+
+=head2 native_event
 
 =head2 abuse_operation
 

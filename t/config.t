@@ -660,6 +660,10 @@ topology:
     count: 1
   subscription_abusers:
     count: 1
+  sybils:
+    count: 1
+  connection_floods:
+    count: 1
 workload:
   publish_rate_per_second: 5
   abuse:
@@ -669,12 +673,18 @@ workload:
       publish_rate_per_second: 10
     subscription_abuser:
       publish_rate_per_second: 40
+    sybil:
+      publish_rate_per_second: 30
+    connection_flood:
+      publish_rate_per_second: 40
 YAML
   my $config = Overnet::Burner::Config->load_file($valid);
   is $config->{topology}{flooders}{count},                         2,    'flooder count loads';
   is $config->{topology}{malformed_publishers}{count},             1,    'malformed publisher count loads';
   is $config->{topology}{replayers}{count},                        1,    'replayer count loads';
   is $config->{topology}{subscription_abusers}{count},             1,    'subscription abuser count loads';
+  is $config->{topology}{sybils}{count},                           1,    'sybil count loads';
+  is $config->{topology}{connection_floods}{count},                1,    'connection flood count loads';
   is $config->{workload}{abuse}{flooder}{publish_rate_per_second}, 5000, 'abuse rates are preserved';
 
   my $default = Overnet::Burner::Config->load_file($scenario_path);

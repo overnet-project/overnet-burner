@@ -97,8 +97,9 @@ these well-known names:
   connection to the stored-result boundary of an empty subscription; one
   event per probed relay endpoint, carrying `relay_url`
 - `flood_publish`, `malformed_publish`, `replay_submit`,
-  `abusive_subscribe` — abuse operations emitted by adversarial workers,
-  carrying the abuse members below; see [abuse.md](abuse.md)
+  `abusive_subscribe`, `sybil_publish`, `abusive_connect` — abuse
+  operations emitted by adversarial workers, carrying the abuse members
+  below; see [abuse.md](abuse.md)
 
 New operation names are compatible additions; they appear in summaries
 automatically.

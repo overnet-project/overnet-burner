@@ -170,6 +170,8 @@ $abuse->{topology}{flooders}{count}             = 2;
 $abuse->{topology}{malformed_publishers}{count} = 1;
 $abuse->{topology}{replayers}{count}            = 1;
 $abuse->{topology}{subscription_abusers}{count} = 1;
+$abuse->{topology}{sybils}{count}               = 1;
+$abuse->{topology}{connection_floods}{count}    = 1;
 $abuse->{workload}{abuse}                       = {flooder => {publish_rate_per_second => 5000}};
 my $abuse_plan = Overnet::Burner::Plan->build($abuse);
 
@@ -179,6 +181,9 @@ is [map { $_->{id} } @{$abuse_plan->{malformed_publishers}}], ['malformed-publis
 is [map { $_->{id} } @{$abuse_plan->{replayers}}], ['replayer-001'], 'plan expands replayer actors';
 is [map { $_->{id} } @{$abuse_plan->{subscription_abusers}}], ['subscription-abuser-001'],
   'plan expands subscription abuser actors';
+is [map { $_->{id} } @{$abuse_plan->{sybils}}], ['sybil-001'], 'plan expands sybil actors';
+is [map { $_->{id} } @{$abuse_plan->{connection_floods}}], ['connection-flood-001'],
+  'plan expands connection flood actors';
 is $abuse_plan->{flooders}[0]{role},          'flooder',                   'abuse actors carry their role';
 is $abuse_plan->{flooders}[0]{metric_stream}, 'metrics/flooder-001.jsonl', 'abuse actors record a metric stream';
 

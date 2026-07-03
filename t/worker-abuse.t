@@ -13,10 +13,12 @@ use Time::HiRes qw(time);
 use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Metrics;
+use Overnet::Burner::Worker::ConnectionFlood;
 use Overnet::Burner::Worker::Flooder;
 use Overnet::Burner::Worker::MalformedPublisher;
 use Overnet::Burner::Worker::Replayer;
 use Overnet::Burner::Worker::SubscriptionAbuser;
+use Overnet::Burner::Worker::Sybil;
 
 subtest 'flooder measures rate limiting honestly' => sub {
   my $port  = _free_port();
@@ -150,6 +152,85 @@ subtest 'subscription_abuser measures subscription bounding honestly' => sub {
   is $refused->{outcome}, 'rejected', 'a refused subscription is a rejection';
   is $refused->{status},  'error',    'a refused subscription is an error status';
   like $refused->{error}, qr/subscriptions/mx, 'the refusal reason names the subscription bound';
+};
+
+subtest 'sybil churns identities and is bounded by a per-connection limit' => sub {
+  my $port  = _free_port();
+  my $relay = Net::Nostr::Relay->new(event_rate_limit => '3/60');
+  $relay->start('127.0.0.1', $port);
+
+  my $run_dir = _run_layout('sybil-001');
+  my $input   = _worker_input(
+    $run_dir, $port,
+    worker_id        => 'sybil-001',
+    role             => 'sybil',
+    abuse            => {sybil => {publish_rate_per_second => 50}},
+    duration_seconds => 1,
+  );
+
+  Overnet::Burner::Worker::Sybil->new(input => $input)->run;
+
+  my $events = _events($run_dir, 'sybil-001');
+  ok @{$events} >= 4, 'the sybil made many attempts' or diag(scalar @{$events});
+
+  my @operations = grep { $_->{operation} ne 'sybil_publish' } @{$events};
+  is \@operations, [], 'every event is a sybil_publish operation';
+
+  my @defended = grep { $_->{defended} } @{$events};
+  ok @defended >= 1, 'a per-connection rate limit is not evaded by identity churn';
+  my @incorrect = grep { $_->{defended} && !$_->{defended_correct} } @{$events};
+  is \@incorrect, [], 'the rate limit is the correct defense';
+};
+
+subtest 'sybil derives a distinct identity for every event' => sub {
+  my $run_dir = _run_layout('sybil-002');
+  my $worker  = Overnet::Burner::Worker::Sybil->new(
+    input => _worker_input(
+      $run_dir, 59999,
+      worker_id        => 'sybil-002',
+      role             => 'sybil',
+      abuse            => {sybil => {publish_rate_per_second => 1}},
+      duration_seconds => 1,
+    )
+  );
+
+  my %pubkeys = map { $worker->build_event(undef, $_)->pubkey => 1 } 1 .. 5;
+  is scalar keys %pubkeys, 5, 'five events carry five distinct identities';
+};
+
+subtest 'connection_flood measures the connection bound honestly' => sub {
+  my $port  = _free_port();
+  my $relay = Net::Nostr::Relay->new(max_connections_per_ip => 3);
+  $relay->start('127.0.0.1', $port);
+
+  my $run_dir = _run_layout('connection-flood-001');
+  my $input   = _worker_input(
+    $run_dir, $port,
+    worker_id        => 'connection-flood-001',
+    role             => 'connection_flood',
+    abuse            => {connection_flood => {publish_rate_per_second => 40}},
+    duration_seconds => 1,
+  );
+
+  Overnet::Burner::Worker::ConnectionFlood->new(input => $input)->run;
+
+  my $events = _events($run_dir, 'connection-flood-001');
+  ok @{$events} >= 4, 'the connection flood made many attempts' or diag(scalar @{$events});
+
+  my @operations = grep { $_->{operation} ne 'abusive_connect' } @{$events};
+  is \@operations, [], 'every event is an abusive_connect operation';
+
+  my @opened  = grep { !$_->{defended} } @{$events};
+  my @refused = grep { $_->{defended} } @{$events};
+  ok @opened >= 1,  'connections under the limit opened (a defense gap)';
+  ok @refused >= 1, 'connections above the limit were refused';
+
+  my @incorrect = grep { $_->{defended} && !$_->{defended_correct} } @{$events};
+  is \@incorrect, [], 'refusing an excess connection is the correct mechanism';
+
+  my ($refused) = grep { $_->{defended} } @{$events};
+  is $refused->{outcome}, 'rejected', 'a refused connection is a rejection';
+  is $refused->{status},  'error',    'a refused connection is an error status';
 };
 
 done_testing;

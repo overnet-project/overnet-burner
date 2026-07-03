@@ -42,6 +42,7 @@ lib/Overnet/Burner/TopologyProvider.pm
 lib/Overnet/Burner/Util.pm
 lib/Overnet/Burner/Worker.pm
 lib/Overnet/Burner/Worker/Abuse.pm
+lib/Overnet/Burner/Worker/ConnectionFlood.pm
 lib/Overnet/Burner/Worker/Flooder.pm
 lib/Overnet/Burner/Worker/MalformedPublisher.pm
 lib/Overnet/Burner/Worker/Observer.pm
@@ -51,6 +52,7 @@ lib/Overnet/Burner/Worker/QueryReader.pm
 lib/Overnet/Burner/Worker/Replayer.pm
 lib/Overnet/Burner/Worker/Subscriber.pm
 lib/Overnet/Burner/Worker/SubscriptionAbuser.pm
+lib/Overnet/Burner/Worker/Sybil.pm
 LICENSE
 Makefile.PL
 MANIFEST			This list of files

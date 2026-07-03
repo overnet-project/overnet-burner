@@ -19,6 +19,8 @@ my %ROLE_CLASS = (
   malformed_publisher => 'Overnet::Burner::Worker::MalformedPublisher',
   replayer            => 'Overnet::Burner::Worker::Replayer',
   subscription_abuser => 'Overnet::Burner::Worker::SubscriptionAbuser',
+  sybil               => 'Overnet::Burner::Worker::Sybil',
+  connection_flood    => 'Overnet::Burner::Worker::ConnectionFlood',
 );
 
 if (!caller) {

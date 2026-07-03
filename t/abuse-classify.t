@@ -103,6 +103,32 @@ subtest 'subscription_abuser defends when the relay refuses the subscription' =>
   ok !$opened->{defended}, 'an opened subscription is a defense failure';
 };
 
+subtest 'sybil defends like a flooder regardless of identity churn' => sub {
+  my $role = 'sybil';
+
+  my $limited = $class->defense_for($role, $class->classify_response(0, 'rate-limited: slow down'));
+  ok $limited->{defended},         'a rate-limited sybil publish is defended';
+  ok $limited->{defended_correct}, 'a per-connection rate limit is the correct defense, unevaded by churn';
+
+  my $accepted = $class->defense_for($role, $class->classify_response(1, q{}));
+  ok !$accepted->{defended}, 'an accepted churned identity is a defense failure';
+
+  my $invalid = $class->defense_for($role, $class->classify_response(0, 'invalid: bad'));
+  ok $invalid->{defended},          'any rejection stops the sybil publish';
+  ok !$invalid->{defended_correct}, 'rejecting a valid publish as invalid is the wrong defense';
+};
+
+subtest 'connection_flood defends when the relay refuses the connection' => sub {
+  my $role = 'connection_flood';
+
+  my $refused = $class->defense_for($role, $class->classify_response(0, 'blocked: connection refused'));
+  ok $refused->{defended},         'a refused connection is defended';
+  ok $refused->{defended_correct}, 'refusing an excess connection is the correct mechanism';
+
+  my $opened = $class->defense_for($role, $class->classify_response(1, q{}));
+  ok !$opened->{defended}, 'an opened connection is a defense failure';
+};
+
 subtest 'status follows relay acceptance' => sub {
   is $class->classify_response(1, q{})->{status},                  'success', 'an accepted operation is success';
   is $class->classify_response(0, 'invalid: bad')->{status},       'error',   'a rejected operation is error';

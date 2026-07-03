@@ -1,11 +1,11 @@
 # overnet-burner Abuse Simulation
 
 **Status: implemented, expanding.** The `flooder`, `malformed_publisher`,
-`replayer`, and `subscription_abuser` abuse roles, the metric outcome
-members, the derived defense ratios, and the `abuse` experiment verdict are
-implemented and tested; the `sybil`, `provenance_forger`, and
-`connection_flood` roles remain proposed design, named here so scenarios and
-reports stay forward-compatible. This document is the language-neutral
+`replayer`, `subscription_abuser`, `sybil`, and `connection_flood` abuse
+roles, the metric outcome members, the derived defense ratios, and the
+`abuse` experiment verdict are implemented and tested; the
+`provenance_forger` role remains proposed design, named here so scenarios
+and reports stay forward-compatible. This document is the language-neutral
 contract; where it conflicts with a later implemented contract, the
 implemented contract wins.
 
@@ -68,11 +68,11 @@ capability exposure.
 
 Each abuse role is a worker role in the plan (topology and workload), placed
 onto guests and launched exactly like an honest worker. The implemented
-roles are `flooder`, `malformed_publisher`, `replayer`, and
-`subscription_abuser`: together they exercise rate limiting, input
-validation, idempotency, and subscription bounding, and none of them needs
-forged-identity machinery. The remaining roles are named now and built
-after.
+roles are `flooder`, `malformed_publisher`, `replayer`,
+`subscription_abuser`, `sybil`, and `connection_flood`: together they
+exercise rate limiting, input validation, idempotency, subscription
+bounding, per-identity limits, and connection bounding. The remaining role
+is named now and built after.
 
 - **`flooder`** — publishes structurally valid events far above any
   plausible rate limit. Measures the fraction the relay throttled or
@@ -86,14 +86,21 @@ after.
   distinct accepted event (section 8.8).
 - **`subscription_abuser`** — opens many concurrent or deliberately
   expensive subscriptions. Measures whether the relay bounds them.
-- **`sybil`** — drives many low-rate identities. Measures whether
-  per-identity limits are evadable by identity churn.
+- **`sybil`** — publishes from a fresh identity per event. Its per-event
+  defense model is the flooder's; whether identity churn *evades* a limit
+  is read comparatively, from the sybil worker's defended ratio against a
+  flooder's under the same relay (a per-connection or per-IP limit resists
+  churn, a per-identity limit does not).
+- **`connection_flood`** — opens WebSocket connections and holds them open
+  so they accumulate, measuring whether the relay bounds concurrent
+  connections. It uses no persistent client and tears down every held
+  connection at the end of the run; connection *rate* limiting (rapid
+  open/drop) is a future variant.
 - **`provenance_forger`** — publishes events asserting forged external
   mappings or misleading provenance. Especially sharp against the IRC
-  adapter's authoritative mappings.
-- **`connection_flood`** — opens and drops connections rapidly. This is a
-  transport-level concern closer to chaos than to the worker workload, and
-  may be expressed as a scheduled action rather than a worker.
+  adapter's authoritative mappings; its defense lives in the adapter or
+  program layer rather than the base relay, so its measurement target is
+  still being designed.
 
 ## The Outcome Model
 
@@ -171,7 +178,8 @@ other worker.
 
 Abuse workers emit `metric-event-v1` events on their assigned stream. Each
 abuse role uses distinct `operation` names (for example `flood_publish`,
-`malformed_publish`, `replay_submit`, `abusive_subscribe`) so their
+`malformed_publish`, `replay_submit`, `abusive_subscribe`, `sybil_publish`,
+`abusive_connect`) so their
 summaries never mix with honest-worker operations. Beyond the core fields,
 an abuse event carries:
 
@@ -261,5 +269,8 @@ thresholds have.
 5. ~~`subscription_abuser`~~ — opens accumulating subscriptions and measures
    whether the relay bounds them, verified end to end against the reference
    relay's `max_subscriptions`.
-6. **The remaining roles** (proposed) — `sybil`, `provenance_forger`, and
-   scheduled `connection_flood`.
+6. ~~`sybil` and `connection_flood`~~ — identity churn (verified against a
+   per-connection rate limit) and connection exhaustion (verified against
+   the reference relay's `max_connections_per_ip`).
+7. **The remaining role** (proposed) — `provenance_forger`, once its
+   measurement target (adapter or program layer) is designed.

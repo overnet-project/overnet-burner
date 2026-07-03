@@ -5,12 +5,7 @@ use Moo;
 
 extends 'Overnet::Burner::Worker::Abuse';
 
-use JSON        ();
-use Time::HiRes qw(time);
-
 our $VERSION = '0.001';
-
-my $JSON = JSON->new->utf8->canonical;
 
 no Moo;
 
@@ -29,24 +24,7 @@ sub default_rate {
 sub build_event {
   my ($self, $key, $sequence) = @_;
 
-  return $key->create_event(
-    kind    => 7800,
-    content => $JSON->encode(
-      {
-        provenance => {type => 'native'},
-        body       => {text => "overnet-burner flood $sequence", sequence => $sequence, sent_at => time * 1000},
-      }
-    ),
-    tags => [
-      ['overnet_v',   '0.1.0'],
-      ['overnet_et',  'burner.publish'],
-      ['overnet_ot',  'burner.workload'],
-      ['overnet_oid', "burner-$self->{input}{run_id}-$self->{input}{worker_id}"],
-      ['v',           '0.1.0'],
-      ['t',           'burner.publish'],
-      ['o',           'burner.workload'],
-    ],
-  );
+  return $self->native_event($key, $sequence, "overnet-burner flood $sequence");
 }
 
 1;
