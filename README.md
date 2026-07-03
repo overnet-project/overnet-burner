@@ -61,12 +61,13 @@ Implemented so far:
 - the rex-local-workers runner: end-to-end local runs with real workers
 - scheduled chaos hooks executed through topology provider lifecycle
   commands, judged as chaos experiments in the report
+- workload phases (warmup / main / cooldown, thresholds judged on the main
+  phase only)
+- the observer reference worker (relay-side black-box evidence via
+  relay_ping probes of every endpoint)
 
 In progress, in decided order:
 
-- workload phases (warmup / main / cooldown, thresholds judged on the main
-  phase only)
-- the observer reference worker (relay-side black-box evidence)
 - guest provisioning: local, connect, container (Docker and podman), and
   virtual (design proposals in [docs/provisioning.md](docs/provisioning.md)
   and [docs/distributed.md](docs/distributed.md))

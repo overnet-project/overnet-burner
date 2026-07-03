@@ -80,6 +80,7 @@ is $hosts,
   groups => {
     all            => ['host-001'],
     object_readers => ['host-001'],
+    observers      => [],
     publishers     => ['host-001'],
     query_readers  => ['host-001'],
     relays         => ['host-001'],

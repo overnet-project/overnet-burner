@@ -247,6 +247,7 @@ trip on a single clock:
 | `subscriber` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Subscriber` |
 | `query_reader` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::QueryReader` |
 | `object_reader` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::ObjectReader` |
+| `observer` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Observer` |
 
 The reference publisher derives a stable Nostr identity from
 `seed`/`worker_id`, publishes valid native Overnet events (kind 7800 with the
@@ -272,3 +273,13 @@ against the first relay endpoint's derived origin at
 event per request under the object read convention above. It requires a
 relay that implements the Overnet derived-object read endpoint; a plain
 Nostr relay does not provide one.
+
+The reference observer is the relay-side black-box evidence producer
+(`topology.observers.count`): every
+`workload.observer.probe_interval_seconds` (default `1`) it probes **every**
+relay endpoint of the run — not just its assigned one — with a fresh
+connection and an empty subscription, emitting one `relay_ping` metric
+event per endpoint per tick. An unreachable relay is an error metric, never
+an observer failure: watching relays die is the observer's job, so it
+declares readiness immediately and probes through every phase, tagging each
+event with the phase it ran in.

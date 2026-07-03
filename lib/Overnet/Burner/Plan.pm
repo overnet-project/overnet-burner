@@ -59,8 +59,14 @@ sub build {
     role     => 'object_reader',
     prefix   => 'object-reader',
   );
+  my @observers = _actors(
+    scenario => $scenario,
+    field    => 'observers',
+    role     => 'observer',
+    prefix   => 'observer',
+  );
 
-  my @actors = (@relays, @publishers, @subscribers, @query_readers, @object_readers,);
+  my @actors = (@relays, @publishers, @subscribers, @query_readers, @object_readers, @observers,);
   my @phases = _phases($scenario, \@actors);
   my $total  = 0;
   for my $phase (@phases) {
@@ -84,6 +90,7 @@ sub build {
     subscribers       => \@subscribers,
     query_readers     => \@query_readers,
     object_readers    => \@object_readers,
+    observers         => \@observers,
     workload          => {
       phases => \@phases,
     },
@@ -163,6 +170,7 @@ sub _phases {
       subscription_filters    => _clone($scenario->{workload}{subscription_filters}),
       query_filters           => _clone($scenario->{workload}{query_filters}),
       object_reads            => $object_reads,
+      observer                => _clone($scenario->{workload}{observer} || {}),
       actor_seeds             => \%actor_seeds,
       };
     $start += $duration;

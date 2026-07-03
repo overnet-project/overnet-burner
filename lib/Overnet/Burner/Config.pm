@@ -52,8 +52,9 @@ sub normalize {
   $copy->{topology}{subscribers}    ||= {};
   $copy->{topology}{query_readers}  ||= {};
   $copy->{topology}{object_readers} ||= {};
+  $copy->{topology}{observers}      ||= {};
 
-  for my $role (qw(publishers subscribers query_readers object_readers)) {
+  for my $role (qw(publishers subscribers query_readers object_readers observers)) {
     if (!exists $copy->{topology}{$role}{count}) {
       $copy->{topology}{$role}{count} = 0;
     }
@@ -69,6 +70,10 @@ sub normalize {
   }
   if (!exists $copy->{workload}{object_reads}{rate_per_second}) {
     $copy->{workload}{object_reads}{rate_per_second} = 1;
+  }
+  $copy->{workload}{observer} ||= {};
+  if (!exists $copy->{workload}{observer}{probe_interval_seconds}) {
+    $copy->{workload}{observer}{probe_interval_seconds} = 1;
   }
   $copy->{chaos}      ||= [];
   $copy->{thresholds} ||= {};
@@ -95,10 +100,13 @@ sub validate {
     topology.subscribers.count
     topology.query_readers.count
     topology.object_readers.count
+    topology.observers.count
     )
   ) {
     _require_nonnegative_integer($config, $path);
   }
+  _require_hash($config, 'workload.observer');
+  _require_positive_number($config, 'workload.observer.probe_interval_seconds');
 
   _require_array($config, 'workload.subscription_filters');
   _require_array($config, 'workload.query_filters');
@@ -324,6 +332,15 @@ sub _require_nonnegative_integer {
   my $value = _require_integer($config, $path);
   if (!($value >= 0)) {
     croak "invalid field: $path must be non-negative\n";
+  }
+  return $value;
+}
+
+sub _require_positive_number {
+  my ($config, $path) = @_;
+  my $value = _require_nonnegative_number($config, $path);
+  if (!($value > 0)) {
+    croak "invalid field: $path must be positive\n";
   }
   return $value;
 }

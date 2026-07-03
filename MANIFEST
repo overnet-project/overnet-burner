@@ -31,6 +31,7 @@ lib/Overnet/Burner/Runner/RexLocalWorkers.pm
 lib/Overnet/Burner/TopologyProvider.pm
 lib/Overnet/Burner/Util.pm
 lib/Overnet/Burner/Worker.pm
+lib/Overnet/Burner/Worker/Observer.pm
 lib/Overnet/Burner/Worker/ObjectReader.pm
 lib/Overnet/Burner/Worker/Publisher.pm
 lib/Overnet/Burner/Worker/QueryReader.pm
@@ -61,6 +62,7 @@ t/runner-rex-local-workers.t
 t/runner-rex-local.t
 t/topology-provider-external-command.t
 t/worker-object-reader.t
+t/worker-observer.t
 t/worker-publisher.t
 t/worker-query-reader.t
 t/worker-subscriber.t

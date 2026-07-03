@@ -93,6 +93,9 @@ these well-known names:
 - `object_read` — derived object read; `duration_ms` follows the object
   read convention in [workers.md](workers.md)
 - `sync_round` — one negentropy reconciliation round
+- `relay_ping` — relay liveness round trip measured from opening a fresh
+  connection to the stored-result boundary of an empty subscription; one
+  event per probed relay endpoint, carrying `relay_url`
 
 New operation names are compatible additions; they appear in summaries
 automatically.

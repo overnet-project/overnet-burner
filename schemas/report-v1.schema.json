@@ -544,6 +544,9 @@
         "object_readers": {
           "$ref": "#/$defs/non_negative_integer"
         },
+        "observers": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
         "total": {
           "$ref": "#/$defs/non_negative_integer"
         }

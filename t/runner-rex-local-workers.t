@@ -33,6 +33,7 @@ my $scenario = _write_scenario(
   subscribers    => 1,
   query_readers  => 1,
   object_readers => 1,
+  observers      => 1,
 );
 
 subtest 'workers runner launches contract workers and collects streams' => sub {
@@ -67,7 +68,7 @@ subtest 'workers runner launches contract workers and collects streams' => sub {
   is $stream->[0]{worker_id}, 'publisher-001', 'metric event names the worker';
 
   my $aggregated = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics.jsonl'));
-  is scalar @{$aggregated}, 4, 'collect concatenated every worker stream into metrics.jsonl';
+  is scalar @{$aggregated}, 5, 'collect concatenated every worker stream into metrics.jsonl';
 
   ok -f File::Spec->catfile($run_dir, 'logs', 'workers', 'publisher-001.stdout'), 'worker stdout is captured';
 
@@ -75,13 +76,13 @@ subtest 'workers runner launches contract workers and collects streams' => sub {
   my %by_status;
   push @{$by_status{$_->{status}}}, $_ for @events;
   is [map { $_->{actor_id} } @{$by_status{launched}}],
-    ['subscriber-001', 'query-reader-001', 'object-reader-001', 'publisher-001'],
-    'runner launched subscribers and readers before publishers';
+    ['subscriber-001', 'query-reader-001', 'object-reader-001', 'observer-001', 'publisher-001'],
+    'runner launched subscribers, readers, and observers before publishers';
   is [map { $_->{actor_id} } @{$by_status{ready}}],
-    ['subscriber-001', 'query-reader-001', 'object-reader-001', 'publisher-001'],
+    ['subscriber-001', 'query-reader-001', 'object-reader-001', 'observer-001', 'publisher-001'],
     'runner observed first-wave readiness before launching the publisher';
   is [sort map {"$_->{actor_id}:$_->{exit_code}"} @{$by_status{exited}}],
-    ['object-reader-001:0', 'publisher-001:0', 'query-reader-001:0', 'subscriber-001:0'],
+    ['object-reader-001:0', 'observer-001:0', 'publisher-001:0', 'query-reader-001:0', 'subscriber-001:0'],
     'runner reaped every worker exit';
   is $by_status{skipped_no_worker}, undef, 'every current plan role has a reference worker';
 };
@@ -342,6 +343,8 @@ topology:
     count: 1
   object_readers:
     count: 0
+  observers:
+    count: 1
 workload:
   publish_rate_per_second: 5
   query_rate_per_second: 5
@@ -388,11 +391,16 @@ YAML
     grep { !defined $_->{result_count} || $_->{result_count} > @{$stream} } @{$queries};
   is \@bad_result_counts, [], 'no query claims more stored events than were published';
 
+  my $pings = Overnet::Burner::Metrics->read_stream(File::Spec->catfile($run_dir, 'metrics', 'observer-001.jsonl'));
+  ok @{$pings} >= 1, 'the observer produced relay-side evidence' or diag(scalar @{$pings});
+  my @bad_pings = grep { $_->{operation} ne 'relay_ping' || $_->{status} ne 'success' } @{$pings};
+  is \@bad_pings, [], 'observer pings against the live relay succeed';
+
   my $report_out = `$^X $bin report --run-dir $run_dir 2>&1`;
   is $?, 0, 'report generates for the end-to-end run';
   my $report = _read_json(File::Spec->catfile($run_dir, 'report.json'));
   is $report->{run}{status}, 'completed', 'end-to-end run completed';
-  ok $report->{metrics}{streams}{seen} >= 3, 'report sees every collected worker stream';
+  ok $report->{metrics}{streams}{seen} >= 4, 'report sees every collected worker stream';
 };
 
 done_testing;
@@ -405,6 +413,7 @@ sub _write_scenario {
   my $subscribers    = delete $args{subscribers};
   my $query_readers  = delete $args{query_readers}  // 0;
   my $object_readers = delete $args{object_readers} // 0;
+  my $observers      = delete $args{observers}      // 0;
   _write_yaml($path, <<"YAML");
 run:
   name: workers-runner
@@ -423,6 +432,8 @@ $relays_extra
     count: $query_readers
   object_readers:
     count: $object_readers
+  observers:
+    count: $observers
 workload:
   publish_rate_per_second: 5
 YAML

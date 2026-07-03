@@ -25,8 +25,9 @@ my %WORKER_ROLES = (
   subscriber    => 1,
   query_reader  => 1,
   object_reader => 1,
+  observer      => 1,
 );
-my @LAUNCH_WAVES = ([qw(subscriber query_reader object_reader)], [qw(publisher)],);
+my @LAUNCH_WAVES = ([qw(subscriber query_reader object_reader observer)], [qw(publisher)],);
 
 my $READY_TIMEOUT_SECONDS = 10;
 my $EXIT_GRACE_SECONDS    = 15;
@@ -139,7 +140,7 @@ sub _worker_actors {
   my ($self) = @_;
 
   my $plan = $self->{plan};
-  return map { @{$plan->{$_} || []} } qw(subscribers query_readers object_readers publishers);
+  return map { @{$plan->{$_} || []} } qw(subscribers query_readers object_readers observers publishers);
 }
 
 sub _total_duration_seconds {

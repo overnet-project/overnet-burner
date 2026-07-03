@@ -64,6 +64,7 @@ is $noop_report->{topology}{actors},
   subscribers    => 1,
   query_readers  => 1,
   object_readers => 1,
+  observers      => 0,
   total          => 5,
   },
   'noop report records actor counts';
