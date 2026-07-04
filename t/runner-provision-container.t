@@ -505,6 +505,8 @@ topology:
     count: 1
 workload:
   publish_rate_per_second: 5
+  subscription_filters:
+    - kinds: [7800]
 $provision_yaml
 YAML
 

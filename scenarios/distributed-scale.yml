@@ -27,6 +27,10 @@ topology:
 
 workload:
   publish_rate_per_second: 50
+  # The subscribers measure fanout for the events the publishers emit, so
+  # they subscribe to the same kind the publish workload produces.
+  subscription_filters:
+    - kinds: [7800]
 
 provision:
   workers:

@@ -165,11 +165,42 @@ The `rex-local-workers` runner launches one worker process per plan actor
 whose role has a reference worker, writes each actor's input document under
 `workers/<worker-id>/input.json`, sequences readiness (subscribers and
 readers before publishers), waits for orderly exits, and concatenates the
-collected streams into the run's aggregated `metrics.jsonl`. The
-`OVERNET_BURNER_WORKER` environment variable overrides the worker command
-(default: the installed `overnet-burner-worker`), so any contract-compliant
-executable in any language can serve as the worker. Actor roles without a
-worker are recorded as explicitly skipped.
+collected streams into the run's aggregated `metrics.jsonl`. Actor roles
+without a worker are recorded as explicitly skipped.
+
+### Selecting the Worker Command
+
+The runner resolves the worker command in this order, first match wins:
+
+1. `provision.workers.worker` in the scenario — the per-scenario worker
+   command, useful when a guest runs the worker differently from the
+   controller (for example a container image's baked-in command, or a
+   Python worker in a virtual guest).
+2. the `OVERNET_BURNER_WORKER` environment variable — the per-invocation
+   override.
+3. `overnet-burner-worker` — the installed command name, found on `PATH`.
+
+Because the command is a full shell word, it may carry arguments: any
+contract-compliant executable in any language can serve as the worker.
+
+**Running from an uninstalled checkout.** If you have not installed the
+distribution, `overnet-burner-worker` is not on `PATH`, and a local run
+would otherwise fail when each worker process cannot start. Point the runner
+at the in-tree worker instead — from the repository root:
+
+```bash
+OVERNET_BURNER_WORKER='perl -Ilib bin/overnet-burner-worker' \
+  overnet-burner run --scenario scenarios/single-relay-baseline.yml \
+  --runner rex-local-workers
+```
+
+For locally provisioned (`how: local`) workers the runner pre-flights the
+command before launching any worker and fails fast with an actionable error
+naming these three overrides when it cannot be resolved, rather than leaving
+you to decode a `command not found` from a worker that exited at launch.
+Remote, container, and virtual guests resolve the command in their own
+filesystem, so give those an absolute path, an installed binary, or a
+`provision.workers.worker` the guest can run.
 
 ## Fanout Timing
 

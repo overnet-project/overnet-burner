@@ -576,6 +576,8 @@ sub observe {
       croak "topology.relays.endpoints is required to launch workers\n";
     }
 
+    $self->_verify_worker_command_resolves(\@launchable);
+
     for my $wave (@LAUNCH_WAVES) {
       my @wave_actors = map { @{$by_role{$_} || []} } @{$wave};
       for my $actor (@wave_actors) {
@@ -740,7 +742,7 @@ sub _launch_worker {
   my $input_path = File::Spec->catfile($worker_dir, 'input.json');
   $guest->write_file($input_path, json_text($input));
 
-  my $command = $self->{worker_command} || $ENV{OVERNET_BURNER_WORKER} || 'overnet-burner-worker';
+  my $command = $self->_worker_command;
   my $stdout  = File::Spec->catfile($logs_dir, "$actor_id.stdout");
   my $stderr  = File::Spec->catfile($logs_dir, "$actor_id.stderr");
   $self->{worker_log_files}{$actor_id} = [$stdout, $stderr];
@@ -760,6 +762,61 @@ sub _launch_worker {
   );
 
   return 1;
+}
+
+sub _worker_command {
+  my ($self) = @_;
+
+  return $self->{worker_command} || $ENV{OVERNET_BURNER_WORKER} || 'overnet-burner-worker';
+}
+
+sub _verify_worker_command_resolves {
+  my ($self, $launchable) = @_;
+
+  my $command   = $self->_worker_command;
+  my ($program) = split q{ }, $command;
+  if (!(defined $program && length $program)) {
+    return 1;
+  }
+
+  # Only the local exec transport resolves the worker command in an
+  # environment we can cheaply and reliably pre-flight the same way a launch
+  # would (/bin/sh -c). Remote, container, and virtual guests resolve it in a
+  # foreign filesystem where a probe is both less dependable and less needed:
+  # those operators point provision.workers.worker at an absolute path, a
+  # baked-in image command, or an installed binary. Catching the common
+  # uninstalled-checkout mistake here turns a cryptic launch-time
+  # "not found" into an actionable error before a whole wave is launched.
+  my %checked;
+  for my $actor (@{$launchable}) {
+    my $guest = $self->_guest_for($actor->{id});
+    if ($guest->transport ne 'exec' || $checked{$guest->name}++) {
+      next;
+    }
+
+    my $outcome = $guest->run_command(command => 'command -v ' . _shell_quote($program));
+    if (ref $outcome eq 'HASH' && ($outcome->{exit_code} // -1) == 0) {
+      next;
+    }
+
+    croak "worker command \"$program\" was not found on guest "
+      . $guest->name . ".\n"
+      . "Install overnet-burner so overnet-burner-worker is on PATH, or point the\n"
+      . "OVERNET_BURNER_WORKER environment variable or provision.workers.worker at a\n"
+      . "runnable command. From an uninstalled checkout, run overnet-burner with\n"
+      . "OVERNET_BURNER_WORKER='perl -Ilib bin/overnet-burner-worker' from the repo root.\n";
+  }
+
+  return 1;
+}
+
+sub _shell_quote {
+  my ($value) = @_;
+
+  my $quoted = defined $value ? $value : q{};
+  $quoted =~ s/'/'\\''/gmxs;
+
+  return "'$quoted'";
 }
 
 sub _await_wave_ready {
@@ -1200,8 +1257,13 @@ after being recorded as runner events.
 
 =head1 CONFIGURATION AND ENVIRONMENT
 
-C<OVERNET_BURNER_WORKER> may override the worker command used for every
-launched actor; it defaults to the installed C<overnet-burner-worker>.
+The worker command is resolved first from the scenario's
+C<provision.workers.worker>, then from the C<OVERNET_BURNER_WORKER>
+environment variable, and finally from the installed C<overnet-burner-worker>
+on C<PATH>. For locally provisioned workers the command is pre-flighted
+before any worker launches, so an uninstalled checkout fails fast with an
+actionable error naming these overrides rather than at worker start. See
+F<docs/workers.md> for running from an uninstalled checkout.
 
 =head1 DEPENDENCIES
 

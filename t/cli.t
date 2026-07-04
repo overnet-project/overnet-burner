@@ -15,6 +15,10 @@ my $repo     = "$FindBin::Bin/..";
 my $bin      = "$repo/bin/overnet-burner";
 my $scenario = "$repo/scenarios/single-relay-baseline.yml";
 
+my $usage = `$^X $bin 2>&1`;
+is $? >> 8, 2, 'invoking with no command prints usage and exits nonzero';
+like $usage, qr/--runner\ .*rex-local-workers/mx, 'usage lists the rex-local-workers runner needed for a real run';
+
 my $validate = `$^X $bin validate --scenario $scenario 2>&1`;
 is $?, 0, 'validate command exits successfully';
 like $validate, qr/\Avalid\ scenario:\ single-relay-baseline\n?\z/xm, 'validate command reports scenario name';

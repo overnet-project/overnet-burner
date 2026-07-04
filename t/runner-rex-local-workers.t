@@ -135,6 +135,39 @@ subtest 'workers require declared relay endpoints' => sub {
   like $output, qr/topology\.relays\.endpoints/mx, 'failure names the missing scenario field';
 };
 
+subtest 'an unresolvable worker command fails with actionable guidance' => sub {
+  my $missing_worker = "$tmp/missing-worker.yml";
+  _write_yaml($missing_worker, <<'YAML');
+run:
+  name: workers-missing-command
+  duration: 2
+  seed: 12345
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+    endpoints:
+      - ws://127.0.0.1:59999
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 5
+provision:
+  workers:
+    how: local
+    worker: overnet-burner-worker-not-on-path-xyzzy
+YAML
+  my $run_id = 'workers-missing-command-001';
+  my $output =
+    `$^X $bin run --scenario $missing_worker --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
+  isnt $?, 0, 'run fails when the worker command cannot be resolved';
+  like $output, qr/overnet-burner-worker-not-on-path-xyzzy.*was\ not\ found/mxs,
+    'failure names the unresolvable worker command';
+  like $output,   qr/OVERNET_BURNER_WORKER/mx,           'failure points at the OVERNET_BURNER_WORKER override';
+  like $output,   qr/provision\.workers\.worker/mx,      'failure points at the provision.workers.worker override';
+  unlike $output, qr/exited\ before\ becoming\ ready/mx, 'the clear error replaces the cryptic launch-time failure';
+};
+
 subtest 'chaos hooks fire during the workload window' => sub {
   my $provider_log   = File::Spec->catfile($tmp, 'chaos-provider.log');
   my $scenario_chaos = "$tmp/chaos.yml";
@@ -437,6 +470,14 @@ $relays_extra
     count: $observers
 workload:
   publish_rate_per_second: 5
+  subscription_filters:
+    - kinds: [7800]
+  query_filters:
+    - kinds: [7800]
+  object_reads:
+    objects:
+      - type: chat.channel
+        id: irc:local:#overnet
 YAML
   return $path;
 }

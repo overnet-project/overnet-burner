@@ -1249,6 +1249,98 @@ YAML
   like $@, qr/one\ endpoint\ per\ relay/mx, 'endpoint count must match relay count';
 };
 
+subtest 'reader worker topology requires matching workload configuration' => sub {
+  my $valid = "$tmp/reader-workload-valid.yml";
+  _write_yaml($valid, <<'YAML');
+run:
+  name: reader-workload-valid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  subscribers:
+    count: 2
+  query_readers:
+    count: 1
+  object_readers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+  subscription_filters:
+    - kinds: [7800]
+  query_filters:
+    - kinds: [7800]
+  object_reads:
+    objects:
+      - type: chat.channel
+        id: irc:local:#overnet
+YAML
+  my $config = Overnet::Burner::Config->load_file($valid);
+  is $config->{topology}{subscribers}{count}, 2, 'reader topology with matching workload loads';
+
+  my $zero_counts = "$tmp/reader-workload-zero.yml";
+  _write_yaml($zero_counts, <<'YAML');
+run:
+  name: reader-workload-zero
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+YAML
+  my $zero_config = Overnet::Burner::Config->load_file($zero_counts);
+  is $zero_config->{topology}{subscribers}{count}, 0, 'a scenario with no reader workers needs no reader workload';
+
+  my @rejections = (
+    [
+      'subscribers without subscription filters',
+      "  subscribers:\n    count: 2\nworkload:\n  publish_rate_per_second: 1",
+      qr/topology\.subscribers\.count\ is\ 2\ but\ workload\.subscription_filters\ is\ empty/mx,
+    ],
+    [
+      'subscribers with empty subscription filters',
+      "  subscribers:\n    count: 1\nworkload:\n  publish_rate_per_second: 1\n  subscription_filters: []",
+      qr/topology\.subscribers\.count\ is\ 1\ but\ workload\.subscription_filters\ is\ empty/mx,
+    ],
+    [
+      'query readers without query filters',
+      "  query_readers:\n    count: 3\nworkload:\n  publish_rate_per_second: 1",
+      qr/topology\.query_readers\.count\ is\ 3\ but\ workload\.query_filters\ is\ empty/mx,
+    ],
+    [
+      'object readers without object reads',
+      "  object_readers:\n    count: 1\nworkload:\n  publish_rate_per_second: 1",
+      qr/topology\.object_readers\.count\ is\ 1\ but\ workload\.object_reads\.objects\ is\ empty/mx,
+    ],
+  );
+
+  for my $case (@rejections) {
+    my ($name, $body, $pattern) = @{$case};
+    my $path = "$tmp/reader-workload-$name.yml";
+    $path =~ s/\ /-/gmx;
+    _write_yaml($path, <<"YAML");
+run:
+  name: reader-workload-invalid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+$body
+YAML
+    eval { Overnet::Burner::Config->load_file($path) };
+    like $@, $pattern, "$name is rejected";
+  }
+};
+
 done_testing;
 
 sub _write_yaml {

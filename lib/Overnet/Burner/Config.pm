@@ -154,6 +154,7 @@ sub validate {
   _require_hash($config, 'workload.object_reads');
   _require_nonnegative_number($config, 'workload.object_reads.rate_per_second');
   _validate_object_read_references($config);
+  _validate_worker_workload_dependencies($config);
   _validate_workload_phase($config, 'warmup');
   _validate_workload_phase($config, 'cooldown');
 
@@ -510,6 +511,36 @@ sub _validate_netem_milliseconds {
   my $value = $hook->{$field};
   if (ref $value || !defined $value || "$value" !~ /\A[1-9][0-9]*\z/mxs) {
     croak "chaos[$index].$field must be a positive integer\n";
+  }
+
+  return 1;
+}
+
+sub _validate_worker_workload_dependencies {
+  my ($config) = @_;
+
+  # Reader workers cannot run without the workload that tells them what to
+  # read. A scenario that asks for the workers but omits the workload would
+  # otherwise pass validation and only fail later at worker launch, so reject
+  # the mismatch here where the operator can still see both sides of it.
+  my @dependencies = (
+    [subscribers    => 'workload.subscription_filters'],
+    [query_readers  => 'workload.query_filters'],
+    [object_readers => 'workload.object_reads.objects'],
+  );
+
+  for my $dependency (@dependencies) {
+    my ($group, $path) = @{$dependency};
+    my $count = $config->{topology}{$group}{count} || 0;
+    if ($count <= 0) {
+      next;
+    }
+
+    my $value = _value_at($config, $path);
+    if (!(ref $value eq 'ARRAY' && @{$value})) {
+      croak "topology.$group.count is $count but $path is empty;"
+        . " declare $path or set topology.$group.count to 0\n";
+    }
   }
 
   return 1;

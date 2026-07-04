@@ -18,6 +18,10 @@ topology:
 
 workload:
   publish_rate_per_second: 10
+  # The subscribers watch the honest publishers' fanout, so they subscribe to
+  # the kind the publish workload emits.
+  subscription_filters:
+    - kinds: [7800]
   abuse:
     provenance_forger:
       publish_rate_per_second: 20

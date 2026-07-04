@@ -276,6 +276,12 @@ topology:
     count: 1
 workload:
   publish_rate_per_second: 10
+  query_filters:
+    - kinds: [7800]
+  object_reads:
+    objects:
+      - type: chat.channel
+        id: irc:local:#overnet
 thresholds:
   query_p99_ms: 100
   object_read_p99_ms: 100
@@ -481,6 +487,8 @@ topology:
     count: 1
 workload:
   publish_rate_per_second: 10
+  subscription_filters:
+    - kinds: [7800]
 thresholds:
   subscription_fanout_p99_ms: 1000
 YAML
