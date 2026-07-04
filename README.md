@@ -152,3 +152,7 @@ prove -r xt/author/
 ## License
 
 See [LICENSE](LICENSE).
+
+## AI Usage
+
+This code was developed in part with AI tooling such as Claude Code and Codex. We want to be upfront about that.
