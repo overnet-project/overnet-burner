@@ -25,6 +25,8 @@ use Overnet::Burner::Util     qw(json_text read_file read_json_file write_file);
 
 our $VERSION = '0.001';
 
+has worker_command_default => (is => 'ro');
+
 no Moo;
 
 my %WORKER_ROLES = (
@@ -742,7 +744,7 @@ sub _launch_worker {
   my $input_path = File::Spec->catfile($worker_dir, 'input.json');
   $guest->write_file($input_path, json_text($input));
 
-  my $command = $self->_worker_command;
+  my $command = $self->_worker_command($guest);
   my $stdout  = File::Spec->catfile($logs_dir, "$actor_id.stdout");
   my $stderr  = File::Spec->catfile($logs_dir, "$actor_id.stderr");
   $self->{worker_log_files}{$actor_id} = [$stdout, $stderr];
@@ -765,19 +767,23 @@ sub _launch_worker {
 }
 
 sub _worker_command {
-  my ($self) = @_;
+  my ($self, $guest) = @_;
 
-  return $self->{worker_command} || $ENV{OVERNET_BURNER_WORKER} || 'overnet-burner-worker';
+  return $self->{worker_command} || $ENV{OVERNET_BURNER_WORKER} || _default_worker_command($self, $guest);
+}
+
+sub _default_worker_command {
+  my ($self, $guest) = @_;
+
+  if ($guest && $guest->transport eq 'exec' && defined $self->worker_command_default) {
+    return $self->worker_command_default;
+  }
+
+  return 'overnet-burner worker';
 }
 
 sub _verify_worker_command_resolves {
   my ($self, $launchable) = @_;
-
-  my $command   = $self->_worker_command;
-  my ($program) = split q{ }, $command;
-  if (!(defined $program && length $program)) {
-    return 1;
-  }
 
   # Only the local exec transport resolves the worker command in an
   # environment we can cheaply and reliably pre-flight the same way a launch
@@ -794,6 +800,12 @@ sub _verify_worker_command_resolves {
       next;
     }
 
+    my $command = $self->_worker_command($guest);
+    my $program = _command_program($command);
+    if (!(defined $program && length $program)) {
+      next;
+    }
+
     my $outcome = $guest->run_command(command => 'command -v ' . _shell_quote($program));
     if (ref $outcome eq 'HASH' && ($outcome->{exit_code} // -1) == 0) {
       next;
@@ -801,13 +813,32 @@ sub _verify_worker_command_resolves {
 
     croak "worker command \"$program\" was not found on guest "
       . $guest->name . ".\n"
-      . "Install overnet-burner so overnet-burner-worker is on PATH, or point the\n"
+      . "Install overnet-burner so 'overnet-burner worker' is on PATH, or point the\n"
       . "OVERNET_BURNER_WORKER environment variable or provision.workers.worker at a\n"
-      . "runnable command. From an uninstalled checkout, run overnet-burner with\n"
-      . "OVERNET_BURNER_WORKER='perl -Ilib bin/overnet-burner-worker' from the repo root.\n";
+      . "runnable command.\n";
   }
 
   return 1;
+}
+
+sub _command_program {
+  my ($command) = @_;
+
+  $command = defined $command ? $command : q{};
+  $command =~ s/\A\s+//mxs;
+  if ($command =~ /\A'((?:[^']|'\\'')*)'/mxs) {
+    my $program = $1;
+    $program =~ s/'\\''/'/gmxs;
+    return $program;
+  }
+  if ($command =~ /\A"((?:\\"|[^"])*)"/mxs) {
+    my $program = $1;
+    $program =~ s/\\"/"/gmxs;
+    return $program;
+  }
+
+  my ($program) = $command =~ /\A(\S+)/mxs;
+  return $program;
 }
 
 sub _shell_quote {
@@ -1259,11 +1290,12 @@ after being recorded as runner events.
 
 The worker command is resolved first from the scenario's
 C<provision.workers.worker>, then from the C<OVERNET_BURNER_WORKER>
-environment variable, and finally from the installed C<overnet-burner-worker>
-on C<PATH>. For locally provisioned workers the command is pre-flighted
-before any worker launches, so an uninstalled checkout fails fast with an
-actionable error naming these overrides rather than at worker start. See
-F<docs/workers.md> for running from an uninstalled checkout.
+environment variable, and finally from C<overnet-burner worker>. For locally
+provisioned workers, the default worker command reuses the same
+C<overnet-burner> executable that launched the run. The command is
+pre-flighted before any local worker launches, so missing custom worker
+commands fail with an actionable error rather than at worker start. See
+F<docs/workers.md>.
 
 =head1 DEPENDENCIES
 

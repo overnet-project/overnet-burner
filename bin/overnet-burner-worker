@@ -1,75 +1,13 @@
 #!/usr/bin/env perl
 use strictures 2;
 
-use Carp    qw(carp);
-use English qw(-no_match_vars);
 use FindBin;
 use lib "$FindBin::Bin/../lib";
 
-use Overnet::Burner::Util qw(read_json_file);
+use Overnet::Burner::WorkerCommand;
 
 our $VERSION = '0.001';
 
-my %ROLE_CLASS = (
-  publisher           => 'Overnet::Burner::Worker::Publisher',
-  subscriber          => 'Overnet::Burner::Worker::Subscriber',
-  query_reader        => 'Overnet::Burner::Worker::QueryReader',
-  object_reader       => 'Overnet::Burner::Worker::ObjectReader',
-  observer            => 'Overnet::Burner::Worker::Observer',
-  flooder             => 'Overnet::Burner::Worker::Flooder',
-  malformed_publisher => 'Overnet::Burner::Worker::MalformedPublisher',
-  replayer            => 'Overnet::Burner::Worker::Replayer',
-  subscription_abuser => 'Overnet::Burner::Worker::SubscriptionAbuser',
-  sybil               => 'Overnet::Burner::Worker::Sybil',
-  connection_flood    => 'Overnet::Burner::Worker::ConnectionFlood',
-  provenance_forger   => 'Overnet::Burner::Worker::ProvenanceForger',
-);
-
 if (!caller) {
-  exit main();
-}
-
-sub main {
-  my $input_path = $ENV{OVERNET_BURNER_WORKER_INPUT};
-  if (!(defined $input_path && length $input_path)) {
-    warn "OVERNET_BURNER_WORKER_INPUT must name the worker input document\n";
-    return 2;
-  }
-  if (!-f $input_path) {
-    warn "worker input document does not exist: $input_path\n";
-    return 2;
-  }
-
-  my $input = read_json_file($input_path);
-  my $role  = ref($input) eq 'HASH' ? $input->{role} : undef;
-  if (!(defined $role && !ref($role) && length $role)) {
-    warn "worker input document does not declare a role\n";
-    return 2;
-  }
-
-  my $class = $ROLE_CLASS{$role};
-  if (!$class) {
-    warn "unsupported worker role: $role\n";
-    return 2;
-  }
-
-  my $loaded = eval "require $class; 1";    ## no critic (BuiltinFunctions::ProhibitStringyEval)
-  if (!$loaded) {
-    carp "unable to load worker class $class: $EVAL_ERROR";
-    return 2;
-  }
-
-  my $worker;
-  my $error;
-  eval {
-    $worker = $class->new(input => $input);
-    $worker->run;
-    1;
-  } or do { $error = $EVAL_ERROR || 'worker failed' };
-  if ($error) {
-    carp $error;
-    return 1;
-  }
-
-  return 0;
+  exit Overnet::Burner::WorkerCommand->run_from_environment(@ARGV);
 }

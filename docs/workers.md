@@ -178,25 +178,28 @@ The runner resolves the worker command in this order, first match wins:
    Python worker in a virtual guest).
 2. the `OVERNET_BURNER_WORKER` environment variable — the per-invocation
    override.
-3. `overnet-burner-worker` — the installed command name, found on `PATH`.
+3. the reference worker mode of the main CLI. For local workers this is the
+   same `overnet-burner` executable that launched the run, invoked as
+   `overnet-burner worker`. For non-local guests it is the installed command
+   name `overnet-burner worker` on that guest's `PATH`.
 
 Because the command is a full shell word, it may carry arguments: any
 contract-compliant executable in any language can serve as the worker.
 
-**Running from an uninstalled checkout.** If you have not installed the
-distribution, `overnet-burner-worker` is not on `PATH`, and a local run
-would otherwise fail when each worker process cannot start. Point the runner
-at the in-tree worker instead — from the repository root:
+The legacy `overnet-burner-worker` command remains as a compatibility shim
+for scripts that still call it directly. New Overnet-owned commands should
+use `overnet-burner worker`.
 
-```bash
-OVERNET_BURNER_WORKER='perl -Ilib bin/overnet-burner-worker' \
-  overnet-burner run --scenario scenarios/single-relay-baseline.yml \
-  --runner rex-local-workers
-```
+**Running from an uninstalled checkout.** Local runs no longer need
+`OVERNET_BURNER_WORKER` just to find the reference worker. Invoke the main
+CLI from the checkout, and local worker processes will use that same file in
+`worker` mode. Remote, container, and virtual guests still resolve commands
+inside their own filesystem, so install `overnet-burner` there or set
+`provision.workers.worker` to a command the guest can run.
 
 For locally provisioned (`how: local`) workers the runner pre-flights the
 command before launching any worker and fails fast with an actionable error
-naming these three overrides when it cannot be resolved, rather than leaving
+naming these command choices when it cannot be resolved, rather than leaving
 you to decode a `command not found` from a worker that exited at launch.
 Remote, container, and virtual guests resolve the command in their own
 filesystem, so give those an absolute path, an installed binary, or a
@@ -274,11 +277,11 @@ trip on a single clock:
 
 | Role | Implementation |
 |---|---|
-| `publisher` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Publisher` |
-| `subscriber` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Subscriber` |
-| `query_reader` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::QueryReader` |
-| `object_reader` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::ObjectReader` |
-| `observer` | `bin/overnet-burner-worker` with `Overnet::Burner::Worker::Observer` |
+| `publisher` | `overnet-burner worker` with `Overnet::Burner::Worker::Publisher` |
+| `subscriber` | `overnet-burner worker` with `Overnet::Burner::Worker::Subscriber` |
+| `query_reader` | `overnet-burner worker` with `Overnet::Burner::Worker::QueryReader` |
+| `object_reader` | `overnet-burner worker` with `Overnet::Burner::Worker::ObjectReader` |
+| `observer` | `overnet-burner worker` with `Overnet::Burner::Worker::Observer` |
 
 The reference publisher derives a stable Nostr identity from
 `seed`/`worker_id`, publishes valid native Overnet events (kind 7800 with the

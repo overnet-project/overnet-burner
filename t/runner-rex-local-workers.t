@@ -1,5 +1,6 @@
 use strictures 2;
 
+use Cwd qw(abs_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
@@ -11,7 +12,9 @@ use Time::HiRes qw(sleep time);
 
 use lib "$FindBin::Bin/../lib";
 
+use Overnet::Burner::Guest::Exec;
 use Overnet::Burner::Metrics;
+use Overnet::Burner::Runner::RexLocalWorkers;
 
 my $repo = "$FindBin::Bin/..";
 my $bin  = "$repo/bin/overnet-burner";
@@ -35,6 +38,25 @@ my $scenario = _write_scenario(
   object_readers => 1,
   observers      => 1,
 );
+
+subtest 'local default worker command reuses the main executable' => sub {
+  local $ENV{OVERNET_BURNER_WORKER};
+  delete $ENV{OVERNET_BURNER_WORKER};
+
+  my $runner = Overnet::Burner::Runner::RexLocalWorkers->new(
+    name                   => 'rex-local-workers',
+    ledger                 => bless({}, 'Overnet::Burner::Test::Ledger'),
+    plan                   => {},
+    run_dir                => $tmp,
+    worker_command_default => "$^X @{[ abs_path($bin) ]} worker",
+  );
+  my $guest   = Overnet::Burner::Guest::Exec->new(name => 'local', role => 'workers');
+  my $command = $runner->_worker_command($guest);
+
+  like $command, qr/\Q$^X\E/mx,                   'default command runs through the current Perl';
+  like $command, qr/\Q@{[ abs_path($bin) ]}\E/mx, 'default command names the main CLI executable';
+  like $command, qr/\bworker\b/mx,                'default command invokes worker mode';
+};
 
 subtest 'workers runner launches contract workers and collects streams' => sub {
   my $run_id = 'workers-run-001';
@@ -317,7 +339,8 @@ thresholds:
   error_rate_max: 0.5
 YAML
 
-  local $ENV{OVERNET_BURNER_WORKER} = "$^X -I$repo/lib $repo/bin/overnet-burner-worker";
+  local $ENV{OVERNET_BURNER_WORKER};
+  delete $ENV{OVERNET_BURNER_WORKER};
   my $run_id = 'chaos-e2e-001';
   my $output =
     `$^X $bin run --scenario $scenario_chaos --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
@@ -388,7 +411,8 @@ workload:
     - kinds: [7800]
 YAML
 
-  local $ENV{OVERNET_BURNER_WORKER} = "$^X -I$repo/lib $repo/bin/overnet-burner-worker";
+  local $ENV{OVERNET_BURNER_WORKER};
+  delete $ENV{OVERNET_BURNER_WORKER};
   my $run_id = 'workers-e2e-001';
   my $output =
     `$^X $bin run --scenario $scenario_e2e --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;

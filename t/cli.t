@@ -18,6 +18,11 @@ my $scenario = "$repo/scenarios/single-relay-baseline.yml";
 my $usage = `$^X $bin 2>&1`;
 is $? >> 8, 2, 'invoking with no command prints usage and exits nonzero';
 like $usage, qr/--runner\ .*rex-local-workers/mx, 'usage lists the rex-local-workers runner needed for a real run';
+like $usage, qr/overnet-burner\ worker/mx,        'usage lists the worker subcommand';
+
+my $worker_no_input = `$^X $bin worker 2>&1`;
+is $? >> 8, 2, 'worker command exits nonzero without input';
+like $worker_no_input, qr/OVERNET_BURNER_WORKER_INPUT/mx, 'worker command reports the missing input document';
 
 my $validate = `$^X $bin validate --scenario $scenario 2>&1`;
 is $?, 0, 'validate command exits successfully';

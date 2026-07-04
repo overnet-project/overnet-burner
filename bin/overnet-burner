@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 use strictures 2;
 
+use Cwd        qw(abs_path);
 use English    qw(-no_match_vars);
 use File::Temp ();
 use FindBin;
@@ -15,6 +16,7 @@ use Overnet::Burner::RexBundle;
 use Overnet::Burner::RunLedger;
 use Overnet::Burner::Runner;
 use Overnet::Burner::Util qw(checked_print write_file);
+use Overnet::Burner::WorkerCommand;
 
 our $VERSION = '0.001';
 
@@ -47,6 +49,9 @@ sub main {
     }
     if ($command eq 'report') {
       return _report(@args);
+    }
+    if ($command eq 'worker') {
+      return _worker(@args);
     }
 
     die "unknown command: $command\n";
@@ -283,6 +288,7 @@ sub _run {
       ledger  => $ledger,
       plan    => $plan,
       run_dir => $ledger->{run_dir},
+      _runner_default_args($runner_name),
     );
     $runner->run_lifecycle;
   };
@@ -328,6 +334,36 @@ sub _report {
   return 0;
 }
 
+sub _worker {
+  my @args = @_;
+
+  return Overnet::Burner::WorkerCommand->run_from_environment(@args);
+}
+
+sub _runner_default_args {
+  my ($runner_name) = @_;
+
+  if ($runner_name ne 'rex-local-workers') {
+    return;
+  }
+
+  return worker_command_default => _local_worker_command();
+}
+
+sub _local_worker_command {
+  my $program = abs_path($PROGRAM_NAME) || $PROGRAM_NAME;
+  return join q{ }, _shell_quote($EXECUTABLE_NAME), _shell_quote($program), 'worker';
+}
+
+sub _shell_quote {
+  my ($value) = @_;
+
+  my $quoted = defined $value ? $value : q{};
+  $quoted =~ s/'/'\\''/gmxs;
+
+  return "'$quoted'";
+}
+
 sub _usage {
   checked_print(\*STDERR, <<'USAGE');
 usage:
@@ -339,6 +375,7 @@ usage:
   overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop|rex-local|rex-local-provider|rex-local-workers]
   overnet-burner run --random --seed N [--profile profiles/local-smoke.yml] [--runs-dir runs] [--run-id ID] [--runner ...]
   overnet-burner report --run-dir runs/RUN_ID
+  overnet-burner worker
 USAGE
   return 2;
 }

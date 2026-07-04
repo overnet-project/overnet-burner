@@ -63,12 +63,17 @@ sub BUILDARGS {
   my $plan    = $args{plan}    || croak "plan is required\n";
   my $run_dir = $args{run_dir} || croak "run_dir is required\n";
 
-  return {
+  my %build_args = (
     name    => $name,
     ledger  => $ledger,
     plan    => $plan,
     run_dir => $run_dir,
-  };
+  );
+  if (exists $args{worker_command_default} && $class->can('worker_command_default')) {
+    $build_args{worker_command_default} = $args{worker_command_default};
+  }
+
+  return \%build_args;
 }
 
 sub _constructor_args_hash {

@@ -254,9 +254,11 @@ Both answers, per group:
 
 - **Pre-provisioned** (preferred, and the only option for non-Perl
   workers): the group declares `worker: <command>`, the per-guest
-  equivalent of today's `OVERNET_BURNER_WORKER` override. The prepare step
-  verifies the command exists on every guest of the group and fails the
-  run early if not.
+  equivalent of the `OVERNET_BURNER_WORKER` override. Local exec guests
+  preflight the command before launching a worker. Remote, container, and
+  virtual guests resolve it inside their own filesystem at launch time, so
+  use an installed command, an absolute path, or a baked-in image command
+  there.
 - **Prepare scripts**: a group MAY declare `prepare` commands (mirroring
   tmt's shell prepare) that run on each guest before workers launch —
   installing a worker, pulling an image, warming caches. Prepare failures
