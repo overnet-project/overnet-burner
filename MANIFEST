@@ -9,6 +9,7 @@ cpanfile
 docs/abuse.md
 docs/chaos.md
 docs/distributed.md
+docs/environments.md
 docs/generate.md
 docs/METRICS.md
 docs/PROPOSAL.md
@@ -33,6 +34,7 @@ lib/Overnet/Burner/Hardware.pm
 lib/Overnet/Burner/Metrics.pm
 lib/Overnet/Burner/Plan.pm
 lib/Overnet/Burner/Provenance.pm
+lib/Overnet/Burner/ReferenceImage.pm
 lib/Overnet/Burner/Report.pm
 lib/Overnet/Burner/RexBundle.pm
 lib/Overnet/Burner/RunLedger.pm
@@ -68,6 +70,7 @@ README.md
 scenarios/abuse-flood.yml
 scenarios/abuse-provenance.yml
 scenarios/distributed-scale.yml
+scenarios/local-containers-smoke.yml
 scenarios/single-relay-baseline.yml
 schemas/metric-event-v1.schema.json
 schemas/report-v1.schema.json
@@ -75,6 +78,7 @@ schemas/worker-input-v1.schema.json
 t/abuse-classify.t
 t/cli.t
 t/config.t
+t/config-managed-environment.t
 t/container-engine.t
 t/generate.t
 t/github-ci.t
@@ -88,11 +92,13 @@ t/manifest-skip-policy.t
 t/metrics.t
 t/plan.t
 t/provenance.t
+t/reference-image.t
 t/report-contract.t
 t/report-generation.t
 t/rex-bundle.t
 t/run-ledger.t
 t/runner-noop.t
+t/runner-managed-local-containers.t
 t/runner-provision-connect.t
 t/runner-provision-container.t
 t/runner-provision-virtual.t

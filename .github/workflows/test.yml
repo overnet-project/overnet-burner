@@ -7,10 +7,13 @@ on:
       - '.github/workflows/test.yml'
       - '.perlcriticrc'
       - '.perltidyrc'
+      - 'README.md'
       - 'bin/**'
       - 'cpanfile'
+      - 'docs/**'
       - 'examples/**'
       - 'lib/**'
+      - 'MANIFEST'
       - 'Makefile.PL'
       - 'scenarios/**'
       - 'schemas/**'
@@ -22,10 +25,13 @@ on:
       - '.github/workflows/test.yml'
       - '.perlcriticrc'
       - '.perltidyrc'
+      - 'README.md'
       - 'bin/**'
       - 'cpanfile'
+      - 'docs/**'
       - 'examples/**'
       - 'lib/**'
+      - 'MANIFEST'
       - 'Makefile.PL'
       - 'scenarios/**'
       - 'schemas/**'
@@ -47,9 +53,24 @@ jobs:
       PERL_LOCAL_LIB_ROOT: /home/runner/perl5
       PERL_MB_OPT: --install_base /home/runner/perl5
       PERL_MM_OPT: INSTALL_BASE=/home/runner/perl5
+    defaults:
+      run:
+        working-directory: overnet-burner
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: overnet-burner
+
+      - uses: actions/checkout@v4
+        with:
+          repository: overnet-project/core-perl
+          path: core-perl
+
+      - uses: actions/checkout@v4
+        with:
+          repository: overnet-project/relay-perl
+          path: relay-perl
 
       - uses: shogo82148/actions-setup-perl@v1
         with:
@@ -58,7 +79,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/perl5
-          key: perl-${{ matrix.perl }}-${{ hashFiles('Makefile.PL', 'cpanfile', '.github/workflows/test.yml') }}
+          key: perl-${{ matrix.perl }}-${{ hashFiles('overnet-burner/Makefile.PL', 'overnet-burner/cpanfile', 'overnet-burner/.github/workflows/test.yml') }}
 
       - name: Install dependencies
         run: |
@@ -115,3 +136,56 @@ jobs:
         run: |
           prove -r -l -v t/
           prove -r -l -v xt/author/
+
+  managed-local-containers-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    name: Managed local-containers smoke
+    env:
+      PERL5LIB: /home/runner/perl5/lib/perl5
+      PERL_LOCAL_LIB_ROOT: /home/runner/perl5
+      PERL_MB_OPT: --install_base /home/runner/perl5
+      PERL_MM_OPT: INSTALL_BASE=/home/runner/perl5
+    defaults:
+      run:
+        working-directory: overnet-burner
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: overnet-burner
+
+      - uses: actions/checkout@v4
+        with:
+          repository: overnet-project/core-perl
+          path: core-perl
+
+      - uses: actions/checkout@v4
+        with:
+          repository: overnet-project/relay-perl
+          path: relay-perl
+
+      - uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: latest
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/perl5
+          key: perl-smoke-latest-${{ hashFiles('overnet-burner/Makefile.PL', 'overnet-burner/cpanfile', 'overnet-burner/.github/workflows/test.yml') }}
+
+      - name: Install dependencies
+        run: |
+          cpanm --local-lib ~/perl5 --installdeps .
+
+      - name: Verify Docker is available
+        run: |
+          docker info
+
+      - name: Run managed local-containers smoke
+        run: |
+          PERL5LIB=lib:$PERL5LIB bin/overnet-burner run \
+            --scenario scenarios/local-containers-smoke.yml \
+            --runs-dir runs \
+            --run-id ci-local-containers-smoke \
+            --runner rex-local-workers

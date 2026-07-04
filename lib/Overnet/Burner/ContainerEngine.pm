@@ -59,13 +59,15 @@ sub run_detached {
 
   my $name    = $args{name}  || croak "container name is required\n";
   my $image   = $args{image} || croak "image is required\n";
-  my @command = ref $args{command} eq 'ARRAY' ? @{$args{command}} : ();
-  my @cap_add = ref $args{cap_add} eq 'ARRAY' ? @{$args{cap_add}} : ();
+  my @command = ref $args{command} eq 'ARRAY'         ? @{$args{command}}         : ();
+  my @cap_add = ref $args{cap_add} eq 'ARRAY'         ? @{$args{cap_add}}         : ();
+  my @aliases = ref $args{network_aliases} eq 'ARRAY' ? @{$args{network_aliases}} : ();
 
   my ($output, $status) = _capture_argv(
     $self->binary, 'run', '-d', '--name', $name,
     defined $args{network} ? ('--network', $args{network}) : (),
-    (map { ('--cap-add', $_) } @cap_add),
+    (map { ('--network-alias', $_) } @aliases),
+    (map { ('--cap-add',       $_) } @cap_add),
     $image, @command,
   );
   if ($status != 0 || !defined $output || !length $output) {
@@ -75,6 +77,20 @@ sub run_detached {
   my ($id) = split /\n/mxs, $output;
 
   return $id;
+}
+
+sub build_image {
+  my ($self, %args) = @_;
+
+  my $tag     = $args{tag}     || croak "image tag is required\n";
+  my $context = $args{context} || croak "image build context is required\n";
+
+  my (undef, $status) = _capture_argv($self->binary, 'build', '-t', $tag, $context);
+  if ($status != 0) {
+    croak $self->name . " could not build image $tag from $context\n";
+  }
+
+  return 1;
 }
 
 sub exec_capture {
@@ -203,6 +219,8 @@ can pin a specific real engine.
 =head2 version
 
 =head2 run_detached
+
+=head2 build_image
 
 =head2 exec_capture
 

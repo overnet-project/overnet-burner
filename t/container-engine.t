@@ -82,6 +82,17 @@ subtest 'operations use the shared CLI surface' => sub {
   );
   is $capped, 'fake-container-id', 'run_detached accepts capability grants';
 
+  my $aliased = $engine->run_detached(
+    name            => 'burner-test-relay-001',
+    image           => 'example.test/reference:latest',
+    network         => 'burner-net-001',
+    network_aliases => ['relay-001'],
+    command         => ['sleep', 'infinity'],
+  );
+  is $aliased, 'fake-container-id', 'run_detached accepts network aliases';
+
+  $engine->build_image(tag => 'example.test/reference:latest', context => $tmp);
+
   my $argv = _slurp($log);
   like $argv, qr/run\x{0}-d\x{0}--name\x{0}burner-test-guest-001\x{0}--network\x{0}host\x{0}
                  example\.test\/worker:latest\x{0}sleep\x{0}infinity/mx, 'run_detached builds the shared run command';
@@ -97,6 +108,11 @@ subtest 'operations use the shared CLI surface' => sub {
   like $argv, qr/run\x{0}-d\x{0}--name\x{0}burner-test-guest-002\x{0}--network\x{0}burner-net-001\x{0}
                  --cap-add\x{0}NET_ADMIN\x{0}example\.test\/worker:latest/mx,
     'run_detached grants requested capabilities through --cap-add';
+  like $argv, qr/run\x{0}-d\x{0}--name\x{0}burner-test-relay-001\x{0}--network\x{0}burner-net-001\x{0}
+                 --network-alias\x{0}relay-001\x{0}example\.test\/reference:latest/mx,
+    'run_detached attaches stable network aliases';
+  like $argv, qr/build\x{0}-t\x{0}example\.test\/reference:latest\x{0}\Q$tmp\E/mx,
+    'build_image builds the requested context with the requested tag';
 };
 
 done_testing;

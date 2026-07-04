@@ -11,6 +11,7 @@ has engine    => (is => 'ro', required => 1);
 has container => (is => 'ro', required => 1);
 has image     => (is => 'ro');
 has cap_add   => (is => 'ro', default => sub { [] });
+has alias     => (is => 'ro');
 
 no Moo;
 
@@ -94,6 +95,10 @@ collection and on failure cleanup so guests never outlive their run.
 The Linux capabilities the container was granted at creation (for example
 C<NET_ADMIN> for netem chaos actions), recorded so the guest ledger never
 understates the privilege a guest ran with.
+
+=head2 alias
+
+Stable network alias assigned on the run bridge network, when one is needed.
 
 =head2 transport
 

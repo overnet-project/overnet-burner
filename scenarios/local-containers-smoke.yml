@@ -1,0 +1,20 @@
+environment:
+  kind: local-containers
+
+run:
+  name: local-containers-smoke
+  duration: 30
+  seed: 12345
+
+topology:
+  relays:
+    count: 1
+  publishers:
+    count: 1
+  subscribers:
+    count: 1
+
+workload:
+  publish_rate_per_second: 5
+  subscription_filters:
+    - kinds: [7800]

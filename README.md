@@ -38,6 +38,7 @@ The design is documented in [docs/PROPOSAL.md](docs/PROPOSAL.md).
 overnet-burner validate   --scenario scenarios/single-relay-baseline.yml
 overnet-burner generate   --seed 42 [--profile profiles/local-smoke.yml] [--out scenario.yml]
 overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
+overnet-burner run        --scenario scenarios/local-containers-smoke.yml --runner rex-local-workers
 overnet-burner run        --random --seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers
 overnet-burner report     --run-dir runs/RUN_ID  # regenerate report.json
 ```
@@ -54,6 +55,15 @@ forever. See [docs/generate.md](docs/generate.md).
 
 Every `run` writes `report.json` before it exits. The separate `report`
 command exists for regenerating that artifact from an existing run directory.
+
+For a self-contained local run, use
+[scenarios/local-containers-smoke.yml](scenarios/local-containers-smoke.yml).
+Its `environment.kind: local-containers` asks burner to build the reference
+Overnet image, start relay and worker containers on a per-run network,
+synthesize relay endpoints, run the workload, collect evidence, and tear
+everything down. The lower-level `provision` block remains available for
+expert scenarios that intentionally bring their own images, commands, or
+remote guests. See [docs/environments.md](docs/environments.md).
 
 ## Status
 
@@ -86,6 +96,11 @@ Implemented so far:
   on the relay guest through the one-shot `run_command` guest primitive and
   placement recorded in relay-guests.json
   ([docs/provisioning.md](docs/provisioning.md))
+- managed local-container environments: a scenario can declare
+  `environment.kind: local-containers` and let burner build the reference
+  image, provision relay and worker containers, wire relay endpoints through
+  stable network aliases, and clean up the run network
+  ([docs/environments.md](docs/environments.md))
 - network chaos actions (net-delay, net-loss, partition, heal) on
   bridge-networked container guests, with post-action evidence recorded in
   the run ledger ([docs/chaos.md](docs/chaos.md))

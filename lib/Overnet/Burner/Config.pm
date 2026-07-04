@@ -47,9 +47,11 @@ sub normalize {
   _require_optional_mapping($copy, 'workload');
   _require_optional_mapping($copy, 'thresholds');
   _require_optional_mapping($copy, 'workload.object_reads');
+  _require_optional_mapping($copy, 'environment');
 
   _normalize_topology($copy);
   _normalize_workload($copy);
+  _normalize_environment($copy);
 
   $copy->{chaos}      ||= [];
   $copy->{thresholds} ||= {};
@@ -71,6 +73,93 @@ sub normalize {
   }
 
   return $copy;
+}
+
+sub _normalize_environment {
+  my ($copy) = @_;
+
+  my $environment = $copy->{environment};
+  if (ref $environment ne 'HASH') {
+    return 1;
+  }
+  my $kind = $environment->{kind};
+  if (!(defined $kind && !ref($kind) && $kind eq 'local-containers')) {
+    return 1;
+  }
+
+  my $engine = $environment->{engine} || 'auto';
+  $environment->{engine} = $engine;
+
+  my $relay_count = $copy->{topology}{relays}{count} || 0;
+  if (!exists $copy->{topology}{relays}{provider}) {
+    $copy->{topology}{relays}{provider} = 'external-command';
+  }
+  if (!exists $copy->{topology}{relays}{endpoints}) {
+    $copy->{topology}{relays}{endpoints} = [map { sprintf 'ws://relay-%03d:7447', $_ } 1 .. $relay_count];
+  }
+  if (!exists $copy->{topology}{relays}{command}) {
+    $copy->{topology}{relays}{command} = _managed_relay_commands();
+  }
+
+  $copy->{provision} ||= {};
+  $copy->{provision}{relays} ||= {};
+  $copy->{provision}{relays} = {
+    how           => 'container',
+    engine        => $engine,
+    network       => 'bridge',
+    count         => $relay_count          || 1,
+    image         => $environment->{image} || 'overnet-burner-reference:local',
+    managed_image => 'reference',
+    %{$copy->{provision}{relays}},
+  };
+
+  my $worker_count = _managed_worker_guest_count($copy);
+  $copy->{provision}{workers} ||= {};
+  $copy->{provision}{workers} = {
+    how           => 'container',
+    engine        => $engine,
+    network       => 'bridge',
+    count         => $worker_count         || 1,
+    image         => $environment->{image} || 'overnet-burner-reference:local',
+    managed_image => 'reference',
+    worker        => 'overnet-burner worker',
+    %{$copy->{provision}{workers}},
+  };
+
+  return 1;
+}
+
+sub _managed_worker_guest_count {
+  my ($copy) = @_;
+
+  my $count = 0;
+  for my $role (
+    qw(publishers subscribers query_readers object_readers observers
+    flooders malformed_publishers replayers subscription_abusers sybils connection_floods
+    provenance_forgers)
+  ) {
+    $count += $copy->{topology}{$role}{count} || 0;
+  }
+
+  return $count;
+}
+
+sub _managed_relay_commands {
+  my $dir    = '/tmp/overnet-burner/relay';
+  my $health = "$dir/relay-health.json";
+  my $pid    = "$dir/relay.pid";
+  my $store  = "$dir/relay-store.json";
+  my $stdout = "$dir/relay.stdout";
+  my $stderr = "$dir/relay.stderr";
+
+  return {
+    start =>
+"mkdir -p '$dir' && (overnet-relay.pl --host 0.0.0.0 --port 7447 --store-file '$store' --health-file '$health' > '$stdout' 2> '$stderr' & echo \$! > '$pid')",
+    health =>
+"i=0; while [ \$i -lt 100 ]; do if test -s '$health' && grep -q '\"status\":\"ready\"' '$health'; then exit 0; fi; i=\$((i + 1)); sleep 0.1; done; cat '$stdout' '$stderr' 2>/dev/null; exit 1",
+    stop =>
+"if test -s '$pid'; then kill \"\$(cat '$pid')\" 2>/dev/null || true; i=0; while [ \$i -lt 50 ]; do kill -0 \"\$(cat '$pid')\" 2>/dev/null || exit 0; i=\$((i + 1)); sleep 0.1; done; kill -KILL \"\$(cat '$pid')\" 2>/dev/null || true; fi",
+  };
 }
 
 sub _normalize_topology {
@@ -123,6 +212,7 @@ sub validate {
   _require_positive_integer($config, 'topology.relays.count');
   _require_string($config, 'topology.relays.provider');
   Overnet::Burner::TopologyProvider->from_relay_config($config->{topology}{relays},);
+  _validate_environment($config);
   _validate_relay_endpoints($config);
   _require_nonnegative_number($config, 'workload.publish_rate_per_second');
   _require_nonnegative_number($config, 'workload.query_rate_per_second');
@@ -202,7 +292,7 @@ sub _validate_provision {
   }
 
   my %implemented = (
-    relays  => {local => 1, connect => 1},
+    relays  => {local => 1, connect => 1, container => 1},
     workers => {local => 1, connect => 1, container => 1, virtual => 1},
   );
   my %designed = map { $_ => 1 } qw(local connect container virtual);
@@ -240,6 +330,45 @@ sub _validate_provision {
       Overnet::Burner::Hardware::validate_requirements($spec->{hardware}, "provision.$group.hardware",
         construct => ($how eq 'virtual' ? 1 : 0),);
     }
+  }
+
+  return 1;
+}
+
+sub _validate_environment {
+  my ($config) = @_;
+
+  my $environment = _value_at($config, 'environment');
+  if (!defined $environment) {
+    return 1;
+  }
+  _require_mapping_ref($environment, 'environment');
+
+  my %known = map { $_ => 1 } qw(kind engine image);
+  for my $key (sort keys %{$environment}) {
+    if (!$known{$key}) {
+      croak "environment.$key is not a known field\n";
+    }
+  }
+
+  my $kind = $environment->{kind};
+  if (!(defined $kind && !ref($kind) && $kind eq 'local-containers')) {
+    croak "environment.kind must be one of local-containers\n";
+  }
+
+  my $engine  = $environment->{engine};
+  my %engines = map { $_ => 1 } qw(auto docker podman);
+  if (!(defined $engine && !ref($engine) && $engines{$engine})) {
+    croak "environment.engine must be one of auto, docker, podman\n";
+  }
+  if (exists $environment->{image}) {
+    my $image = $environment->{image};
+    if (!(defined $image && !ref($image) && length $image)) {
+      croak "environment.image must be a non-empty string\n";
+    }
+  }
+  if ($config->{topology}{relays}{provider} ne 'external-command') {
+    croak "environment.kind local-containers requires topology.relays.provider external-command\n";
   }
 
   return 1;
@@ -305,6 +434,12 @@ sub _validate_provision_container {
   if (!(defined $image && !ref($image) && length $image)) {
     croak "$path.image is required for how: container\n";
   }
+  if (exists $spec->{managed_image}) {
+    my $managed = $spec->{managed_image};
+    if (!(defined $managed && !ref($managed) && $managed eq 'reference')) {
+      croak "$path.managed_image must be reference\n";
+    }
+  }
 
   my %engines = map { $_ => 1 } qw(auto docker podman);
   my $engine  = $spec->{engine};
@@ -319,7 +454,7 @@ sub _validate_provision_container {
     croak "$path.network must be a non-empty string\n";
   }
   if ($network ne 'host' && $network ne 'bridge') {
-    croak "$path.network $network is not implemented yet for worker guests\n";
+    croak "$path.network $network is not implemented yet for container guests\n";
   }
 
   return 1;

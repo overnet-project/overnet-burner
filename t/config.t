@@ -1000,7 +1000,7 @@ YAML
     [
       'container with an unknown network mode',
       "provision:\n  workers:\n    how: container\n    image: w:1\n    network: macvlan",
-      qr/provision\.workers\.network\ macvlan\ is\ not\ implemented\ yet\ for\ worker\ guests/mx,
+      qr/provision\.workers\.network\ macvlan\ is\ not\ implemented\ yet\ for\ container\ guests/mx,
     ],
     [
       'empty worker command',

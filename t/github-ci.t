@@ -18,6 +18,23 @@ like $content, qr/cpanm\b[^\n]*--installdeps\s+\./mxs,     'workflow installs re
 like $content, qr/overnet-project\/overnet-perl-style/mxs, 'workflow installs shared Overnet Perl style policies';
 like $content, qr/prove\s+-r\s+-l\s+-v\s+t\//mxs,          'workflow runs normal tests';
 like $content, qr/prove\s+-r\s+-l\s+-v\s+xt\/author\//mxs, 'workflow runs author tests';
+like $content, qr/-\s+'README[.]md'/mxs,                   'workflow runs when README changes';
+like $content, qr{-\s+'docs/[*][*]'}mxs,                   'workflow runs when documentation changes';
+like $content, qr/-\s+'MANIFEST'/mxs,                      'workflow runs when MANIFEST changes';
+is scalar(() = $content =~ /^\s+path:\s+overnet-burner\s*$/gms), 2,
+  'both workflow jobs check out this repo in the sibling checkout layout';
+like $content, qr/repository:\s+overnet-project\/core-perl\b[\s\S]*?path:\s+core-perl/mxs,
+  'workflow checks out core-perl as a sibling';
+like $content, qr/repository:\s+overnet-project\/relay-perl\b[\s\S]*?path:\s+relay-perl/mxs,
+  'workflow checks out relay-perl as a sibling';
+is scalar(() = $content =~ /repository:\s+overnet-project\/core-perl\b/gms), 2,
+  'both workflow jobs check out core-perl';
+is scalar(() = $content =~ /repository:\s+overnet-project\/relay-perl\b/gms), 2,
+  'both workflow jobs check out relay-perl';
+like $content, qr/managed-local-containers-smoke:/mxs, 'workflow has a dedicated managed local-containers smoke job';
+like $content,
+  qr/bin\/overnet-burner\s+run\s+\\\s+--scenario\s+scenarios\/local-containers-smoke[.]yml\s+\\\s+--runs-dir\s+runs\s+\\\s+--run-id\s+ci-local-containers-smoke\s+\\\s+--runner\s+rex-local-workers/mxs,
+  'workflow runs the managed local-containers smoke scenario once';
 
 done_testing;
 

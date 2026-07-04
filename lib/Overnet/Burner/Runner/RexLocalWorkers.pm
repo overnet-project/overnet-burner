@@ -21,7 +21,8 @@ use Overnet::Burner::Guest::Exec;
 use Overnet::Burner::Guest::SSH;
 use Overnet::Burner::Guest::Virtual;
 use Overnet::Burner::Hardware ();
-use Overnet::Burner::Util     qw(json_text read_file read_json_file write_file);
+use Overnet::Burner::ReferenceImage;
+use Overnet::Burner::Util qw(json_text read_file read_json_file write_file);
 
 our $VERSION = '0.001';
 
@@ -212,14 +213,17 @@ sub _provision_relay_guests {
   my $relays    = ref $provision->{relays} eq 'HASH' ? $provision->{relays} : {};
   my $how       = $relays->{how} || 'local';
 
-  # Only connect places relays on their own guests today; local keeps them on
-  # the controller host, where the base runner already runs their lifecycle.
+  # Connect and container place relays on their own guests. Local keeps them
+  # on the controller host, where the base runner already runs lifecycle.
   $self->{relay_actor_guests} = {};
-  if ($how ne 'connect') {
+  if ($how eq 'local') {
     return 1;
   }
 
-  my @guests = $self->_connect_guests($relays, 'relays');
+  my @guests =
+      $how eq 'connect'   ? $self->_connect_guests($relays, 'relays')
+    : $how eq 'container' ? $self->_relay_container_guests($relays)
+    :                       ();
   if (!@guests) {
     return 1;
   }
@@ -232,12 +236,63 @@ sub _provision_relay_guests {
 
   my @guest_records = map { _guest_record($_) } @guests;
   my %placement     = map { $_ => $self->{relay_actor_guests}{$_}->name } keys %{$self->{relay_actor_guests}};
+  my $engine        = $self->{relay_engine};
   write_file(
     File::Spec->catfile($self->{run_dir}, 'relay-guests.json'),
-    json_text({guests => \@guest_records, placement => \%placement}),
+    json_text(
+      {
+        guests    => \@guest_records,
+        placement => \%placement,
+        $engine ? (engine => {name => $engine->name, version => $engine->version}) : (),
+        $self->{worker_network}
+        ? (network => {name => $self->{worker_network}, mode => 'bridge'})
+        : (),
+        exists $relays->{hardware} ? (hardware_requirements => $relays->{hardware}) : (),
+      }
+    ),
   );
 
   return 1;
+}
+
+sub _relay_container_guests {
+  my ($self, $relays) = @_;
+
+  my $engine   = Overnet::Burner::ContainerEngine->detect(engine => $relays->{engine} || 'auto');
+  my $manifest = read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
+  my $run_id   = $manifest->{run_id};
+  my $network  = $self->_container_network($engine, $relays->{network} || 'bridge');
+  my $image    = $self->_container_image($engine, $relays);
+
+  $self->{relay_engine} = $engine;
+
+  my @guests;
+  for my $ordinal (1 .. ($relays->{count} || 1)) {
+    my $guest_name = sprintf 'relay-guest-%03d', $ordinal;
+    my $alias      = sprintf 'relay-%03d',       $ordinal;
+    my $container  = "burner-$run_id-$guest_name";
+
+    my $guest = Overnet::Burner::Guest::Container->new(
+      name      => $guest_name,
+      role      => 'relays',
+      engine    => $engine,
+      container => $container,
+      image     => $image,
+      alias     => $alias,
+    );
+    push @{$self->{relay_guests}}, $guest;
+    push @guests,                  $guest;
+
+    $engine->run_detached(
+      name            => $container,
+      image           => $image,
+      network         => $network,
+      network_aliases => [$alias],
+      command         => ['sleep', 'infinity'],
+    );
+  }
+
+  return @guests;
 }
 
 sub _relay_actors {
@@ -264,12 +319,8 @@ sub _container_guests {
   my $run_id   = $manifest->{run_id};
   $self->{worker_engine} = $engine;
 
-  my $network = $workers->{network} || 'host';
-  if ($network eq 'bridge') {
-    $network = "burner-$run_id";
-    $engine->network_create($network);
-    $self->{worker_network} = $network;
-  }
+  my $network = $self->_container_network($engine, $workers->{network} || 'host');
+  my $image   = $self->_container_image($engine, $workers);
   my @cap_add = (grep { $NETEM_ACTIONS{$_->{action} || q{}} } @{$chaos}) ? ('NET_ADMIN') : ();
 
   for my $ordinal (1 .. ($workers->{count} || 1)) {
@@ -285,12 +336,12 @@ sub _container_guests {
       role      => 'workers',
       engine    => $engine,
       container => $container,
-      image     => $workers->{image},
+      image     => $image,
       cap_add   => \@cap_add,
       );
     $engine->run_detached(
       name    => $container,
-      image   => $workers->{image},
+      image   => $image,
       network => $network,
       @cap_add ? (cap_add => \@cap_add) : (),
       command => ['sleep', 'infinity'],
@@ -298,6 +349,43 @@ sub _container_guests {
   }
 
   return 1;
+}
+
+sub _container_network {
+  my ($self, $engine, $network) = @_;
+
+  if ($network ne 'bridge') {
+    return $network;
+  }
+
+  if ($self->{worker_network}) {
+    return $self->{worker_network};
+  }
+
+  my $manifest = read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
+  my $name     = "burner-$manifest->{run_id}";
+  $engine->network_create($name);
+  $self->{worker_network} = $name;
+  $self->{worker_engine} ||= $engine;
+
+  return $name;
+}
+
+sub _container_image {
+  my ($self, $engine, $spec) = @_;
+
+  my $image = $spec->{image} || croak "container image is required\n";
+  if (($spec->{managed_image} || q{}) ne 'reference') {
+    return $image;
+  }
+
+  my $key = join "\0", $engine->name, $image;
+  if (!$self->{managed_images}{$key}) {
+    Overnet::Burner::ReferenceImage->ensure(engine => $engine, run_dir => $self->{run_dir}, tag => $image);
+    $self->{managed_images}{$key} = 1;
+  }
+
+  return $image;
 }
 
 sub _virtual_guests {
@@ -487,6 +575,9 @@ sub _guest_record {
   if ($guest->transport eq 'container') {
     $guest_record{container} = $guest->container;
     $guest_record{image}     = $guest->image;
+    if (defined $guest->alias) {
+      $guest_record{alias} = $guest->alias;
+    }
     if (@{$guest->cap_add}) {
       $guest_record{cap_add} = $guest->cap_add;
     }
@@ -508,10 +599,42 @@ sub _destroy_worker_guests {
   for my $guest (@{$self->{worker_guests} || []}) {
     $guest->destroy;
   }
-  if ($self->{worker_network}) {
-    $self->{worker_engine}->network_remove($self->{worker_network});
-    $self->{worker_network} = undef;
+
+  return 1;
+}
+
+sub _destroy_relay_guests {
+  my ($self) = @_;
+
+  for my $guest (@{$self->{relay_guests} || []}) {
+    $guest->destroy;
   }
+
+  return 1;
+}
+
+sub _destroy_container_network {
+  my ($self) = @_;
+
+  if (!$self->{worker_network}) {
+    return 1;
+  }
+
+  my $engine = $self->{worker_engine} || $self->{relay_engine};
+  if ($engine) {
+    $engine->network_remove($self->{worker_network});
+  }
+  $self->{worker_network} = undef;
+
+  return 1;
+}
+
+sub _destroy_constructed_guests {
+  my ($self) = @_;
+
+  $self->_destroy_worker_guests;
+  $self->_destroy_relay_guests;
+  $self->_destroy_container_network;
 
   return 1;
 }
@@ -524,7 +647,7 @@ sub teardown_on_signal {
   # network. Guest destroy is idempotent and best-effort (it never dies), so
   # an orderly teardown that already ran makes this a quiet no-op. Connect
   # guests are operator-owned and their destroy is a no-op by design.
-  $self->_destroy_worker_guests;
+  $self->_destroy_constructed_guests;
 
   return 1;
 }
@@ -535,9 +658,18 @@ sub cleanup_after_lifecycle_failure {
   if (!eval { $self->_pull_worker_logs; 1 }) {
     $self->_record_worker_event(status => 'worker_log_pull_failed', phase => 'cleanup');
   }
-  $self->_destroy_worker_guests;
 
-  return $self->SUPER::cleanup_after_lifecycle_failure(%args);
+  my $ok = eval {
+    $self->SUPER::cleanup_after_lifecycle_failure(%args);
+    1;
+  };
+  my $error = $EVAL_ERROR;
+  $self->_destroy_constructed_guests;
+  if (!$ok) {
+    croak $error;
+  }
+
+  return 1;
 }
 
 sub _guest_for {
@@ -602,9 +734,10 @@ sub collect {
   my $plan = $self->{plan};
   my @collected;
   my $aggregated = q{};
+  my $run_dir    = File::Spec->rel2abs($self->{run_dir});
   for my $stream (@{$plan->{metric_streams} || []}) {
     my $guest   = $self->_guest_for($stream->{actor_id});
-    my $path    = File::Spec->catfile($self->{run_dir}, $stream->{path});
+    my $path    = File::Spec->catfile($run_dir, $stream->{path});
     my $content = $guest->read_file($path);
     if (!(defined $content && length $content)) {
       next;
@@ -625,7 +758,7 @@ sub collect {
     phase             => 'collect',
     streams_collected => \@collected,
   );
-  $self->_destroy_worker_guests;
+  $self->_destroy_constructed_guests;
 
   return 1;
 }
@@ -712,9 +845,11 @@ sub _launch_worker {
   my $actor_id   = $actor->{id};
   my $guest      = $self->_guest_for($actor_id);
   my $manifest   = read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
-  my $worker_dir = File::Spec->catdir($self->{run_dir}, 'workers', $actor_id);
-  my $logs_dir   = File::Spec->catdir($self->{run_dir}, 'logs',    'workers');
-  my $stream_dir = dirname(File::Spec->catfile($self->{run_dir}, $actor->{metric_stream}));
+  my $run_dir    = File::Spec->rel2abs($self->{run_dir});
+  my $worker_dir = File::Spec->catdir($run_dir, 'workers', $actor_id);
+  my $logs_dir   = File::Spec->catdir($run_dir, 'logs',    'workers');
+  my $stream_dir = dirname(File::Spec->catfile($run_dir, $actor->{metric_stream}));
+
   for my $dir ($worker_dir, $logs_dir, $stream_dir) {
     $guest->make_path($dir);
   }
@@ -730,7 +865,7 @@ sub _launch_worker {
   my $input = {
     input_version    => 1,
     run_id           => $manifest->{run_id},
-    run_dir          => File::Spec->rel2abs($self->{run_dir}),
+    run_dir          => $run_dir,
     worker_id        => $actor_id,
     role             => $actor->{role},
     seed             => $actor->{seed},
@@ -751,7 +886,7 @@ sub _launch_worker {
 
   $self->{worker_pids}{$actor_id} = $guest->launch(
     command => $command,
-    env     => {OVERNET_BURNER_WORKER_INPUT => File::Spec->rel2abs($input_path)},
+    env     => {OVERNET_BURNER_WORKER_INPUT => $input_path},
     stdout  => $stdout,
     stderr  => $stderr,
   );
@@ -857,7 +992,7 @@ sub _await_wave_ready {
     return 1;
   }
 
-  my $workers_root = File::Spec->catdir($self->{run_dir}, 'workers');
+  my $workers_root = File::Spec->catdir(File::Spec->rel2abs($self->{run_dir}), 'workers');
   my $deadline     = time + $READY_TIMEOUT_SECONDS;
   my %pending      = map { $_->{id} => 1 } @{$wave_actors};
 

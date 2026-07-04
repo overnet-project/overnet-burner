@@ -1,29 +1,31 @@
 # overnet-burner Guest Provisioning (Design)
 
-**Status: implemented for the workers group and `connect` for relays.** The
+**Status: implemented for the workers group and `connect` / `container` for relays.** The
 guest interface, the `local` method, and the `connect`, `container`, and
 `virtual` methods for the workers group are implemented and tested
 (containers on both Docker and podman with the engine adapter and detection
 rules below; virtual machines with direct QEMU per the decisions below).
-The relays group supports `local` and `connect`: a relay placed on a
-`connect` guest has its topology-provider lifecycle (start, health, stop)
+The relays group supports `local`, `connect`, and `container`: a relay placed
+on a `connect` guest has its topology-provider lifecycle (start, health, stop)
 run on that guest over the guest's transport, through the same one-shot
 `run_command` guest primitive the runner uses for the controller host.
 Relay endpoint reachability from the workers is the scenario author's
-responsibility for `connect` relays — the burner runs the declared
-lifecycle commands on the declared guest and does not rewrite endpoints. The
-`container` and `virtual` methods for relays remain proposed design,
-rejected by scenario validation as not implemented yet, because a relay the
-burner constructs inside a container or VM needs an endpoint-routing story
-(how workers reach a relay listening inside a constructed guest) that
-`connect` sidesteps. One deliberate deviation while relays run on the
+responsibility for `connect` relays — the burner runs the declared lifecycle
+commands on the declared guest and does not rewrite endpoints. For
+`container` relays, the runner creates relay containers on the same per-run
+bridge network used by container workers and assigns stable network aliases
+such as `relay-001`; `environment.kind: local-containers` derives those
+endpoints automatically. The `virtual` method for relays
+remains proposed design, rejected by scenario validation as not implemented
+yet, because a relay the burner constructs inside a VM still needs an
+endpoint-routing story. One deliberate deviation while relays run on the
 controller host: **worker containers default to host networking**, because
 a bridge-networked worker cannot reach relay endpoints declared as
 `ws://127.0.0.1`. Worker containers MAY opt into the per-run bridge
 network with `network: bridge` — required by the network chaos actions in
 [chaos.md](chaos.md) — in which case the scenario author must declare
-relay endpoints that are reachable **from the run network** (a host
-address the containers can route to, with the relay listening on it);
+relay endpoints that are reachable **from the run network** or use
+[environments.md](environments.md) to let burner synthesize them;
 endpoint rewriting is deliberately not performed, and loopback relay
 endpoints are rejected at scenario validation for bridge-networked and
 virtual workers, because loopback inside such a guest is the guest
@@ -104,7 +106,7 @@ provision:
 |---|---|---|
 | `local` | Nothing — the controller host itself | The default; exactly today's behavior |
 | `connect` | Nothing — attaches to machines you already have | The `hosts` sketch in distributed.md collapses into this method |
-| `container` | Docker or podman containers | Cheap scale-out; shares the host kernel; the CI-testable path for everything distributed |
+| `container` | Docker or podman containers | Cheap scale-out; shares the host kernel; implemented for workers and relays |
 | `virtual` | QEMU/libvirt virtual machines | Real kernels and network stacks; honors hardware requirements by construction |
 
 Groups are keyed by what they host (`relays`, `workers`); omitting the
