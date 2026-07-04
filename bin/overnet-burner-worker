@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 use strictures 2;
 
+use Carp    qw(carp);
 use English qw(-no_match_vars);
 use FindBin;
 use lib "$FindBin::Bin/../lib";
@@ -54,7 +55,7 @@ sub main {
 
   my $loaded = eval "require $class; 1";    ## no critic (BuiltinFunctions::ProhibitStringyEval)
   if (!$loaded) {
-    warn "unable to load worker class $class: $EVAL_ERROR";
+    carp "unable to load worker class $class: $EVAL_ERROR";
     return 2;
   }
 
@@ -64,9 +65,9 @@ sub main {
     $worker = $class->new(input => $input);
     $worker->run;
     1;
-  } or $error = $EVAL_ERROR || 'worker failed';
+  } or do { $error = $EVAL_ERROR || 'worker failed' };
   if ($error) {
-    warn $error;
+    carp $error;
     return 1;
   }
 
