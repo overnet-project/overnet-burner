@@ -39,7 +39,7 @@ overnet-burner validate   --scenario scenarios/single-relay-baseline.yml
 overnet-burner generate   --seed 42 [--profile profiles/local-smoke.yml] [--out scenario.yml]
 overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
 overnet-burner run        --random --seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers
-overnet-burner report     --run-dir runs/RUN_ID
+overnet-burner report     --run-dir runs/RUN_ID  # regenerate report.json
 ```
 
 Scenarios are human-authored YAML; see
@@ -51,6 +51,9 @@ random-but-reproducible scenario within a profile envelope, judged on
 invariants rather than fixed thresholds. Profiles carry the relay endpoints
 and lifecycle commands for the system under test. Same seed, same scenario,
 forever. See [docs/generate.md](docs/generate.md).
+
+Every `run` writes `report.json` before it exits. The separate `report`
+command exists for regenerating that artifact from an existing run directory.
 
 ## Status
 

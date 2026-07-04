@@ -184,5 +184,6 @@ overnet-burner run --random --seed 42 --profile profiles/local-resilience.yml --
 `generate` writes the scenario as YAML to standard output, or to `--out` when
 given. `run --random` is `--scenario` replaced by generation: it generates
 the scenario from `--seed` (and optional `--profile`), then runs it exactly
-as if it had been passed on disk, so the run's `scenario.yml`,
-`config.normalized.json`, and `plan.json` record precisely what ran.
+as if it had been passed on disk. The run's `scenario.yml`,
+`config.normalized.json`, and `plan.json` record precisely what ran, and
+`report.json` records the run result before the command exits.

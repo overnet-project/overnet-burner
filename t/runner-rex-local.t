@@ -147,8 +147,9 @@ my $cli_tmp    = tempdir(CLEANUP => 1);
 my $cli_run_id = 'cli-rex-local-001';
 my $cli_run = `$^X $bin run --scenario $scenario_path --runs-dir $cli_tmp --run-id $cli_run_id --runner rex-local 2>&1`;
 is $?, 0, 'CLI run --runner rex-local exits successfully';
-like $cli_run, qr{\Acompleted\ run:\ \Q$cli_tmp/$cli_run_id\E\n?\z}xm,
-  'CLI run reports completed rex-local run directory';
+like $cli_run,
+  qr{\Acompleted\ run:\ \Q$cli_tmp/$cli_run_id\E\nwrote\ report:\ \Q$cli_tmp/$cli_run_id/report.json\E\n?\z}xm,
+  'CLI run reports completed rex-local run directory and generated report';
 
 my $cli_manifest = _read_json(File::Spec->catfile($cli_tmp, $cli_run_id, 'manifest.json'),);
 is $cli_manifest->{status},               'completed',     'CLI rex-local manifest records completion';
@@ -177,8 +178,8 @@ my $external_run =
 `$^X $bin run --scenario $external_scenario --runs-dir $external_tmp/runs --run-id $external_run_id --runner rex-local 2>&1`;
 is $?, 0, 'rex-local run accepts external-command provider scenario';
 like $external_run,
-  qr{\Acompleted\ run:\ \Q$external_tmp/runs/$external_run_id\E\n?\z}xm,
-  'rex-local completes external-command provider run';
+qr{\Acompleted\ run:\ \Q$external_tmp/runs/$external_run_id\E\nwrote\ report:\ \Q$external_tmp/runs/$external_run_id/report.json\E\n?\z}xm,
+  'rex-local completes external-command provider run and generates report';
 ok !-e $marker, 'rex-local does not execute provider command strings';
 
 my $topology_provider = _read_json(
@@ -211,8 +212,9 @@ my $relative_runs     = "relative-rex-local-$$";
   my $relative_run =
     `$^X $bin run --scenario $scenario_path --runs-dir $relative_runs --run-id relative --runner rex-local 2>&1`;
   is $?, 0, 'CLI rex-local works with a relative runs-dir';
-  like $relative_run, qr{\Acompleted\ run:\ \Q$relative_runs/relative\E\n?\z}xm,
-    'relative runs-dir run reports completed run directory';
+  like $relative_run,
+    qr{\Acompleted\ run:\ \Q$relative_runs/relative\E\nwrote\ report:\ \Q$relative_runs/relative/report.json\E\n?\z}xm,
+    'relative runs-dir run reports completed run directory and generated report';
 }
 _remove_tree($relative_runs);
 

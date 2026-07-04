@@ -37,11 +37,14 @@ A representative smoke report is provided at:
 examples/report-v1-smoke.json
 ```
 
-Generated runs should eventually write:
+Every run writes:
 
 ```text
 runs/<run-id>/report.json
 ```
+
+The `overnet-burner report` command regenerates the same artifact from an
+existing run directory.
 
 ## Versioning
 

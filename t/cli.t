@@ -98,10 +98,13 @@ my $run_tmp        = tempdir(CLEANUP => 1);
 my $run_command_id = 'cli-run-002';
 my $run = `$^X $bin run --scenario $scenario --runs-dir $run_tmp --run-id $run_command_id --runner noop 2>&1`;
 is $?, 0, 'run command exits successfully';
-like $run, qr{\Acompleted\ run:\ \Q$run_tmp/$run_command_id\E\n?\z}xm, 'run command reports completed run directory';
+like $run,
+  qr{\Acompleted\ run:\ \Q$run_tmp/$run_command_id\E\nwrote\ report:\ \Q$run_tmp/$run_command_id/report.json\E\n?\z}xm,
+  'run command reports completed run directory and generated report';
 
 my $run_manifest_path = File::Spec->catfile($run_tmp, $run_command_id, 'manifest.json');
 my $run_manifest      = _read_json($run_manifest_path);
+my $run_report_path   = File::Spec->catfile($run_tmp, $run_command_id, 'report.json');
 
 is $run_manifest->{status},                  'completed',     'run manifest records completion';
 is $run_manifest->{topology_provider}{name}, 'generic-relay', 'run manifest keeps topology provider';
@@ -121,6 +124,10 @@ is $run_manifest->{lifecycle}{phases},
   },
   'run manifest records lifecycle phases';
 is $run_manifest->{lifecycle}{actor_counts}{total}, 5, 'run manifest records deterministic actor total';
+ok -e $run_report_path, 'run command writes report.json automatically';
+my $run_report = _read_json($run_report_path);
+is $run_report->{run}{status},  'completed',    'automatic report records completed status';
+is $run_report->{run}{verdict}, 'smoke_passed', 'automatic report records the run verdict';
 
 my $run_log_path = File::Spec->catfile($run_tmp, $run_command_id, 'logs', 'runner.jsonl');
 open my $run_log_fh, '<', $run_log_path or die "open $run_log_path: $!";
@@ -146,6 +153,10 @@ ok !exists $failed_manifest->{provider},           'failed run manifest does not
 ok !exists $failed_manifest->{execution_provider}, 'failed run manifest does not use execution provider field';
 like $failed_manifest->{error}, qr/unknown\ runner:\ missing/mx, 'failed run manifest records error';
 ok $failed_manifest->{timestamps}{finished_at}, 'failed run manifest records finish time';
+my $failed_report = _read_json(File::Spec->catfile($failed_tmp, $failed_id, 'report.json'));
+is $failed_report->{run}{status},       'failed',               'failed run writes report.json automatically';
+is $failed_report->{run}{verdict},      'orchestration_failed', 'failed automatic report records failure verdict';
+is $failed_report->{execution}{runner}, 'missing',              'failed automatic report records requested runner';
 
 subtest 'generate emits a deterministic, valid scenario' => sub {
   my $first = `$^X $bin generate --seed 42 2>&1`;
@@ -172,6 +183,8 @@ subtest 'run --random generates, records, and runs a scenario' => sub {
   my $random_tmp = tempdir(CLEANUP => 1);
   my $run_output = `$^X $bin run --random --seed 7 --runs-dir $random_tmp --run-id random-001 --runner noop 2>&1`;
   is $?, 0, 'run --random exits successfully' or diag($run_output);
+  like $run_output, qr{wrote\ report:\ \Q$random_tmp/random-001/report.json\E}mx,
+    'run --random reports automatic report generation';
 
   my $manifest = _read_json(File::Spec->catfile($random_tmp, 'random-001', 'manifest.json'));
   is $manifest->{status},         'completed', 'random run completes';
@@ -180,6 +193,7 @@ subtest 'run --random generates, records, and runs a scenario' => sub {
 
   ok -e File::Spec->catfile($random_tmp, 'random-001', 'scenario.yml'),
     'the generated scenario is recorded in the run ledger for repro';
+  ok -e File::Spec->catfile($random_tmp, 'random-001', 'report.json'), 'run --random writes report.json automatically';
 
   my $missing_seed = `$^X $bin run --random --runs-dir $random_tmp --run-id random-noseed --runner noop 2>&1`;
   is $? >> 8, 2, 'run --random without a seed exits nonzero';

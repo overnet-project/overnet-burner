@@ -256,7 +256,9 @@ _write_yaml($cli_scenario, _external_scenario_yaml($cli_commands));
   my $cli =
     `$^X $bin run --scenario $cli_scenario --runs-dir $cli_tmp/runs --run-id cli --runner rex-local-provider 2>&1`;
   is $?, 0, 'CLI run --runner rex-local-provider exits successfully';
-  like $cli, qr{\Acompleted\ run:\ \Q$cli_tmp/runs/cli\E\n?\z}xm, 'CLI provider runner reports completed run directory';
+  like $cli,
+    qr{\Acompleted\ run:\ \Q$cli_tmp/runs/cli\E\nwrote\ report:\ \Q$cli_tmp/runs/cli/report.json\E\n?\z}xm,
+    'CLI provider runner reports completed run directory and generated report';
 }
 my $cli_manifest = _read_json(File::Spec->catfile($cli_tmp, 'runs', 'cli', 'manifest.json'),);
 is $cli_manifest->{runner}{name},      'rex-local-provider', 'CLI manifest records provider runner';

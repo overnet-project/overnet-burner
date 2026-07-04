@@ -39,9 +39,11 @@ is $init_report->{execution}{phases}, [],              'initialized report recor
 my $noop_run_id = 'report-noop-001';
 my $noop_run    = `$^X $bin run --scenario $scenario --runs-dir $tmp --run-id $noop_run_id --runner noop 2>&1`;
 is $?, 0, 'creates noop run for reporting';
-like $noop_run, qr{\Acompleted\ run:\ \Q$tmp/$noop_run_id\E\n?\z}xm, 'noop run reports completed run directory';
+like $noop_run, qr{\Acompleted\ run:\ \Q$tmp/$noop_run_id\E\nwrote\ report:\ \Q$tmp/$noop_run_id/report.json\E\n?\z}xm,
+  'noop run reports completed run directory and generated report';
 
-my $noop_run_dir        = File::Spec->catdir($tmp, $noop_run_id);
+my $noop_run_dir = File::Spec->catdir($tmp, $noop_run_id);
+ok -e File::Spec->catfile($noop_run_dir, 'report.json'), 'noop run writes report.json automatically';
 my $noop_report_command = `$^X $bin report --run-dir $noop_run_dir 2>&1`;
 is $?, 0, 'report command exits successfully for noop run';
 like $noop_report_command, qr{\Awrote\ report:\ \Q$noop_run_dir/report.json\E\n?\z}xm,
@@ -114,10 +116,13 @@ my $rex_run_id = 'report-rex-local-001';
   local $ENV{OVERNET_BURNER_TEST_REX_LOG} = $rex_log;
   my $rex_run = `$^X $bin run --scenario $scenario --runs-dir $tmp --run-id $rex_run_id --runner rex-local 2>&1`;
   is $?, 0, 'creates rex-local run for reporting';
-  like $rex_run, qr{\Acompleted\ run:\ \Q$tmp/$rex_run_id\E\n?\z}xm, 'rex-local run reports completed run directory';
+  like $rex_run,
+    qr{\Acompleted\ run:\ \Q$tmp/$rex_run_id\E\nwrote\ report:\ \Q$tmp/$rex_run_id/report.json\E\n?\z}xm,
+    'rex-local run reports completed run directory and generated report';
 }
 
-my $rex_run_dir        = File::Spec->catdir($tmp, $rex_run_id);
+my $rex_run_dir = File::Spec->catdir($tmp, $rex_run_id);
+ok -e File::Spec->catfile($rex_run_dir, 'report.json'), 'rex-local run writes report.json automatically';
 my $rex_report_command = `$^X $bin report --run-dir $rex_run_dir 2>&1`;
 is $?, 0, 'report command exits successfully for rex-local run';
 like $rex_report_command, qr{\Awrote\ report:\ \Q$rex_run_dir/report.json\E\n?\z}xm,
@@ -146,7 +151,8 @@ my $failed_run    = `$^X $bin run --scenario $scenario --runs-dir $tmp --run-id 
 is $? >> 8, 2, 'creates failed run for reporting';
 like $failed_run, qr/unknown\ runner:\ missing/mx, 'failed run reports runner error';
 
-my $failed_run_dir        = File::Spec->catdir($tmp, $failed_run_id);
+my $failed_run_dir = File::Spec->catdir($tmp, $failed_run_id);
+ok -e File::Spec->catfile($failed_run_dir, 'report.json'), 'failed run writes report.json automatically';
 my $failed_report_command = `$^X $bin report --run-dir $failed_run_dir 2>&1`;
 is $?, 0, 'report command exits successfully for failed run';
 

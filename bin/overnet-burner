@@ -300,6 +300,18 @@ sub _run {
       runner => $runner_name,
       error  => $error,
     );
+    my $report_error;
+    eval {
+      my $report_path = _write_run_report($ledger->{run_dir});
+      checked_print(\*STDOUT, "wrote report: $report_path\n");
+      1;
+    } or do {
+      $report_error = $EVAL_ERROR || 'report generation failed';
+      chomp $report_error;
+    };
+    if ($report_error) {
+      die "$error\nreport generation failed: $report_error\n";
+    }
     die "$error\n";
   }
 
@@ -309,7 +321,9 @@ sub _run {
     lifecycle => $summary,
   );
 
+  my $report_path = _write_run_report($ledger->{run_dir});
   checked_print(\*STDOUT, "completed run: $ledger->{run_dir}\n");
+  checked_print(\*STDOUT, "wrote report: $report_path\n");
 
   return 0;
 }
@@ -328,10 +342,16 @@ sub _report {
     die "unexpected arguments: @args\n";
   }
 
-  my $path = Overnet::Burner::Report->write_report(run_dir => $run_dir);
+  my $path = _write_run_report($run_dir);
   checked_print(\*STDOUT, "wrote report: $path\n");
 
   return 0;
+}
+
+sub _write_run_report {
+  my ($run_dir) = @_;
+
+  return Overnet::Burner::Report->write_report(run_dir => $run_dir);
 }
 
 sub _worker {
