@@ -15,6 +15,8 @@ my $content = _read_file($workflow);
 like $content, qr/perl:\s*\['5\.40',\s*'latest'\]/mxs,     'workflow tests Perl 5.40 and latest';
 like $content, qr/shogo82148\/actions-setup-perl\@v1/mxs,  'workflow installs Perl with the project action';
 like $content, qr/cpanm\b[^\n]*--installdeps\s+\./mxs,     'workflow installs repository dependencies';
+is scalar(() = $content =~ /echo\s+"\$HOME\/perl5\/bin"\s+>>\s+"\$GITHUB_PATH"/gms), 2,
+  'both workflow jobs add local-lib scripts to PATH';
 like $content, qr/overnet-project\/overnet-perl-style/mxs, 'workflow installs shared Overnet Perl style policies';
 like $content, qr/prove\s+-r\s+-l\s+-v\s+t\//mxs,          'workflow runs normal tests';
 like $content, qr/prove\s+-r\s+-l\s+-v\s+xt\/author\//mxs, 'workflow runs author tests';
