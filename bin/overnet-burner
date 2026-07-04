@@ -1,18 +1,20 @@
 #!/usr/bin/env perl
 use strictures 2;
 
-use English qw(-no_match_vars);
+use English    qw(-no_match_vars);
+use File::Temp ();
 use FindBin;
 use Getopt::Long qw(GetOptionsFromArray);
 use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Config;
+use Overnet::Burner::Generator;
 use Overnet::Burner::Plan;
 use Overnet::Burner::Report;
 use Overnet::Burner::RexBundle;
 use Overnet::Burner::RunLedger;
 use Overnet::Burner::Runner;
-use Overnet::Burner::Util qw(checked_print);
+use Overnet::Burner::Util qw(checked_print write_file);
 
 our $VERSION = '0.001';
 
@@ -30,6 +32,9 @@ sub main {
     }
     if ($command eq 'plan') {
       return _plan(@args);
+    }
+    if ($command eq 'generate') {
+      return _generate(@args);
     }
     if ($command eq 'init-run') {
       return _init_run(@args);
@@ -95,6 +100,49 @@ sub _plan {
   checked_print(\*STDOUT, Overnet::Burner::Plan->canonical_json(Overnet::Burner::Plan->build($scenario),),);
 
   return 0;
+}
+
+sub _generate {
+  my @args = @_;
+  my $seed;
+  my $profile_path;
+  my $out_path;
+
+  GetOptionsFromArray(
+    \@args,
+    'seed=s'    => \$seed,
+    'profile=s' => \$profile_path,
+    'out=s'     => \$out_path,
+  ) or return _usage();
+
+  if (!defined $seed) {
+    die "--seed is required\n";
+  }
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
+
+  my $yaml = _generate_scenario_yaml($seed, $profile_path);
+  if (defined $out_path) {
+    write_file($out_path, $yaml);
+    checked_print(\*STDOUT, "generated scenario: $out_path\n");
+  } else {
+    checked_print(\*STDOUT, $yaml);
+  }
+
+  return 0;
+}
+
+sub _generate_scenario_yaml {
+  my ($seed, $profile_path) = @_;
+
+  my $profile =
+    defined $profile_path
+    ? Overnet::Burner::Generator->load_profile($profile_path)
+    : Overnet::Burner::Generator->default_profile;
+  my $scenario = Overnet::Burner::Generator->generate(seed => $seed, profile => $profile);
+
+  return Overnet::Burner::Generator->scenario_yaml($scenario);
 }
 
 sub _init_run {
@@ -179,6 +227,9 @@ sub _run {
   my $runs_dir = 'runs';
   my $run_id;
   my $runner_name = 'noop';
+  my $random;
+  my $seed;
+  my $profile_path;
 
   GetOptionsFromArray(
     \@args,
@@ -186,9 +237,29 @@ sub _run {
     'runs-dir=s' => \$runs_dir,
     'run-id=s'   => \$run_id,
     'runner=s'   => \$runner_name,
+    'random'     => \$random,
+    'seed=s'     => \$seed,
+    'profile=s'  => \$profile_path,
   ) or return _usage();
 
-  if (!$scenario_path) {
+  # A generated run replaces --scenario with generation: the generated
+  # document is written into the run so scenario.yml records exactly what ran.
+  my $generated_scenario;
+  if ($random) {
+    if ($scenario_path) {
+      die "--scenario cannot be combined with --random\n";
+    }
+    if (!defined $seed) {
+      die "--seed is required with --random\n";
+    }
+    $generated_scenario = File::Temp->new(SUFFIX => '.yml');
+    print {$generated_scenario} _generate_scenario_yaml($seed, $profile_path)
+      or die "write generated scenario: $OS_ERROR\n";
+    $generated_scenario->flush;
+    $scenario_path = $generated_scenario->filename;
+  } elsif (defined $seed || defined $profile_path) {
+    die "--seed and --profile require --random\n";
+  } elsif (!$scenario_path) {
     die "--scenario is required\n";
   }
   if (@args) {
@@ -262,9 +333,11 @@ sub _usage {
 usage:
   overnet-burner validate --scenario scenarios/single-relay-baseline.yml
   overnet-burner plan --scenario scenarios/single-relay-baseline.yml
+  overnet-burner generate --seed N [--profile profiles/local-smoke.yml] [--out scenario.yml]
   overnet-burner init-run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
   overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
   overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop|rex-local|rex-local-provider|rex-local-workers]
+  overnet-burner run --random --seed N [--profile profiles/local-smoke.yml] [--runs-dir runs] [--run-id ID] [--runner ...]
   overnet-burner report --run-dir runs/RUN_ID
 USAGE
   return 2;

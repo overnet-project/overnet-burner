@@ -36,13 +36,20 @@ The design is documented in [docs/PROPOSAL.md](docs/PROPOSAL.md).
 
 ```text
 overnet-burner validate   --scenario scenarios/single-relay-baseline.yml
+overnet-burner generate   --seed 42 [--profile profiles/local-smoke.yml] [--out scenario.yml]
 overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
+overnet-burner run        --random --seed 42 [--profile profiles/local-smoke.yml] --runner rex-local-workers
 overnet-burner report     --run-dir runs/RUN_ID
 ```
 
 Scenarios are human-authored YAML; see
 [scenarios/single-relay-baseline.yml](scenarios/single-relay-baseline.yml)
 for the baseline shape (topology, workload, chaos schedule, thresholds).
+
+Scenarios can also be generated: `generate` (and `run --random`) produce a
+random-but-reproducible scenario within a profile envelope, judged on
+invariants rather than fixed thresholds. Same seed, same scenario, forever.
+See [docs/generate.md](docs/generate.md).
 
 ## Status
 
@@ -94,6 +101,12 @@ Implemented so far:
   `clocks.json` and the report flags `subscription_fanout` numbers whose
   hosts' clocks were unverified or skewed beyond the fanout budget
   ([docs/distributed.md](docs/distributed.md))
+- deterministic scenario generation: `generate` and `run --random` produce a
+  random-but-reproducible scenario within a profile envelope (roles, rates,
+  duration, lifecycle chaos, abuse mix), always valid by construction and
+  judged on invariants rather than fixed thresholds. `run --random` records
+  the generated scenario in the ledger so a random failure is an immediate
+  repro ([docs/generate.md](docs/generate.md))
 
 In progress, in decided order:
 

@@ -142,6 +142,49 @@ ok !exists $failed_manifest->{execution_provider}, 'failed run manifest does not
 like $failed_manifest->{error}, qr/unknown\ runner:\ missing/mx, 'failed run manifest records error';
 ok $failed_manifest->{timestamps}{finished_at}, 'failed run manifest records finish time';
 
+subtest 'generate emits a deterministic, valid scenario' => sub {
+  my $first = `$^X $bin generate --seed 42 2>&1`;
+  is $?, 0, 'generate exits successfully';
+  my $second = `$^X $bin generate --seed 42 2>&1`;
+  is $first, $second, 'generate is deterministic for a fixed seed';
+  like $first, qr/^\ \ seed:\ 42$/mx,          'generated scenario carries the seed';
+  like $first, qr/provider:\ generic-relay/mx, 'generated scenario names the topology provider';
+
+  my $gen_tmp = tempdir(CLEANUP => 1);
+  my $out     = File::Spec->catfile($gen_tmp, 'scenario.yml');
+  my $written = `$^X $bin generate --seed 42 --out $out 2>&1`;
+  is $?, 0, 'generate --out exits successfully';
+  like $written, qr{\Agenerated\ scenario:\ \Q$out\E\n?\z}xm, 'generate --out reports the file';
+  my $loaded = Overnet::Burner::Config->load_file($out);
+  is $loaded->{run}{seed}, 42, 'the written scenario loads and validates';
+
+  my $no_seed = `$^X $bin generate 2>&1`;
+  is $? >> 8, 2, 'generate without a seed exits nonzero';
+  like $no_seed, qr/--seed\ is\ required/mx, 'generate reports the missing seed';
+};
+
+subtest 'run --random generates, records, and runs a scenario' => sub {
+  my $random_tmp = tempdir(CLEANUP => 1);
+  my $run_output = `$^X $bin run --random --seed 7 --runs-dir $random_tmp --run-id random-001 --runner noop 2>&1`;
+  is $?, 0, 'run --random exits successfully' or diag($run_output);
+
+  my $manifest = _read_json(File::Spec->catfile($random_tmp, 'random-001', 'manifest.json'));
+  is $manifest->{status},         'completed', 'random run completes';
+  is $manifest->{scenario}{name}, 'random-7',  'the ledger records the generated scenario by seed';
+  is $manifest->{seed},           7,           'the manifest records the generation seed';
+
+  ok -e File::Spec->catfile($random_tmp, 'random-001', 'scenario.yml'),
+    'the generated scenario is recorded in the run ledger for repro';
+
+  my $missing_seed = `$^X $bin run --random --runs-dir $random_tmp --run-id random-noseed --runner noop 2>&1`;
+  is $? >> 8, 2, 'run --random without a seed exits nonzero';
+  like $missing_seed, qr/--seed\ is\ required\ with\ --random/mx, 'run --random reports the missing seed';
+
+  my $both = `$^X $bin run --random --seed 7 --scenario $scenario --runner noop 2>&1`;
+  is $? >> 8, 2, 'run rejects --random combined with --scenario';
+  like $both, qr/--scenario\ cannot\ be\ combined\ with\ --random/mx, 'run reports the conflicting flags';
+};
+
 done_testing;
 
 sub _read_json {

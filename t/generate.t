@@ -1,0 +1,183 @@
+use strictures 2;
+
+use File::Temp qw(tempdir);
+use FindBin;
+use Test2::V0;
+
+use lib "$FindBin::Bin/../lib";
+
+use Overnet::Burner::Config;
+use Overnet::Burner::Generator;
+
+my $repo = "$FindBin::Bin/..";
+
+my %ABUSE_SINGULAR = (
+  flooders             => 'flooder',
+  malformed_publishers => 'malformed_publisher',
+  replayers            => 'replayer',
+  subscription_abusers => 'subscription_abuser',
+  sybils               => 'sybil',
+  connection_floods    => 'connection_flood',
+);
+
+subtest 'the default profile is valid and self-describing' => sub {
+  my $default = Overnet::Burner::Generator->default_profile;
+  ok(Overnet::Burner::Generator->validate_profile($default), 'default profile validates');
+
+  my $normalized = Overnet::Burner::Generator->normalize_profile($default);
+  is $normalized, $default, 'the default profile is already normalized (normalize is idempotent on it)';
+
+  my $shipped = Overnet::Burner::Generator->load_profile("$repo/profiles/local-smoke.yml");
+  is $shipped, $default, 'profiles/local-smoke.yml is exactly the built-in default';
+};
+
+subtest 'generation is deterministic in the seed' => sub {
+  my $a = Overnet::Burner::Generator->generate(seed => 7);
+  my $b = Overnet::Burner::Generator->generate(seed => 7);
+  is $a,              $b, 'same seed yields an identical scenario';
+  is $a->{run}{seed}, 7,  'the generated scenario carries the generation seed';
+
+  my $yaml_a = Overnet::Burner::Generator->scenario_yaml($a);
+  my $yaml_b = Overnet::Burner::Generator->scenario_yaml(Overnet::Burner::Generator->generate(seed => 7));
+  is $yaml_a, $yaml_b, 'serialized output is byte-identical for the same seed';
+
+  my %seen;
+  $seen{Overnet::Burner::Generator->scenario_yaml(Overnet::Burner::Generator->generate(seed => $_))}++ for 1 .. 20;
+  ok keys %seen > 1, 'different seeds explore different scenarios';
+};
+
+subtest 'every generated scenario passes validation' => sub {
+  for my $profile_arg (
+    undef,
+    Overnet::Burner::Generator->load_profile("$repo/profiles/local-smoke.yml"),
+    Overnet::Burner::Generator->load_profile("$repo/profiles/local-resilience.yml"),
+  ) {
+    for my $seed (1 .. 60) {
+      my $scenario = Overnet::Burner::Generator->generate(
+        seed => $seed,
+        defined $profile_arg ? (profile => $profile_arg) : (),
+      );
+      my $ok = eval { Overnet::Burner::Config->validate(Overnet::Burner::Config->normalize($scenario)); 1 };
+      ok $ok, "seed $seed generates a valid scenario" or diag($@);
+    }
+  }
+};
+
+subtest 'the default profile stays inside its envelope' => sub {
+  for my $seed (1 .. 60) {
+    my $scenario = Overnet::Burner::Generator->generate(seed => $seed);
+
+    is $scenario->{topology}{relays}{count},    1,               "seed $seed uses one relay";
+    is $scenario->{topology}{relays}{provider}, 'generic-relay', "seed $seed uses the generic relay provider";
+
+    my $duration = $scenario->{run}{duration};
+    ok $duration >= 5 && $duration <= 30, "seed $seed duration $duration within [5,30]";
+
+    my $rate = $scenario->{workload}{publish_rate_per_second};
+    ok $rate >= 1 && $rate <= 50, "seed $seed publish rate $rate within [1,50]";
+
+    for my $role (qw(publishers subscribers query_readers object_readers observers)) {
+      my $count = $scenario->{topology}{$role}{count} // 0;
+      my ($lo, $hi) = $role eq 'observers' ? (0, 1) : $role =~ /readers/ ? (0, 2) : (0, 3);
+      ok $count >= $lo && $count <= $hi, "seed $seed $role count $count within [$lo,$hi]";
+    }
+
+    is $scenario->{chaos}, undef, "seed $seed default profile emits no chaos";
+    for my $abuse (keys %ABUSE_SINGULAR) {
+      is $scenario->{topology}{$abuse}, undef, "seed $seed default profile emits no $abuse";
+    }
+  }
+};
+
+subtest 'reader roles always come with the workload they require' => sub {
+  for my $seed (1 .. 60) {
+    my $scenario = Overnet::Burner::Generator->generate(seed => $seed);
+    my $topology = $scenario->{topology};
+    my $workload = $scenario->{workload};
+
+    if (($topology->{subscribers}{count} // 0) > 0) {
+      ok ref $workload->{subscription_filters} eq 'ARRAY' && @{$workload->{subscription_filters}},
+        "seed $seed declares subscription_filters for its subscribers";
+    }
+    if (($topology->{query_readers}{count} // 0) > 0) {
+      ok ref $workload->{query_filters} eq 'ARRAY' && @{$workload->{query_filters}},
+        "seed $seed declares query_filters for its query readers";
+    }
+    if (($topology->{object_readers}{count} // 0) > 0) {
+      ok ref $workload->{object_reads}{objects} eq 'ARRAY' && @{$workload->{object_reads}{objects}},
+        "seed $seed declares object_reads.objects for its object readers";
+    }
+  }
+};
+
+subtest 'the resilience profile exercises abuse and lifecycle chaos' => sub {
+  my $profile = Overnet::Burner::Generator->load_profile("$repo/profiles/local-resilience.yml");
+
+  my $saw_abuse = 0;
+  my $saw_chaos = 0;
+  for my $seed (1 .. 80) {
+    my $scenario = Overnet::Burner::Generator->generate(seed => $seed, profile => $profile);
+
+    for my $abuse (sort keys %ABUSE_SINGULAR) {
+      my $count = $scenario->{topology}{$abuse}{count} // 0;
+      next if $count == 0;
+      $saw_abuse = 1;
+      my $singular = $ABUSE_SINGULAR{$abuse};
+      my $rate     = $scenario->{workload}{abuse}{$singular}{publish_rate_per_second};
+      ok defined $rate && $rate =~ /\A[0-9]/mx, "seed $seed gives $abuse a numeric abuse rate";
+    }
+
+    next if !$scenario->{chaos};
+    my $total = $scenario->{run}{duration};
+    for my $hook (@{$scenario->{chaos}}) {
+      $saw_chaos = 1;
+      ok $hook->{at} >= 0 && $hook->{at} < $total, "seed $seed chaos at $hook->{at} inside [0,$total)";
+      like $hook->{action}, qr/\A(?:restart|stop|start)\z/mx, "seed $seed chaos action is a lifecycle action";
+      my ($ordinal) = $hook->{target} =~ /\Arelay:([0-9]+)\z/mx;
+      ok defined $ordinal && $ordinal >= 1 && $ordinal <= $scenario->{topology}{relays}{count},
+        "seed $seed chaos targets a relay that exists";
+    }
+  }
+  ok $saw_abuse, 'the resilience profile produces abuse traffic across seeds';
+  ok $saw_chaos, 'the resilience profile produces chaos hooks across seeds';
+};
+
+subtest 'a generated scenario round-trips through the loader' => sub {
+  my $tmp      = tempdir(CLEANUP => 1);
+  my $scenario = Overnet::Burner::Generator->generate(seed => 99);
+  my $path     = "$tmp/generated.yml";
+  open my $fh, '>', $path or die "open $path: $!";
+  print {$fh} Overnet::Burner::Generator->scenario_yaml($scenario);
+  close $fh or die "close $path: $!";
+
+  my $loaded = Overnet::Burner::Config->load_file($path);
+  is $loaded->{run}{seed},                  99,              'the emitted YAML loads and keeps the seed';
+  is $loaded->{topology}{relays}{provider}, 'generic-relay', 'the emitted YAML loads the topology';
+};
+
+subtest 'malformed profiles are rejected' => sub {
+  my @cases = (
+    ['duration min above max', {duration => {min => 30, max => 5}},       qr/duration\.min.*must\ not\ exceed.*max/mx],
+    ['relays min above max',   {relays   => {min => 3, max => 1}},        qr/relays\.min.*must\ not\ exceed.*max/mx],
+    ['unknown top-level key',  {galaxies => {min => 1}},                  qr/unknown\ profile\ field:\ galaxies/mx],
+    ['unknown role',           {roles    => {gremlins => {max => 1}}},    qr/unknown\ generatable\ role:\ gremlins/mx],
+    ['negative role max',      {roles    => {publishers => {max => -1}}}, qr/roles\.publishers\.max.*non-negative/mx],
+    [
+      'role min above max',
+      {roles => {publishers => {min => 4, max => 2}}},
+      qr/roles\.publishers\.min.*must\ not\ exceed.*max/mx
+    ],
+    ['unknown chaos action',     {chaos     => {actions   => ['melt']}},         qr/chaos\.actions.*melt.*lifecycle/mx],
+    ['negative chaos max_hooks', {chaos     => {max_hooks => -1}},               qr/chaos\.max_hooks.*non-negative/mx],
+    ['unknown provision method', {provision => {workers   => ['teleport']}},     qr/provision\.workers.*teleport/mx],
+    ['non-integer bound',        {duration  => {min       => 'soon', max => 5}}, qr/duration\.min.*integer/mx],
+  );
+  for my $case (@cases) {
+    my ($name, $profile, $pattern) = @{$case};
+    my $err;
+    eval { Overnet::Burner::Generator->load_profile_data($profile); 1 } or $err = $@;
+    like $err, $pattern, "$name is rejected";
+  }
+};
+
+done_testing;
