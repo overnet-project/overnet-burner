@@ -7,6 +7,9 @@ duration:
 relays:
   min: 1
   max: 1
+  provider: generic-relay
+  endpoints:
+    - ws://127.0.0.1:7777
 roles:
   publishers:     { min: 0, max: 3 }
   subscribers:    { min: 0, max: 3 }

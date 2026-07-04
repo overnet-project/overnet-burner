@@ -27,6 +27,9 @@ subtest 'the default profile is valid and self-describing' => sub {
   my $normalized = Overnet::Burner::Generator->normalize_profile($default);
   is $normalized, $default, 'the default profile is already normalized (normalize is idempotent on it)';
 
+  my $empty = Overnet::Burner::Generator->load_profile_data({});
+  is $empty, $default, 'an empty profile normalizes to the built-in default';
+
   my $shipped = Overnet::Burner::Generator->load_profile("$repo/profiles/local-smoke.yml");
   is $shipped, $default, 'profiles/local-smoke.yml is exactly the built-in default';
 };
@@ -69,6 +72,8 @@ subtest 'the default profile stays inside its envelope' => sub {
 
     is $scenario->{topology}{relays}{count},    1,               "seed $seed uses one relay";
     is $scenario->{topology}{relays}{provider}, 'generic-relay', "seed $seed uses the generic relay provider";
+    is $scenario->{topology}{relays}{endpoints}, ['ws://127.0.0.1:7777'],
+      "seed $seed carries the default local relay endpoint";
 
     my $duration = $scenario->{run}{duration};
     ok $duration >= 5 && $duration <= 30, "seed $seed duration $duration within [5,30]";
@@ -86,6 +91,103 @@ subtest 'the default profile stays inside its envelope' => sub {
     for my $abuse (keys %ABUSE_SINGULAR) {
       is $scenario->{topology}{$abuse}, undef, "seed $seed default profile emits no $abuse";
     }
+  }
+};
+
+subtest 'profiles carry relay execution wiring into generated scenarios' => sub {
+  my $command = {
+    start  => 'echo start',
+    health => 'echo health',
+    stop   => 'echo stop',
+  };
+  my $profile = Overnet::Burner::Generator->load_profile_data(
+    {
+      duration => {min => 2, max => 2},
+      relays   => {
+        min       => 2,
+        max       => 2,
+        provider  => 'external-command',
+        command   => $command,
+        endpoints => ['ws://127.0.0.1:7001', 'ws://127.0.0.1:7002'],
+      },
+      roles => {
+        publishers  => {min => 1, max => 1},
+        subscribers => {min => 1, max => 1},
+      },
+      chaos => {max_hooks => 1, actions => ['restart']},
+    }
+  );
+
+  my $scenario = Overnet::Burner::Generator->generate(seed => 42, profile => $profile);
+  is $scenario->{topology}{relays}{provider}, 'external-command',
+    'the generated scenario uses the profiled relay provider';
+  is $scenario->{topology}{relays}{command}, $command, 'the generated scenario carries provider lifecycle commands';
+  is $scenario->{topology}{relays}{endpoints},
+    ['ws://127.0.0.1:7001', 'ws://127.0.0.1:7002'],
+    'the generated scenario carries one endpoint per generated relay';
+
+  ok eval { Overnet::Burner::Config->validate(Overnet::Burner::Config->normalize($scenario)); 1 },
+    'the generated external-command scenario validates';
+};
+
+subtest 'external-command profiles can generate lifecycle chaos' => sub {
+  my $profile = Overnet::Burner::Generator->load_profile_data(
+    {
+      duration => {min => 5, max => 5},
+      relays   => {
+        min      => 2,
+        max      => 2,
+        provider => 'external-command',
+        command  => {
+          start  => 'echo start',
+          health => 'echo health',
+          stop   => 'echo stop',
+        },
+        endpoints => ['ws://127.0.0.1:7001', 'ws://127.0.0.1:7002'],
+      },
+      roles => {
+        publishers => {min => 1, max => 1},
+      },
+      chaos => {max_hooks => 2, actions => [qw(restart stop start)]},
+    }
+  );
+
+  my $scenario = Overnet::Burner::Generator->generate(seed => 1, profile => $profile);
+  is $scenario->{topology}{relays}{provider}, 'external-command',
+    'the lifecycle-chaos scenario uses an executable relay provider';
+  ok @{$scenario->{chaos} || []}, 'seed 1 generates at least one lifecycle hook';
+  for my $hook (@{$scenario->{chaos}}) {
+    ok $hook->{at} >= 0 && $hook->{at} < $scenario->{run}{duration},
+      "chaos hook at $hook->{at} stays inside the run duration";
+    like $hook->{action}, qr/\A(?:restart|stop|start)\z/mx, 'chaos hook uses a relay lifecycle action';
+    my ($ordinal) = $hook->{target} =~ /\Arelay:([0-9]+)\z/mx;
+    ok defined $ordinal && $ordinal >= 1 && $ordinal <= $scenario->{topology}{relays}{count},
+      'chaos hook targets a generated relay';
+  }
+  ok eval { Overnet::Burner::Config->validate(Overnet::Burner::Config->normalize($scenario)); 1 },
+    'the generated lifecycle-chaos scenario validates';
+};
+
+subtest 'profiles with variable relay counts use the matching endpoint prefix' => sub {
+  my $profile = Overnet::Burner::Generator->load_profile_data(
+    {
+      duration => {min => 2, max => 2},
+      relays   => {
+        min       => 1,
+        max       => 2,
+        endpoints => ['ws://127.0.0.1:7001', 'ws://127.0.0.1:7002'],
+      },
+      roles => {
+        publishers => {min => 1, max => 1},
+      },
+    }
+  );
+
+  for my $seed (1 .. 40) {
+    my $scenario = Overnet::Burner::Generator->generate(seed => $seed, profile => $profile);
+    is scalar @{$scenario->{topology}{relays}{endpoints}},
+      $scenario->{topology}{relays}{count},
+      "seed $seed emits one endpoint per generated relay";
   }
 };
 
@@ -110,13 +212,16 @@ subtest 'reader roles always come with the workload they require' => sub {
   }
 };
 
-subtest 'the resilience profile exercises abuse and lifecycle chaos' => sub {
+subtest 'the resilience profile exercises abuse without unsupported lifecycle chaos' => sub {
   my $profile = Overnet::Burner::Generator->load_profile("$repo/profiles/local-resilience.yml");
 
   my $saw_abuse = 0;
-  my $saw_chaos = 0;
   for my $seed (1 .. 80) {
     my $scenario = Overnet::Burner::Generator->generate(seed => $seed, profile => $profile);
+    is scalar @{$scenario->{topology}{relays}{endpoints}},
+      $scenario->{topology}{relays}{count},
+      "seed $seed carries one endpoint per relay";
+    is $scenario->{chaos}, undef, "seed $seed local-resilience profile emits no lifecycle chaos";
 
     for my $abuse (sort keys %ABUSE_SINGULAR) {
       my $count = $scenario->{topology}{$abuse}{count} // 0;
@@ -126,20 +231,8 @@ subtest 'the resilience profile exercises abuse and lifecycle chaos' => sub {
       my $rate     = $scenario->{workload}{abuse}{$singular}{publish_rate_per_second};
       ok defined $rate && $rate =~ /\A[0-9]/mx, "seed $seed gives $abuse a numeric abuse rate";
     }
-
-    next if !$scenario->{chaos};
-    my $total = $scenario->{run}{duration};
-    for my $hook (@{$scenario->{chaos}}) {
-      $saw_chaos = 1;
-      ok $hook->{at} >= 0 && $hook->{at} < $total, "seed $seed chaos at $hook->{at} inside [0,$total)";
-      like $hook->{action}, qr/\A(?:restart|stop|start)\z/mx, "seed $seed chaos action is a lifecycle action";
-      my ($ordinal) = $hook->{target} =~ /\Arelay:([0-9]+)\z/mx;
-      ok defined $ordinal && $ordinal >= 1 && $ordinal <= $scenario->{topology}{relays}{count},
-        "seed $seed chaos targets a relay that exists";
-    }
   }
   ok $saw_abuse, 'the resilience profile produces abuse traffic across seeds';
-  ok $saw_chaos, 'the resilience profile produces chaos hooks across seeds';
 };
 
 subtest 'a generated scenario round-trips through the loader' => sub {
@@ -171,6 +264,33 @@ subtest 'malformed profiles are rejected' => sub {
     ['negative chaos max_hooks', {chaos     => {max_hooks => -1}},               qr/chaos\.max_hooks.*non-negative/mx],
     ['unknown provision method', {provision => {workers   => ['teleport']}},     qr/provision\.workers.*teleport/mx],
     ['non-integer bound',        {duration  => {min       => 'soon', max => 5}}, qr/duration\.min.*integer/mx],
+    [
+      'worker-capable profile without endpoints',
+      {roles => {publishers => {max => 1}}, relays => {min => 1, max => 2}},
+      qr/relays\.endpoints.*required.*worker/mx,
+    ],
+    [
+      'too few relay endpoints',
+      {
+        roles  => {publishers => {max => 1}},
+        relays => {min        => 1, max => 2, endpoints => ['ws://127.0.0.1:7001']},
+      },
+      qr/relays\.endpoints.*at\ least.*relays\.max/mx,
+    ],
+    [
+      'external-command without commands',
+      {roles => {}, relays => {provider => 'external-command'}},
+      qr/relays\.command.*required.*external-command/mx,
+    ],
+    [
+      'lifecycle chaos without lifecycle commands',
+      {
+        roles  => {},
+        relays => {provider  => 'generic-relay'},
+        chaos  => {max_hooks => 1, actions => ['restart']},
+      },
+      qr/lifecycle\ chaos.*external-command/mx,
+    ],
   );
   for my $case (@cases) {
     my ($name, $profile, $pattern) = @{$case};

@@ -38,12 +38,15 @@ The generator's contract is that its output always passes
 `overnet-burner validate`. In particular it:
 
 - emits `topology.relays` with a count of at least one and a provider;
+- emits relay endpoints from the profile whenever generated worker roles can
+  launch, so `rex-local-workers` receives the endpoint data it requires;
 - honors the reader-workload coupling — whenever it includes `subscribers`,
   `query_readers`, or `object_readers`, it also emits the
   `subscription_filters`, `query_filters`, or `object_reads.objects` those
   workers require;
 - keeps every chaos hook's `at` inside the run duration and targets a relay
-  that exists;
+  that exists, and only allows lifecycle chaos when the profile supplies an
+  `external-command` relay lifecycle;
 - emits a `workload.abuse.<role>` block for every abuse role it includes.
 
 A generated scenario **omits thresholds** by design. A random scenario has
@@ -67,6 +70,9 @@ duration:
 relays:
   min: 1
   max: 1
+  provider: generic-relay
+  endpoints:
+    - ws://127.0.0.1:7777
 roles:
   publishers:    { min: 0, max: 3 }
   subscribers:   { min: 0, max: 3 }
@@ -92,6 +98,9 @@ provision:
 |---|---|---|---|
 | `duration.min` / `duration.max` | positive integers, `min <= max` | `5` / `30` | Main-phase duration range in seconds |
 | `relays.min` / `relays.max` | positive integers, `min <= max` | `1` / `1` | Relay count range |
+| `relays.provider` | `generic-relay` or `external-command` | `generic-relay` | Topology provider to put in generated scenarios |
+| `relays.endpoints` | list of non-empty strings | `ws://127.0.0.1:7777` | Relay endpoints available to generated workers; must contain at least `relays.max` entries when worker roles can be generated |
+| `relays.command.start` / `.health` / `.stop` | non-empty strings | none | Lifecycle commands required when `relays.provider` is `external-command` |
 | `roles.<role>.min` / `.max` | non-negative integers, `min <= max` | `min: 0` | Per-role actor-count range; a role omitted from `roles` is never generated |
 | `workload.publish_rate_per_second.min` / `.max` | non-negative numbers | `1` / `50` | Publish rate range |
 | `workload.query_rate_per_second.min` / `.max` | non-negative numbers | `1` / `10` | Query rate range (used when `query_readers` are generated) |
@@ -111,6 +120,38 @@ The honest roles are `publishers`, `subscribers`, `query_readers`,
 `roles` in the profile is never generated, so the default profile — which
 lists only honest roles — never produces abuse traffic.
 
+### Relay Wiring
+
+Relay endpoints and lifecycle commands are profile data, not random choices:
+they describe the system under test. The built-in one-relay profile defaults
+to `ws://127.0.0.1:7777`. If a profile can generate any worker role, it must
+provide enough `relays.endpoints` entries for the maximum relay count. When a
+generated scenario draws fewer relays than `relays.max`, it uses the matching
+prefix of that list.
+
+The shipped `profiles/local-smoke.yml` and
+`profiles/local-resilience.yml` assume relays are already reachable at their
+listed local endpoints. They do not start those relays.
+
+Lifecycle chaos (`restart`, `stop`, `start`) requires an
+`external-command` relay provider:
+
+```yaml
+relays:
+  min: 1
+  max: 1
+  provider: external-command
+  command:
+    start: systemctl --user start overnet-relay
+    health: curl -fsS http://127.0.0.1:7777/health
+    stop: systemctl --user stop overnet-relay
+  endpoints:
+    - ws://127.0.0.1:7777
+chaos:
+  max_hooks: 2
+  actions: [restart, stop, start]
+```
+
 ### Bounds Beyond v1
 
 Two areas are deliberately conservative in this contract version:
@@ -121,8 +162,9 @@ Two areas are deliberately conservative in this contract version:
   drawn at random. A future profile version may opt specific hosts in.
 - **Network chaos and `provenance_forger`.** Both require configuration the
   generator does not synthesize (a per-run bridge network; a forged origin
-  and authority scope), so neither is generated. Lifecycle chaos and the
-  rate-only abuse roles are.
+  and authority scope), so neither is generated. Lifecycle chaos is generated
+  only for profiles with an `external-command` relay lifecycle. The rate-only
+  abuse roles are generated when the profile includes them.
 
 ## Command-Line Interface
 
@@ -134,7 +176,8 @@ overnet-burner generate --seed 42
 overnet-burner generate --seed 42 --profile profiles/local-resilience.yml --out scenario.yml
 
 # Generate and run in one step; the exact scenario lands in the run ledger.
-overnet-burner run --random --seed 42 --runner rex-local-workers
+# The profile's relay endpoints must be reachable by the workers.
+overnet-burner run --random --seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers
 overnet-burner run --random --seed 42 --profile profiles/local-resilience.yml --runner rex-local-workers
 ```
 

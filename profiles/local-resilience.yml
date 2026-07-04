@@ -1,12 +1,16 @@
-# A broader local profile that exercises resilience: honest load plus
-# lifecycle chaos and the rate-only abuse roles. Still local and bounded so a
-# generated run is runnable anywhere. See docs/generate.md.
+# A broader local profile that exercises resilience with honest load plus the
+# rate-only abuse roles. It expects Overnet-compatible relays to be reachable at
+# the listed local endpoints. See docs/generate.md.
 duration:
   min: 10
   max: 40
 relays:
   min: 1
   max: 2
+  provider: generic-relay
+  endpoints:
+    - ws://127.0.0.1:7777
+    - ws://127.0.0.1:7778
 roles:
   publishers:           { min: 1, max: 4 }
   subscribers:          { min: 1, max: 4 }
@@ -25,7 +29,7 @@ workload:
   object_read_rate_per_second:   { min: 1, max: 5 }
   abuse_publish_rate_per_second: { min: 50, max: 500 }
 chaos:
-  max_hooks: 2
+  max_hooks: 0
   actions: [restart, stop, start]
 provision:
   workers: [local]

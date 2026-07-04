@@ -34,8 +34,13 @@ my %PROVISION_METHOD = (local => 1);
 sub default_profile {
   return {
     duration => {min => 5, max => 30},
-    relays   => {min => 1, max => 1},
-    roles    => {
+    relays   => {
+      min       => 1,
+      max       => 1,
+      provider  => 'generic-relay',
+      endpoints => ['ws://127.0.0.1:7777'],
+    },
+    roles => {
       publishers     => {min => 0, max => 3},
       subscribers    => {min => 0, max => 3},
       query_readers  => {min => 0, max => 2},
@@ -87,6 +92,15 @@ sub normalize_profile {
 
   $profile->{duration} = _fill_range($profile->{duration}, 5, 30);
   $profile->{relays}   = _fill_range($profile->{relays},   1, 1);
+  if (!exists $profile->{relays}{provider}) {
+    $profile->{relays}{provider} = 'generic-relay';
+  }
+  my $default_relays = default_profile()->{relays};
+  if ( !exists $profile->{relays}{endpoints}
+    && $profile->{relays}{min} == $default_relays->{min}
+    && $profile->{relays}{max} == $default_relays->{max}) {
+    $profile->{relays}{endpoints} = clone_json($default_relays->{endpoints});
+  }
 
   if (!exists $profile->{roles}) {
     $profile->{roles} = clone_json(default_profile()->{roles});
@@ -177,6 +191,7 @@ sub validate_profile {
 
   _validate_bound_range($profile->{duration}, 'duration', floor => 1);
   _validate_bound_range($profile->{relays},   'relays',   floor => 1);
+  _validate_relay_profile($profile->{relays});
 
   for my $role (sort keys %{$profile->{roles}}) {
     if (!$GENERATABLE_ROLE{$role}) {
@@ -194,8 +209,112 @@ sub validate_profile {
 
   _validate_chaos_profile($profile->{chaos});
   _validate_provision_profile($profile->{provision});
+  _validate_profile_execution_wiring($profile);
 
   return 1;
+}
+
+sub _validate_relay_profile {
+  my ($relays) = @_;
+
+  my %known = map { $_ => 1 } qw(min max provider endpoints command);
+  for my $key (sort keys %{$relays}) {
+    if (!$known{$key}) {
+      croak "unknown relay profile field: relays.$key\n";
+    }
+  }
+
+  my $provider = $relays->{provider};
+  if (!(defined $provider && !ref($provider) && ($provider eq 'generic-relay' || $provider eq 'external-command'))) {
+    croak "relays.provider must be generic-relay or external-command\n";
+  }
+
+  if (exists $relays->{endpoints}) {
+    _validate_relay_endpoints($relays);
+  }
+  if (exists $relays->{command}) {
+    _validate_relay_command($relays->{command}, 'relays.command');
+  }
+  if ($provider eq 'external-command' && !exists $relays->{command}) {
+    croak "relays.command is required when relays.provider is external-command\n";
+  }
+  if ($provider ne 'external-command' && exists $relays->{command}) {
+    croak "relays.command is only valid when relays.provider is external-command\n";
+  }
+
+  return 1;
+}
+
+sub _validate_relay_endpoints {
+  my ($relays) = @_;
+
+  my $endpoints = $relays->{endpoints};
+  if (ref $endpoints ne 'ARRAY') {
+    croak "relays.endpoints must be a list\n";
+  }
+  for my $index (0 .. $#{$endpoints}) {
+    my $endpoint = $endpoints->[$index];
+    if (!(defined $endpoint && !ref($endpoint) && length $endpoint)) {
+      croak "relays.endpoints[$index] must be a non-empty string\n";
+    }
+  }
+  if (@{$endpoints} < $relays->{max}) {
+    croak "relays.endpoints must provide at least relays.max endpoints\n";
+  }
+
+  return 1;
+}
+
+sub _validate_relay_command {
+  my ($command, $path) = @_;
+
+  _require_mapping($command, $path);
+  my %known = map { $_ => 1 } qw(start health stop);
+  for my $key (sort keys %{$command}) {
+    if (!$known{$key}) {
+      croak "unknown relay command field: $path.$key\n";
+    }
+  }
+  for my $key (qw(start health stop)) {
+    my $value = $command->{$key};
+    if (!(defined $value && !ref($value) && length $value)) {
+      croak "$path.$key must be a non-empty string\n";
+    }
+  }
+
+  return 1;
+}
+
+sub _validate_profile_execution_wiring {
+  my ($profile) = @_;
+
+  if (_profile_may_launch_workers($profile) && !exists $profile->{relays}{endpoints}) {
+    croak "relays.endpoints is required when generated worker roles can be launched\n";
+  }
+
+  if (_profile_may_generate_lifecycle_chaos($profile) && $profile->{relays}{provider} ne 'external-command') {
+    croak "lifecycle chaos requires relays.provider external-command with lifecycle commands\n";
+  }
+
+  return 1;
+}
+
+sub _profile_may_launch_workers {
+  my ($profile) = @_;
+
+  for my $role (keys %{$profile->{roles}}) {
+    if (($profile->{roles}{$role}{max} || 0) > 0) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+sub _profile_may_generate_lifecycle_chaos {
+  my ($profile) = @_;
+
+  return ($profile->{chaos}{max_hooks} || 0) > 0 && @{$profile->{chaos}{actions} || []};
 }
 
 sub _validate_bound_range {
@@ -279,9 +398,21 @@ sub generate {
   my $duration = _draw($seed, 'duration', $profile->{duration});
   my $relays   = _draw($seed, 'relays',   $profile->{relays});
 
+  my $relay_profile = $profile->{relays};
+  my $relay_config  = {
+    count    => $relays,
+    provider => $relay_profile->{provider},
+  };
+  if (exists $relay_profile->{endpoints}) {
+    $relay_config->{endpoints} = [@{$relay_profile->{endpoints}}[0 .. $relays - 1]];
+  }
+  if (exists $relay_profile->{command}) {
+    $relay_config->{command} = clone_json($relay_profile->{command});
+  }
+
   my $scenario = {
     run      => {name   => "random-$seed", duration => $duration, seed => 0 + $seed},
-    topology => {relays => {count => $relays, provider => 'generic-relay'}},
+    topology => {relays => $relay_config},
     workload =>
       {publish_rate_per_second => _draw($seed, 'publish_rate', $profile->{workload}{publish_rate_per_second})},
   };
