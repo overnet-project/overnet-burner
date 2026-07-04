@@ -28,8 +28,10 @@ my %RANGE_DEFAULT = (
   object_read_rate_per_second   => [1, 5],
   abuse_publish_rate_per_second => [1, 200],
 );
-my %LIFECYCLE_ACTION = map { $_ => 1 } qw(restart stop start);
-my %PROVISION_METHOD = (local => 1);
+my %LIFECYCLE_ACTION   = map { $_ => 1 } qw(restart stop start);
+my %PROVISION_METHOD   = (local              => 1);
+my %ENVIRONMENT_KIND   = ('local-containers' => 1);
+my %ENVIRONMENT_ENGINE = map { $_ => 1 } qw(auto docker podman);
 
 sub default_profile {
   return {
@@ -89,18 +91,57 @@ sub normalize_profile {
     croak "profile must be a mapping\n";
   }
   my $profile = clone_json($raw);
+  _normalize_environment_profile($profile);
+  _normalize_duration_profile($profile);
+  _normalize_relay_profile($profile);
+  _normalize_role_profile($profile);
+  _normalize_workload_profile($profile);
+  _normalize_chaos_profile($profile);
+  _normalize_provision_profile($profile);
+
+  return $profile;
+}
+
+sub _normalize_environment_profile {
+  my ($profile) = @_;
+
+  if (exists $profile->{environment}) {
+    _require_mapping($profile->{environment}, 'environment');
+  }
+
+  return 1;
+}
+
+sub _normalize_duration_profile {
+  my ($profile) = @_;
 
   $profile->{duration} = _fill_range($profile->{duration}, 5, 30);
-  $profile->{relays}   = _fill_range($profile->{relays},   1, 1);
-  if (!exists $profile->{relays}{provider}) {
+
+  return 1;
+}
+
+sub _normalize_relay_profile {
+  my ($profile) = @_;
+
+  my $managed_environment = _profile_uses_managed_environment($profile);
+
+  $profile->{relays} = _fill_range($profile->{relays}, 1, 1);
+  if (!exists $profile->{relays}{provider} && !$managed_environment) {
     $profile->{relays}{provider} = 'generic-relay';
   }
   my $default_relays = default_profile()->{relays};
   if ( !exists $profile->{relays}{endpoints}
+    && !$managed_environment
     && $profile->{relays}{min} == $default_relays->{min}
     && $profile->{relays}{max} == $default_relays->{max}) {
     $profile->{relays}{endpoints} = clone_json($default_relays->{endpoints});
   }
+
+  return 1;
+}
+
+sub _normalize_role_profile {
+  my ($profile) = @_;
 
   if (!exists $profile->{roles}) {
     $profile->{roles} = clone_json(default_profile()->{roles});
@@ -110,6 +151,12 @@ sub normalize_profile {
       $profile->{roles}{$role} = _fill_role_bounds($profile->{roles}{$role});
     }
   }
+
+  return 1;
+}
+
+sub _normalize_workload_profile {
+  my ($profile) = @_;
 
   $profile->{workload} ||= {};
   _require_mapping($profile->{workload}, 'workload');
@@ -122,6 +169,12 @@ sub normalize_profile {
     }
   }
 
+  return 1;
+}
+
+sub _normalize_chaos_profile {
+  my ($profile) = @_;
+
   $profile->{chaos} ||= {};
   _require_mapping($profile->{chaos}, 'chaos');
   if (!exists $profile->{chaos}{max_hooks}) {
@@ -129,13 +182,19 @@ sub normalize_profile {
   }
   $profile->{chaos}{actions} ||= [qw(restart stop start)];
 
+  return 1;
+}
+
+sub _normalize_provision_profile {
+  my ($profile) = @_;
+
   $profile->{provision} ||= {};
   _require_mapping($profile->{provision}, 'provision');
   for my $group (qw(workers relays)) {
     $profile->{provision}{$group} ||= ['local'];
   }
 
-  return $profile;
+  return 1;
 }
 
 sub _fill_range {
@@ -182,16 +241,20 @@ sub _require_mapping {
 sub validate_profile {
   my ($class, $profile) = @_;
 
-  my %known = map { $_ => 1 } qw(duration relays roles workload chaos provision);
+  my %known = map { $_ => 1 } qw(duration environment relays roles workload chaos provision);
   for my $key (sort keys %{$profile}) {
     if (!$known{$key}) {
       croak "unknown profile field: $key\n";
     }
   }
 
+  if (exists $profile->{environment}) {
+    _validate_environment_profile($profile->{environment});
+  }
+
   _validate_bound_range($profile->{duration}, 'duration', floor => 1);
   _validate_bound_range($profile->{relays},   'relays',   floor => 1);
-  _validate_relay_profile($profile->{relays});
+  _validate_relay_profile($profile->{relays}, _profile_uses_managed_environment($profile));
 
   for my $role (sort keys %{$profile->{roles}}) {
     if (!$GENERATABLE_ROLE{$role}) {
@@ -214,7 +277,54 @@ sub validate_profile {
   return 1;
 }
 
+sub _profile_uses_managed_environment {
+  my ($profile) = @_;
+
+  my $environment = $profile->{environment};
+  return ref $environment eq 'HASH' && ($environment->{kind} || q{}) eq 'local-containers';
+}
+
+sub _validate_environment_profile {
+  my ($environment) = @_;
+
+  _require_mapping($environment, 'environment');
+
+  my %known = map { $_ => 1 } qw(kind engine image);
+  for my $key (sort keys %{$environment}) {
+    if (!$known{$key}) {
+      croak "environment.$key is not a known field\n";
+    }
+  }
+
+  my $kind = $environment->{kind};
+  if (!(defined $kind && !ref($kind) && $ENVIRONMENT_KIND{$kind})) {
+    croak "environment.kind must be one of local-containers\n";
+  }
+  if (exists $environment->{engine}) {
+    my $engine = $environment->{engine};
+    if (!(defined $engine && !ref($engine) && $ENVIRONMENT_ENGINE{$engine})) {
+      croak "environment.engine must be one of auto, docker, podman\n";
+    }
+  }
+  if (exists $environment->{image}) {
+    my $image = $environment->{image};
+    if (!(defined $image && !ref($image) && length $image)) {
+      croak "environment.image must be a non-empty string\n";
+    }
+  }
+
+  return 1;
+}
+
 sub _validate_relay_profile {
+  my ($relays, $managed_environment) = @_;
+
+  _validate_relay_profile_fields($relays);
+  return _validate_managed_relay_profile($relays) if $managed_environment;
+  return _validate_endpoint_relay_profile($relays);
+}
+
+sub _validate_relay_profile_fields {
   my ($relays) = @_;
 
   my %known = map { $_ => 1 } qw(min max provider endpoints command);
@@ -224,8 +334,30 @@ sub _validate_relay_profile {
     }
   }
 
+  return 1;
+}
+
+sub _validate_managed_relay_profile {
+  my ($relays) = @_;
+
+  for my $key (qw(provider endpoints command)) {
+    if (exists $relays->{$key}) {
+      croak "environment.kind local-containers profiles must not set relays.$key\n";
+    }
+  }
+
+  return 1;
+}
+
+sub _validate_endpoint_relay_profile {
+  my ($relays) = @_;
+
   my $provider = $relays->{provider};
-  if (!(defined $provider && !ref($provider) && ($provider eq 'generic-relay' || $provider eq 'external-command'))) {
+  if (exists $relays->{provider}) {
+    if (!(defined $provider && !ref($provider) && ($provider eq 'generic-relay' || $provider eq 'external-command'))) {
+      croak "relays.provider must be generic-relay or external-command\n";
+    }
+  } else {
     croak "relays.provider must be generic-relay or external-command\n";
   }
 
@@ -235,10 +367,10 @@ sub _validate_relay_profile {
   if (exists $relays->{command}) {
     _validate_relay_command($relays->{command}, 'relays.command');
   }
-  if ($provider eq 'external-command' && !exists $relays->{command}) {
+  if (($provider || q{}) eq 'external-command' && !exists $relays->{command}) {
     croak "relays.command is required when relays.provider is external-command\n";
   }
-  if ($provider ne 'external-command' && exists $relays->{command}) {
+  if (($provider || q{}) ne 'external-command' && exists $relays->{command}) {
     croak "relays.command is only valid when relays.provider is external-command\n";
   }
 
@@ -288,11 +420,15 @@ sub _validate_relay_command {
 sub _validate_profile_execution_wiring {
   my ($profile) = @_;
 
-  if (_profile_may_launch_workers($profile) && !exists $profile->{relays}{endpoints}) {
+  my $managed_environment = _profile_uses_managed_environment($profile);
+
+  if (_profile_may_launch_workers($profile) && !$managed_environment && !exists $profile->{relays}{endpoints}) {
     croak "relays.endpoints is required when generated worker roles can be launched\n";
   }
 
-  if (_profile_may_generate_lifecycle_chaos($profile) && $profile->{relays}{provider} ne 'external-command') {
+  if ( _profile_may_generate_lifecycle_chaos($profile)
+    && !$managed_environment
+    && ($profile->{relays}{provider} || q{}) ne 'external-command') {
     croak "lifecycle chaos requires relays.provider external-command with lifecycle commands\n";
   }
 
@@ -399,10 +535,10 @@ sub generate {
   my $relays   = _draw($seed, 'relays',   $profile->{relays});
 
   my $relay_profile = $profile->{relays};
-  my $relay_config  = {
-    count    => $relays,
-    provider => $relay_profile->{provider},
-  };
+  my $relay_config  = {count => $relays,};
+  if (exists $relay_profile->{provider}) {
+    $relay_config->{provider} = $relay_profile->{provider};
+  }
   if (exists $relay_profile->{endpoints}) {
     $relay_config->{endpoints} = [@{$relay_profile->{endpoints}}[0 .. $relays - 1]];
   }
@@ -416,6 +552,9 @@ sub generate {
     workload =>
       {publish_rate_per_second => _draw($seed, 'publish_rate', $profile->{workload}{publish_rate_per_second})},
   };
+  if (exists $profile->{environment}) {
+    $scenario->{environment} = clone_json($profile->{environment});
+  }
 
   _generate_roles($scenario, $seed, $profile);
   _generate_reader_workload($scenario, $seed, $profile);
@@ -589,7 +728,9 @@ Malformed profiles and inputs are reported through exceptions.
 
 =head1 CONFIGURATION AND ENVIRONMENT
 
-No environment configuration is required.
+Profiles may include C<environment.kind: local-containers> to generate managed
+local-container scenarios. No process environment variables are required by
+the generator itself.
 
 =head1 DEPENDENCIES
 
@@ -601,8 +742,8 @@ No known incompatibilities are documented.
 
 =head1 BUGS AND LIMITATIONS
 
-Container and virtual provisioning, network chaos, and the provenance_forger
-role are not generated; see F<docs/generate.md>.
+Arbitrary container images, virtual provisioning, network chaos, and the
+provenance_forger role are not generated; see F<docs/generate.md>.
 
 =head1 AUTHOR
 

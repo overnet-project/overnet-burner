@@ -54,6 +54,7 @@ subtest 'every generated scenario passes validation' => sub {
     undef,
     Overnet::Burner::Generator->load_profile("$repo/profiles/local-smoke.yml"),
     Overnet::Burner::Generator->load_profile("$repo/profiles/local-resilience.yml"),
+    Overnet::Burner::Generator->load_profile("$repo/profiles/local-containers-smoke.yml"),
   ) {
     for my $seed (1 .. 60) {
       my $scenario = Overnet::Burner::Generator->generate(
@@ -92,6 +93,35 @@ subtest 'the default profile stays inside its envelope' => sub {
       is $scenario->{topology}{$abuse}, undef, "seed $seed default profile emits no $abuse";
     }
   }
+};
+
+subtest 'managed local-container profiles generate high-level scenarios' => sub {
+  my $profile = Overnet::Burner::Generator->load_profile_data(
+    {
+      environment => {kind => 'local-containers'},
+      duration    => {min  => 2, max => 2},
+      relays      => {min  => 2, max => 2},
+      roles       => {
+        publishers  => {min => 1, max => 1},
+        subscribers => {min => 1, max => 1},
+      },
+    }
+  );
+
+  my $scenario = Overnet::Burner::Generator->generate(seed => 42, profile => $profile);
+  is $scenario->{environment}, {kind => 'local-containers'}, 'the generated scenario carries the managed environment';
+  is $scenario->{topology}{relays}, {count => 2},            'relay wiring is left to environment normalization';
+  ok !exists $scenario->{topology}{relays}{provider},  'the generator does not hard-code the managed provider';
+  ok !exists $scenario->{topology}{relays}{endpoints}, 'the generator does not hard-code managed endpoints';
+  ok !exists $scenario->{topology}{relays}{command},   'the generator does not hard-code managed commands';
+
+  my $config = Overnet::Burner::Config->normalize($scenario);
+  ok eval { Overnet::Burner::Config->validate($config); 1 }, 'the generated managed scenario validates';
+  is $config->{topology}{relays}{provider}, 'external-command', 'normalization selects the managed relay provider';
+  is $config->{topology}{relays}{endpoints}, ['ws://relay-001:7447', 'ws://relay-002:7447'],
+    'normalization synthesizes managed relay endpoints';
+  is $config->{provision}{relays}{how},  'container', 'managed relays are container provisioned';
+  is $config->{provision}{workers}{how}, 'container', 'managed workers are container provisioned';
 };
 
 subtest 'profiles carry relay execution wiring into generated scenarios' => sub {
@@ -235,6 +265,19 @@ subtest 'the resilience profile exercises abuse without unsupported lifecycle ch
   ok $saw_abuse, 'the resilience profile produces abuse traffic across seeds';
 };
 
+subtest 'the managed local-containers profile produces valid managed scenarios' => sub {
+  my $profile = Overnet::Burner::Generator->load_profile("$repo/profiles/local-containers-smoke.yml");
+
+  for my $seed (1 .. 40) {
+    my $scenario = Overnet::Burner::Generator->generate(seed => $seed, profile => $profile);
+    is $scenario->{environment}{kind}, 'local-containers', "seed $seed uses the managed container environment";
+    ok !exists $scenario->{topology}{relays}{endpoints}, "seed $seed leaves managed endpoints to config";
+
+    my $ok = eval { Overnet::Burner::Config->validate(Overnet::Burner::Config->normalize($scenario)); 1 };
+    ok $ok, "seed $seed managed scenario validates" or diag($@);
+  }
+};
+
 subtest 'a generated scenario round-trips through the loader' => sub {
   my $tmp      = tempdir(CLEANUP => 1);
   my $scenario = Overnet::Burner::Generator->generate(seed => 99);
@@ -264,6 +307,40 @@ subtest 'malformed profiles are rejected' => sub {
     ['negative chaos max_hooks', {chaos     => {max_hooks => -1}},               qr/chaos\.max_hooks.*non-negative/mx],
     ['unknown provision method', {provision => {workers   => ['teleport']}},     qr/provision\.workers.*teleport/mx],
     ['non-integer bound',        {duration  => {min       => 'soon', max => 5}}, qr/duration\.min.*integer/mx],
+    [
+      'unknown environment kind',
+      {environment => {kind => 'remote-containers'}},
+      qr/environment\.kind.*local-containers/mx
+    ],
+    [
+      'unknown environment field',
+      {environment => {kind => 'local-containers', zone => 'dev'}},
+      qr/environment\.zone.*known\ field/mx,
+    ],
+    [
+      'managed profile with relay provider',
+      {environment => {kind => 'local-containers'}, relays => {provider => 'generic-relay'}},
+      qr/environment\.kind\ local-containers.*relays\.provider/mx,
+    ],
+    [
+      'managed profile with relay endpoints',
+      {environment => {kind => 'local-containers'}, relays => {endpoints => ['ws://127.0.0.1:7777']}},
+      qr/environment\.kind\ local-containers.*relays\.endpoints/mx,
+    ],
+    [
+      'managed profile with relay commands',
+      {
+        environment => {kind => 'local-containers'},
+        relays      => {
+          command => {
+            start  => 'echo start',
+            health => 'echo health',
+            stop   => 'echo stop',
+          },
+        },
+      },
+      qr/environment\.kind\ local-containers.*relays\.command/mx,
+    ],
     [
       'worker-capable profile without endpoints',
       {roles => {publishers => {max => 1}}, relays => {min => 1, max => 2}},

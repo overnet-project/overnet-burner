@@ -87,6 +87,17 @@ plx perl overnet-burner/bin/overnet-burner run \
   --runner rex-local-workers
 ```
 
+For a randomized managed topology:
+
+```bash
+plx perl overnet-burner/bin/overnet-burner run \
+  --random \
+  --seed 42 \
+  --profile overnet-burner/profiles/local-containers-smoke.yml \
+  --runs-dir overnet-burner/runs \
+  --runner rex-local-workers
+```
+
 Docker or podman must be available on the controller host. The first run may
 take longer because it builds the reference image and installs CPAN
 dependencies inside that image.

@@ -37,16 +37,19 @@ The seed is an ordinary scenario seed: the generated scenario carries
 The generator's contract is that its output always passes
 `overnet-burner validate`. In particular it:
 
-- emits `topology.relays` with a count of at least one and a provider;
+- emits `topology.relays` with a count of at least one and either a provider
+  or a managed environment that supplies one;
 - emits relay endpoints from the profile whenever generated worker roles can
-  launch, so `rex-local-workers` receives the endpoint data it requires;
+  launch, or emits a managed `environment` that synthesizes those endpoints
+  during ordinary scenario normalization;
 - honors the reader-workload coupling — whenever it includes `subscribers`,
   `query_readers`, or `object_readers`, it also emits the
   `subscription_filters`, `query_filters`, or `object_reads.objects` those
   workers require;
 - keeps every chaos hook's `at` inside the run duration and targets a relay
   that exists, and only allows lifecycle chaos when the profile supplies an
-  `external-command` relay lifecycle;
+  `external-command` relay lifecycle or a managed environment that synthesizes
+  one;
 - emits a `workload.abuse.<role>` block for every abuse role it includes.
 
 A generated scenario **omits thresholds** by design. A random scenario has
@@ -96,10 +99,13 @@ provision:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `environment.kind` | `local-containers` | none | Optional managed environment to copy into generated scenarios |
+| `environment.engine` | `auto`, `docker`, or `podman` | `auto` during scenario normalization | Container engine for `local-containers` |
+| `environment.image` | non-empty string | `overnet-burner-reference:local` during scenario normalization | Managed reference image tag |
 | `duration.min` / `duration.max` | positive integers, `min <= max` | `5` / `30` | Main-phase duration range in seconds |
 | `relays.min` / `relays.max` | positive integers, `min <= max` | `1` / `1` | Relay count range |
-| `relays.provider` | `generic-relay` or `external-command` | `generic-relay` | Topology provider to put in generated scenarios |
-| `relays.endpoints` | list of non-empty strings | `ws://127.0.0.1:7777` | Relay endpoints available to generated workers; must contain at least `relays.max` entries when worker roles can be generated |
+| `relays.provider` | `generic-relay` or `external-command` | `generic-relay` for endpoint-based profiles; omitted for managed `local-containers` profiles | Topology provider to put in generated scenarios |
+| `relays.endpoints` | list of non-empty strings | `ws://127.0.0.1:7777` for the one-relay endpoint profile; synthesized for managed `local-containers` profiles | Relay endpoints available to generated workers; must contain at least `relays.max` entries when worker roles can be generated outside a managed environment |
 | `relays.command.start` / `.health` / `.stop` | non-empty strings | none | Lifecycle commands required when `relays.provider` is `external-command` |
 | `roles.<role>.min` / `.max` | non-negative integers, `min <= max` | `min: 0` | Per-role actor-count range; a role omitted from `roles` is never generated |
 | `workload.publish_rate_per_second.min` / `.max` | non-negative numbers | `1` / `50` | Publish rate range |
@@ -108,7 +114,7 @@ provision:
 | `workload.abuse_publish_rate_per_second.min` / `.max` | non-negative numbers | `1` / `200` | Per-abuse-role publish rate range |
 | `chaos.max_hooks` | non-negative integer | `0` | Upper bound on generated chaos hooks; the generator picks `0..max_hooks` |
 | `chaos.actions` | list of relay lifecycle actions | `[restart, stop, start]` | Actions a generated hook may use |
-| `provision.workers` / `provision.relays` | list of provisioning methods | `[local]` | Allowed provisioning methods |
+| `provision.workers` / `provision.relays` | list of provisioning methods | `[local]` | Accepted generation-profile provisioning methods; generated scenarios omit `provision` and let scenario normalization apply the endpoint or managed-environment default |
 
 ### Roles
 
@@ -129,9 +135,30 @@ provide enough `relays.endpoints` entries for the maximum relay count. When a
 generated scenario draws fewer relays than `relays.max`, it uses the matching
 prefix of that list.
 
+Managed `environment.kind: local-containers` profiles are the exception. They
+describe only the relay count and worker topology. The generated scenario
+omits relay provider, endpoints, and lifecycle commands; normal scenario
+loading then expands the environment into stable container-network endpoints,
+managed relay lifecycle commands, and container provisioning.
+
+```yaml
+environment:
+  kind: local-containers
+
+relays:
+  min: 1
+  max: 2
+
+roles:
+  publishers:  { min: 1, max: 3 }
+  subscribers: { min: 1, max: 3 }
+```
+
 The shipped `profiles/local-smoke.yml` and
 `profiles/local-resilience.yml` assume relays are already reachable at their
-listed local endpoints. They do not start those relays.
+listed local endpoints. They do not start those relays. The shipped
+`profiles/local-containers-smoke.yml` starts and wires the local container
+reference stack from the generated topology.
 
 Lifecycle chaos (`restart`, `stop`, `start`) requires an
 `external-command` relay provider:
@@ -156,15 +183,18 @@ chaos:
 
 Two areas are deliberately conservative in this contract version:
 
-- **Provisioning.** Only `local` is generated. Container and virtual
-  provisioning are valid scenario configuration but would make a generated
-  run depend on an engine or image the host may not have, so they are not
-  drawn at random. A future profile version may opt specific hosts in.
+- **Provisioning.** Endpoint-based generated scenarios omit `provision`, so
+  scenario normalization uses local execution. Container and virtual
+  provisioning are valid scenario configuration, but generation only reaches
+  container provisioning through the explicit managed `local-containers`
+  environment. Arbitrary container images and virtual machines are not drawn
+  at random.
 - **Network chaos and `provenance_forger`.** Both require configuration the
   generator does not synthesize (a per-run bridge network; a forged origin
   and authority scope), so neither is generated. Lifecycle chaos is generated
-  only for profiles with an `external-command` relay lifecycle. The rate-only
-  abuse roles are generated when the profile includes them.
+  only for profiles with an `external-command` relay lifecycle or the managed
+  `local-containers` environment. The rate-only abuse roles are generated when
+  the profile includes them.
 
 ## Command-Line Interface
 
@@ -179,6 +209,9 @@ overnet-burner generate --seed 42 --profile profiles/local-resilience.yml --out 
 # The profile's relay endpoints must be reachable by the workers.
 overnet-burner run --random --seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers
 overnet-burner run --random --seed 42 --profile profiles/local-resilience.yml --runner rex-local-workers
+
+# Generate a managed local-container topology and let burner start the relays.
+overnet-burner run --random --seed 42 --profile profiles/local-containers-smoke.yml --runner rex-local-workers
 ```
 
 `generate` writes the scenario as YAML to standard output, or to `--out` when

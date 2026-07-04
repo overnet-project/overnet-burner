@@ -40,6 +40,7 @@ overnet-burner generate   --seed 42 [--profile profiles/local-smoke.yml] [--out 
 overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
 overnet-burner run        --scenario scenarios/local-containers-smoke.yml --runner rex-local-workers
 overnet-burner run        --random --seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers
+overnet-burner run        --random --seed 42 --profile profiles/local-containers-smoke.yml --runner rex-local-workers
 overnet-burner report     --run-dir runs/RUN_ID  # regenerate report.json
 ```
 
@@ -49,9 +50,11 @@ for the baseline shape (topology, workload, chaos schedule, thresholds).
 
 Scenarios can also be generated: `generate` (and `run --random`) produce a
 random-but-reproducible scenario within a profile envelope, judged on
-invariants rather than fixed thresholds. Profiles carry the relay endpoints
-and lifecycle commands for the system under test. Same seed, same scenario,
-forever. See [docs/generate.md](docs/generate.md).
+invariants rather than fixed thresholds. Endpoint-based profiles carry the
+relay endpoints and lifecycle commands for the system under test; managed
+`local-containers` profiles describe topology and let burner reify relay
+wiring. Same seed, same scenario, forever. See
+[docs/generate.md](docs/generate.md).
 
 Every `run` writes `report.json` before it exits. The separate `report`
 command exists for regenerating that artifact from an existing run directory.
@@ -121,19 +124,20 @@ Implemented so far:
   hosts' clocks were unverified or skewed beyond the fanout budget
   ([docs/distributed.md](docs/distributed.md))
 - deterministic scenario generation: `generate` and `run --random` produce a
-  random-but-reproducible scenario within a profile envelope (relay wiring,
-  roles, rates, duration, lifecycle chaos when provider commands are supplied,
-  abuse mix), always valid by construction and judged on invariants rather
-  than fixed thresholds. `run --random` records the generated scenario in the
-  ledger so a random failure is an immediate repro
+  random-but-reproducible scenario within a profile envelope (managed
+  environment, relay wiring, roles, rates, duration, lifecycle chaos when
+  provider commands are supplied, abuse mix), always valid by construction
+  and judged on invariants rather than fixed thresholds. `run --random`
+  records the generated scenario in the ledger so a random failure is an
+  immediate repro
   ([docs/generate.md](docs/generate.md))
 
 In progress, in decided order:
 
-- guest provisioning continued: container/virtual for relay guests, which
-  need an endpoint-routing story for a relay the burner constructs inside a
-  container or VM (design in [docs/provisioning.md](docs/provisioning.md)
-  and [docs/distributed.md](docs/distributed.md))
+- guest provisioning continued: virtual relay guests, non-reference images,
+  and broader reuse flows beyond the managed local-container reference stack
+  (design in [docs/provisioning.md](docs/provisioning.md) and
+  [docs/distributed.md](docs/distributed.md))
 
 ## Testing
 

@@ -166,6 +166,12 @@ subtest 'generate emits a deterministic, valid scenario' => sub {
   like $first, qr/^\ \ seed:\ 42$/mx,          'generated scenario carries the seed';
   like $first, qr/provider:\ generic-relay/mx, 'generated scenario names the topology provider';
 
+  my $managed_profile = "$repo/profiles/local-containers-smoke.yml";
+  my $managed         = `$^X $bin generate --seed 42 --profile $managed_profile 2>&1`;
+  is $?, 0, 'generate with the managed local-containers profile exits successfully' or diag($managed);
+  like $managed,   qr/kind:\ local-containers/mx, 'generated managed scenario carries the managed environment';
+  unlike $managed, qr/127[.]0[.]0[.]1/mx, 'generated managed scenario does not point at a pre-existing local relay';
+
   my $gen_tmp = tempdir(CLEANUP => 1);
   my $out     = File::Spec->catfile($gen_tmp, 'scenario.yml');
   my $written = `$^X $bin generate --seed 42 --out $out 2>&1`;
@@ -194,6 +200,15 @@ subtest 'run --random generates, records, and runs a scenario' => sub {
   ok -e File::Spec->catfile($random_tmp, 'random-001', 'scenario.yml'),
     'the generated scenario is recorded in the run ledger for repro';
   ok -e File::Spec->catfile($random_tmp, 'random-001', 'report.json'), 'run --random writes report.json automatically';
+
+  my $managed_tmp = tempdir(CLEANUP => 1);
+  my $managed_output =
+`$^X $bin run --random --seed 7 --profile $repo/profiles/local-containers-smoke.yml --runs-dir $managed_tmp --run-id random-managed-001 --runner noop 2>&1`;
+  is $?, 0, 'run --random works with the managed local-containers profile' or diag($managed_output);
+  my $managed_manifest = _read_json(File::Spec->catfile($managed_tmp, 'random-managed-001', 'manifest.json'));
+  is $managed_manifest->{topology_provider}{name}, 'external-command',
+    'the managed random run records the synthesized relay provider';
+  is $managed_manifest->{seed}, 7, 'the managed random run records the generation seed';
 
   my $missing_seed = `$^X $bin run --random --runs-dir $random_tmp --run-id random-noseed --runner noop 2>&1`;
   is $? >> 8, 2, 'run --random without a seed exits nonzero';
