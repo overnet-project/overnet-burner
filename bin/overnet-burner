@@ -235,6 +235,7 @@ sub _run {
   my $random;
   my $seed;
   my $profile_path;
+  my $verbose;
 
   GetOptionsFromArray(
     \@args,
@@ -245,7 +246,10 @@ sub _run {
     'random'     => \$random,
     'seed=s'     => \$seed,
     'profile=s'  => \$profile_path,
+    'verbose'    => \$verbose,
   ) or return _usage();
+
+  my $verbose_observer = $verbose ? _verbose_event_observer() : undef;
 
   # A generated run replaces --scenario with generation: the generated
   # document is written into the run so scenario.yml records exactly what ran.
@@ -257,6 +261,7 @@ sub _run {
     if (!defined $seed) {
       die "--seed is required with --random\n";
     }
+    _verbose_message($verbose, "generating scenario: seed=$seed" . (defined $profile_path ? " profile=$profile_path" : q{}));
     $generated_scenario = File::Temp->new(SUFFIX => '.yml');
     print {$generated_scenario} _generate_scenario_yaml($seed, $profile_path)
       or die "write generated scenario: $OS_ERROR\n";
@@ -277,18 +282,24 @@ sub _run {
     scenario_path => $scenario_path,
     runs_dir      => $runs_dir,
     defined $run_id ? (run_id => $run_id) : (),
+    $verbose_observer ? (event_observer => $verbose_observer) : (),
   );
+  _verbose_message($verbose, "created run: $ledger->{run_dir}");
 
   $ledger->mark_started(runner => $runner_name);
 
   my $summary = eval {
     my $plan   = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
+    my @runner_args = _runner_default_args($runner_name);
+    if ($verbose_observer) {
+      push @runner_args, progress_observer => $verbose_observer;
+    }
     my $runner = Overnet::Burner::Runner->load(
       name    => $runner_name,
       ledger  => $ledger,
       plan    => $plan,
       run_dir => $ledger->{run_dir},
-      _runner_default_args($runner_name),
+      @runner_args,
     );
     $runner->run_lifecycle;
   };
@@ -302,6 +313,7 @@ sub _run {
     );
     my $report_error;
     eval {
+      _verbose_message($verbose, "writing report: $ledger->{run_dir}/report.json");
       my $report_path = _write_run_report($ledger->{run_dir});
       checked_print(\*STDOUT, "wrote report: $report_path\n");
       1;
@@ -321,6 +333,7 @@ sub _run {
     lifecycle => $summary,
   );
 
+  _verbose_message($verbose, "writing report: $ledger->{run_dir}/report.json");
   my $report_path = _write_run_report($ledger->{run_dir});
   checked_print(\*STDOUT, "completed run: $ledger->{run_dir}\n");
   checked_print(\*STDOUT, "wrote report: $report_path\n");
@@ -375,6 +388,102 @@ sub _local_worker_command {
   return join q{ }, _shell_quote($EXECUTABLE_NAME), _shell_quote($program), 'worker';
 }
 
+sub _verbose_event_observer {
+  return sub {
+    my ($event) = @_;
+    my $line = _verbose_event_line($event);
+    if (defined $line && length $line) {
+      checked_print(\*STDERR, "overnet-burner: $line\n");
+    }
+  };
+}
+
+sub _verbose_message {
+  my ($verbose, $message) = @_;
+
+  if ($verbose) {
+    checked_print(\*STDERR, "overnet-burner: $message\n");
+  }
+
+  return 1;
+}
+
+sub _verbose_event_line {
+  my ($event) = @_;
+
+  my $kind = $event->{event_kind} || q{};
+  if ($kind eq 'worker') {
+    return _verbose_worker_event_line($event);
+  }
+  if ($kind eq 'chaos_hook') {
+    return _verbose_chaos_event_line($event);
+  }
+  if ($kind eq 'progress') {
+    return _verbose_progress_event_line($event);
+  }
+  if (exists $event->{rex_task}) {
+    return "rex $event->{rex_task} $event->{status}";
+  }
+  if (exists $event->{command_kind}) {
+    my $line = "provider $event->{actor_id} $event->{command_kind} $event->{status}";
+    $line .= " (exit=$event->{exit_code})" if exists $event->{exit_code};
+    return $line;
+  }
+
+  my $runner = $event->{runner} || 'unknown';
+  my $phase  = $event->{phase}  || 'unknown';
+  my $status = $event->{status} || 'unknown';
+  my $line   = "runner $runner phase $phase $status";
+  if (ref $event->{actor_counts} eq 'HASH' && defined $event->{actor_counts}{total}) {
+    $line .= " (actors=$event->{actor_counts}{total})";
+  }
+
+  return $line;
+}
+
+sub _verbose_worker_event_line {
+  my ($event) = @_;
+
+  if (($event->{status} || q{}) eq 'collected') {
+    my $streams = ref $event->{streams_collected} eq 'ARRAY' ? scalar @{$event->{streams_collected}} : 0;
+    return "worker metrics collected (streams=$streams)";
+  }
+
+  my $actor  = $event->{actor_id} || 'unknown';
+  my $role   = $event->{role}     || 'worker';
+  my $status = $event->{status}   || 'unknown';
+  my $line   = "worker $actor $role $status";
+  $line .= " on $event->{guest}" if defined $event->{guest};
+  $line .= " (exit=$event->{exit_code})" if exists $event->{exit_code};
+
+  return $line;
+}
+
+sub _verbose_chaos_event_line {
+  my ($event) = @_;
+
+  my $hook   = $event->{hook_id} || 'unknown';
+  my $action = $event->{action}  || 'action';
+  my $status = $event->{status}  || 'unknown';
+  return "chaos $hook $action $status";
+}
+
+sub _verbose_progress_event_line {
+  my ($event) = @_;
+
+  my $action = $event->{action} || 'progress';
+  my $target = $event->{target} || 'run';
+  my $status = $event->{status} || 'unknown';
+  my $line   = "$action $target $status";
+  $line .= " method=$event->{method}" if defined $event->{method};
+  $line .= " guest=$event->{guest}" if defined $event->{guest};
+  $line .= " image=$event->{image}" if defined $event->{image};
+  $line .= " engine=$event->{engine}" if defined $event->{engine};
+  $line .= " network=$event->{network}" if defined $event->{network};
+
+  return $line;
+}
+
 sub _shell_quote {
   my ($value) = @_;
 
@@ -392,8 +501,8 @@ usage:
   overnet-burner generate --seed N [--profile profiles/local-smoke.yml] [--out scenario.yml]
   overnet-burner init-run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
   overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
-  overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop|rex-local|rex-local-provider|rex-local-workers]
-  overnet-burner run --random --seed N [--profile profiles/local-smoke.yml] [--runs-dir runs] [--run-id ID] [--runner ...]
+  overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop|rex-local|rex-local-provider|rex-local-workers] [--verbose]
+  overnet-burner run --random --seed N [--profile profiles/local-smoke.yml] [--runs-dir runs] [--run-id ID] [--runner ...] [--verbose]
   overnet-burner report --run-dir runs/RUN_ID
   overnet-burner worker
 USAGE

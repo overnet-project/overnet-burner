@@ -57,6 +57,30 @@ my $base_runner = Overnet::Burner::Runner->new(
 );
 isa_ok $base_runner, ['Overnet::Burner::Runner'], 'base runner hashref constructor';
 
+my @progress_events;
+my $progress_runner = Overnet::Burner::Runner->new(
+  {
+    name              => 'noop',
+    ledger            => $ledger,
+    plan              => $plan,
+    run_dir           => $ledger->{run_dir},
+    progress_observer => sub { push @progress_events, shift },
+  }
+);
+$progress_runner->_progress_event(action => 'ensure_image', target => 'containers', status => 'started');
+is \@progress_events,
+  [
+  {
+    runner     => 'noop',
+    phase      => 'prepare',
+    event_kind => 'progress',
+    action     => 'ensure_image',
+    target     => 'containers',
+    status     => 'started',
+  }
+  ],
+  'base runner emits direct progress events through the observer';
+
 my $summary = $runner->run_lifecycle;
 
 is $summary->{runner}, 'noop', 'summary records runner name';

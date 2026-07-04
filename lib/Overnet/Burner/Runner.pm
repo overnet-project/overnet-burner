@@ -25,6 +25,10 @@ has run_dir => (
   is     => 'ro',
   reader => '_run_dir',
 );
+has progress_observer => (
+  is     => 'ro',
+  reader => '_progress_observer',
+);
 
 no Moo;
 
@@ -71,6 +75,9 @@ sub BUILDARGS {
   );
   if (exists $args{worker_command_default} && $class->can('worker_command_default')) {
     $build_args{worker_command_default} = $args{worker_command_default};
+  }
+  if (exists $args{progress_observer} && $class->can('_progress_observer')) {
+    $build_args{progress_observer} = $args{progress_observer};
   }
 
   return \%build_args;
@@ -219,6 +226,26 @@ sub write_summary_artifact {
 
   my $path = File::Spec->catfile($self->{run_dir}, 'artifacts', "$self->{name}-runner.json",);
   write_file($path, json_text($summary));
+
+  return 1;
+}
+
+sub _progress_event {
+  my ($self, %event) = @_;
+
+  my $observer = $self->{progress_observer};
+  if (!$observer) {
+    return 1;
+  }
+
+  $observer->(
+    {
+      runner     => $self->name,
+      phase      => $event{phase} || 'prepare',
+      event_kind => 'progress',
+      %event,
+    }
+  );
 
   return 1;
 }

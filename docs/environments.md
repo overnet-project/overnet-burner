@@ -84,7 +84,8 @@ From the top-level Overnet Perl checkout:
 plx perl overnet-burner/bin/overnet-burner run \
   --scenario overnet-burner/scenarios/local-containers-smoke.yml \
   --runs-dir overnet-burner/runs \
-  --runner rex-local-workers
+  --runner rex-local-workers \
+  --verbose
 ```
 
 For a randomized managed topology:
@@ -95,9 +96,12 @@ plx perl overnet-burner/bin/overnet-burner run \
   --seed 42 \
   --profile overnet-burner/profiles/local-containers-smoke.yml \
   --runs-dir overnet-burner/runs \
-  --runner rex-local-workers
+  --runner rex-local-workers \
+  --verbose
 ```
 
 Docker or podman must be available on the controller host. The first run may
 take longer because it builds the reference image and installs CPAN
-dependencies inside that image.
+dependencies inside that image. `--verbose` streams lifecycle and provisioning
+progress to standard error while leaving standard output as the completed run
+and report paths.

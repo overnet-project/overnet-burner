@@ -211,7 +211,7 @@ overnet-burner run --random --seed 42 --profile profiles/local-smoke.yml --runne
 overnet-burner run --random --seed 42 --profile profiles/local-resilience.yml --runner rex-local-workers
 
 # Generate a managed local-container topology and let burner start the relays.
-overnet-burner run --random --seed 42 --profile profiles/local-containers-smoke.yml --runner rex-local-workers
+overnet-burner run --random --seed 42 --profile profiles/local-containers-smoke.yml --runner rex-local-workers --verbose
 ```
 
 `generate` writes the scenario as YAML to standard output, or to `--out` when
@@ -220,3 +220,6 @@ the scenario from `--seed` (and optional `--profile`), then runs it exactly
 as if it had been passed on disk. The run's `scenario.yml`,
 `config.normalized.json`, and `plan.json` record precisely what ran, and
 `report.json` records the run result before the command exits.
+Pass `--verbose` to `run --random` to see generation, lifecycle, provider,
+worker, chaos, and provisioning progress on standard error while preserving
+the normal machine-readable run/report paths on standard output.

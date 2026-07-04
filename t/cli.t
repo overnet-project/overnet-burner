@@ -3,7 +3,9 @@ use strictures 2;
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
+use IPC::Open3 qw(open3);
 use JSON ();
+use Symbol qw(gensym);
 use Test2::V0;
 
 use lib "$FindBin::Bin/../lib";
@@ -137,6 +139,29 @@ is [map { $_->{phase} } grep { $_->{status} eq 'started' } @run_events],
   [qw(prepare start observe stop collect)],
   'run command records all lifecycle phases';
 
+my $verbose_tmp = tempdir(CLEANUP => 1);
+my $verbose_id  = 'cli-run-verbose';
+my ($verbose_exit, $verbose_stdout, $verbose_stderr) = _capture_command(
+  $^X, $bin, 'run',
+  '--scenario', $scenario,
+  '--runs-dir', $verbose_tmp,
+  '--run-id',   $verbose_id,
+  '--runner',   'noop',
+  '--verbose',
+);
+is $verbose_exit, 0, 'run --verbose exits successfully' or diag($verbose_stderr);
+is $verbose_stdout,
+  "completed run: $verbose_tmp/$verbose_id\nwrote report: $verbose_tmp/$verbose_id/report.json\n",
+  'run --verbose keeps normal completion output on stdout';
+like $verbose_stderr, qr{^overnet-burner:\ created\ run:\ \Q$verbose_tmp/$verbose_id\E$}m,
+  'run --verbose reports the run directory on stderr';
+like $verbose_stderr, qr/^overnet-burner:\ runner\ noop\ phase\ prepare\ started\ \(actors=5\)$/m,
+  'run --verbose reports lifecycle phase start on stderr';
+like $verbose_stderr, qr/^overnet-burner:\ runner\ noop\ phase\ collect\ completed\ \(actors=5\)$/m,
+  'run --verbose reports lifecycle phase completion on stderr';
+like $verbose_stderr, qr{^overnet-burner:\ writing\ report:\ \Q$verbose_tmp/$verbose_id/report.json\E$}m,
+  'run --verbose reports report generation on stderr';
+
 my $failed_tmp = tempdir(CLEANUP => 1);
 my $failed_id  = 'cli-run-failed';
 my $failed     = `$^X $bin run --scenario $scenario --runs-dir $failed_tmp --run-id $failed_id --runner missing 2>&1`;
@@ -227,4 +252,22 @@ sub _read_json {
   open my $fh, '<', $path or die "open $path: $!";
   local $/ = undef;
   return JSON::decode_json(<$fh>);
+}
+
+sub _capture_command {
+  my @command = @_;
+
+  my $stderr = gensym();
+  my $pid    = open3(my $stdin, my $stdout, $stderr, @command);
+  close $stdin or die "close stdin: $!";
+
+  local $/ = undef;
+  my $stdout_text = <$stdout>;
+  my $stderr_text = <$stderr>;
+
+  close $stdout or die "close stdout: $!";
+  close $stderr or die "close stderr: $!";
+  waitpid $pid, 0;
+
+  return ($? >> 8, $stdout_text // q{}, $stderr_text // q{});
 }

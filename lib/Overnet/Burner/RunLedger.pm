@@ -34,6 +34,10 @@ has now => (
   is     => 'ro',
   reader => '_now',
 );
+has event_observer => (
+  is     => 'ro',
+  reader => '_event_observer',
+);
 
 no Moo;
 
@@ -108,6 +112,7 @@ sub create {
     run_id  => $run_id,
     run_dir => $run_dir,
     now     => $now,
+    exists $args{event_observer} ? (event_observer => $args{event_observer}) : (),
   );
 }
 
@@ -176,6 +181,10 @@ sub append_runner_event {
   print {$fh} JSON->new->canonical(1)->encode(\%entry), "\n"
     or croak "print $path: $OS_ERROR\n";
   checked_close($fh, $path);
+
+  if (my $observer = $self->{event_observer}) {
+    $observer->(\%entry);
+  }
 
   return 1;
 }

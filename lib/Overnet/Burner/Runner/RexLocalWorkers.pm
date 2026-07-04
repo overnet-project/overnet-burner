@@ -139,6 +139,8 @@ sub _provision_worker_guests {
   my $workers   = ref $provision->{workers} eq 'HASH' ? $provision->{workers} : {};
   my $how       = $workers->{how} || 'local';
 
+  $self->_progress_event(action => 'provision', target => 'workers', method => $how, status => 'started');
+
   $self->{worker_command} = $workers->{worker};
 
   # Constructed guests are registered as they come up so a failure partway
@@ -179,6 +181,8 @@ sub _provision_worker_guests {
     ),
   );
 
+  $self->_progress_event(action => 'provision', target => 'workers', method => $how, status => 'completed');
+
   return 1;
 }
 
@@ -213,10 +217,13 @@ sub _provision_relay_guests {
   my $relays    = ref $provision->{relays} eq 'HASH' ? $provision->{relays} : {};
   my $how       = $relays->{how} || 'local';
 
+  $self->_progress_event(action => 'provision', target => 'relays', method => $how, status => 'started');
+
   # Connect and container place relays on their own guests. Local keeps them
   # on the controller host, where the base runner already runs lifecycle.
   $self->{relay_actor_guests} = {};
   if ($how eq 'local') {
+    $self->_progress_event(action => 'provision', target => 'relays', method => $how, status => 'completed');
     return 1;
   }
 
@@ -225,6 +232,7 @@ sub _provision_relay_guests {
     : $how eq 'container' ? $self->_relay_container_guests($relays)
     :                       ();
   if (!@guests) {
+    $self->_progress_event(action => 'provision', target => 'relays', method => $how, status => 'completed');
     return 1;
   }
   $self->{relay_guests} = \@guests;
@@ -251,6 +259,8 @@ sub _provision_relay_guests {
       }
     ),
   );
+
+  $self->_progress_event(action => 'provision', target => 'relays', method => $how, status => 'completed');
 
   return 1;
 }
@@ -283,12 +293,26 @@ sub _relay_container_guests {
     push @{$self->{relay_guests}}, $guest;
     push @guests,                  $guest;
 
+    $self->_progress_event(
+      action => 'launch_guest',
+      target => 'relays',
+      method => 'container',
+      guest  => $guest_name,
+      status => 'started',
+    );
     $engine->run_detached(
       name            => $container,
       image           => $image,
       network         => $network,
       network_aliases => [$alias],
       command         => ['sleep', 'infinity'],
+    );
+    $self->_progress_event(
+      action => 'launch_guest',
+      target => 'relays',
+      method => 'container',
+      guest  => $guest_name,
+      status => 'completed',
     );
   }
 
@@ -339,12 +363,26 @@ sub _container_guests {
       image     => $image,
       cap_add   => \@cap_add,
       );
+    $self->_progress_event(
+      action => 'launch_guest',
+      target => 'workers',
+      method => 'container',
+      guest  => $guest_name,
+      status => 'started',
+    );
     $engine->run_detached(
       name    => $container,
       image   => $image,
       network => $network,
       @cap_add ? (cap_add => \@cap_add) : (),
       command => ['sleep', 'infinity'],
+    );
+    $self->_progress_event(
+      action => 'launch_guest',
+      target => 'workers',
+      method => 'container',
+      guest  => $guest_name,
+      status => 'completed',
     );
   }
 
@@ -364,7 +402,23 @@ sub _container_network {
 
   my $manifest = read_json_file(File::Spec->catfile($self->{run_dir}, 'manifest.json'));
   my $name     = "burner-$manifest->{run_id}";
+  $self->_progress_event(
+    action  => 'create_network',
+    target  => 'containers',
+    method  => 'container',
+    network => $name,
+    engine  => $engine->name,
+    status  => 'started',
+  );
   $engine->network_create($name);
+  $self->_progress_event(
+    action  => 'create_network',
+    target  => 'containers',
+    method  => 'container',
+    network => $name,
+    engine  => $engine->name,
+    status  => 'completed',
+  );
   $self->{worker_network} = $name;
   $self->{worker_engine} ||= $engine;
 
@@ -381,7 +435,23 @@ sub _container_image {
 
   my $key = join "\0", $engine->name, $image;
   if (!$self->{managed_images}{$key}) {
+    $self->_progress_event(
+      action => 'ensure_image',
+      target => 'containers',
+      method => 'container',
+      image  => $image,
+      engine => $engine->name,
+      status => 'started',
+    );
     Overnet::Burner::ReferenceImage->ensure(engine => $engine, run_dir => $self->{run_dir}, tag => $image);
+    $self->_progress_event(
+      action => 'ensure_image',
+      target => 'containers',
+      method => 'container',
+      image  => $image,
+      engine => $engine->name,
+      status => 'completed',
+    );
     $self->{managed_images}{$key} = 1;
   }
 

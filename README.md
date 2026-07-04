@@ -38,9 +38,9 @@ The design is documented in [docs/PROPOSAL.md](docs/PROPOSAL.md).
 overnet-burner validate   --scenario scenarios/single-relay-baseline.yml
 overnet-burner generate   --seed 42 [--profile profiles/local-smoke.yml] [--out scenario.yml]
 overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
-overnet-burner run        --scenario scenarios/local-containers-smoke.yml --runner rex-local-workers
-overnet-burner run        --random --seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers
-overnet-burner run        --random --seed 42 --profile profiles/local-containers-smoke.yml --runner rex-local-workers
+overnet-burner run        --scenario scenarios/local-containers-smoke.yml --runner rex-local-workers [--verbose]
+overnet-burner run        --random --seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers [--verbose]
+overnet-burner run        --random --seed 42 --profile profiles/local-containers-smoke.yml --runner rex-local-workers [--verbose]
 overnet-burner report     --run-dir runs/RUN_ID  # regenerate report.json
 ```
 
@@ -58,6 +58,9 @@ wiring. Same seed, same scenario, forever. See
 
 Every `run` writes `report.json` before it exits. The separate `report`
 command exists for regenerating that artifact from an existing run directory.
+Pass `--verbose` to `run` to stream runner lifecycle, Rex, provider, worker,
+chaos, and provisioning progress to standard error while keeping standard
+output limited to the completed run and report paths.
 
 For a self-contained local run, use
 [scenarios/local-containers-smoke.yml](scenarios/local-containers-smoke.yml).
