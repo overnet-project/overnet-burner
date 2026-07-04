@@ -8,13 +8,10 @@ use Test2::V0;
 
 my $repo_root   = File::Spec->catdir($FindBin::Bin, File::Spec->updir);
 my $makefile_pl = File::Spec->catfile($repo_root, 'Makefile.PL');
-my $cpanfile    = File::Spec->catfile($repo_root, 'cpanfile');
 my $license     = File::Spec->catfile($repo_root, 'LICENSE');
 
 ok -f $makefile_pl, 'Makefile.PL exists'
   or bail_out('Makefile.PL is required');
-ok -f $cpanfile, 'cpanfile exists'
-  or bail_out('cpanfile is required');
 ok -f $license, 'LICENSE exists';
 
 my $args = _capture_makefile_args($makefile_pl);
@@ -64,9 +61,6 @@ is(
   'metadata resources point at the public repo',
 );
 
-my $cpanfile_content = _read_file($cpanfile);
-like $cpanfile_content, qr/\brequires\ 'perl',\ '5\.040';/mxs, 'cpanfile requires Perl 5.40';
-
 done_testing;
 
 sub _capture_makefile_args {
@@ -101,14 +95,4 @@ sub _capture_makefile_args {
   }
 
   return $args;
-}
-
-sub _read_file {
-  my ($path) = @_;
-  open my $fh, '<', $path
-    or die "open $path: $!";
-  my $content = do { local $INPUT_RECORD_SEPARATOR = undef; <$fh> };
-  close $fh
-    or die "close $path: $!";
-  return $content;
 }

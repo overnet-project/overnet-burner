@@ -463,7 +463,7 @@ Create:
 
 - `AGENTS.md`
 - `README.md`
-- `cpanfile`
+- `Makefile.PL`
 - `Rexfile`
 - `bin/overnet-burner`
 - `lib/Overnet/Burner/*`
