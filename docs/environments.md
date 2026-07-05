@@ -92,8 +92,8 @@ For a randomized managed topology:
 
 ```bash
 plx perl overnet-burner/bin/overnet-burner run \
-  --random \
-  --seed 42 \
+  --random-scenario \
+  --scenario-seed 42 \
   --profile overnet-burner/profiles/local-containers-smoke.yml \
   --runs-dir overnet-burner/runs \
   --runner rex-local-workers \

@@ -644,6 +644,8 @@ sub _artifacts {
   my @candidates = (
     [manifest              => 'manifest.json',                        'application/json',     'evidence',   1],
     [scenario              => 'scenario.yml',                         'application/yaml',     'input',      1],
+    [profile_template      => 'profile-template.yml',                 'application/yaml',     'input',      0],
+    [generated_profile     => 'profile.generated.yml',                'application/yaml',     'input',      0],
     [normalized_config     => 'config.normalized.json',               'application/json',     'evidence',   1],
     [plan                  => 'plan.json',                            'application/json',     'evidence',   1],
     [runner_log            => 'logs/runner.jsonl',                    'application/x-ndjson', 'log',        1],

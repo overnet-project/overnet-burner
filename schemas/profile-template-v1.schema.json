@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://overnet-project.org/schemas/overnet-burner/profile-template-v1.schema.json",
+  "title": "overnet-burner profile template v1",
+  "description": "Template contract for generating ordinary overnet-burner scenario-generation profiles.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "template_version",
+    "profile"
+  ],
+  "properties": {
+    "template_version": {
+      "description": "Integer profile-template contract version. Breaking template-language changes require a new value.",
+      "const": 1
+    },
+    "profile": {
+      "$ref": "#/$defs/template_object"
+    }
+  },
+  "$defs": {
+    "template_value": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/template_value"
+          }
+        },
+        {
+          "$ref": "#/$defs/random_int"
+        },
+        {
+          "$ref": "#/$defs/random_number"
+        },
+        {
+          "$ref": "#/$defs/random_range"
+        },
+        {
+          "$ref": "#/$defs/one_of"
+        },
+        {
+          "$ref": "#/$defs/template_object"
+        }
+      ]
+    },
+    "template_object": {
+      "type": "object",
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "random_int"
+            ]
+          },
+          {
+            "required": [
+              "random_number"
+            ]
+          },
+          {
+            "required": [
+              "random_range"
+            ]
+          },
+          {
+            "required": [
+              "one_of"
+            ]
+          }
+        ]
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/template_value"
+      }
+    },
+    "random_int": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "random_int"
+      ],
+      "properties": {
+        "random_int": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max"
+          ],
+          "properties": {
+            "min": {
+              "type": "integer"
+            },
+            "max": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "random_number": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "random_number"
+      ],
+      "properties": {
+        "random_number": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max"
+          ],
+          "properties": {
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "random_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "random_range"
+      ],
+      "properties": {
+        "random_range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max"
+          ],
+          "properties": {
+            "min": {
+              "type": "integer"
+            },
+            "max": {
+              "type": "integer"
+            },
+            "min_width": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "one_of": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "one_of"
+      ],
+      "properties": {
+        "one_of": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/template_value"
+          }
+        }
+      }
+    }
+  }
+}

@@ -15,19 +15,20 @@ running path as any hand-written one.
 ## Why Generate
 
 A generated scenario is a normal scenario. `overnet-burner generate` writes
-one to standard output (or a file); `overnet-burner run --random` generates
-one and runs it, copying the exact document into the run ledger as
+one to standard output (or a file); `overnet-burner run --random-scenario`
+generates one and runs it, copying the exact document into the run ledger as
 `scenario.yml`. A generated failure is therefore an immediate, committable
-repro case: the same seed and profile reproduce the same scenario forever,
-and the scenario in the ledger can be hand-edited into a minimal case.
+repro case: the same scenario seed and profile reproduce the same scenario
+forever, and the scenario in the ledger can be hand-edited into a minimal
+case.
 
 ## Determinism
 
-Generation derives every choice from the seed alone, using the same
+Generation derives every choice from the scenario seed alone, using the same
 construction as the rest of overnet-burner: a SHA-256 of the seed and a
-stable label, reduced into the relevant bound. The same `seed` and profile
-always produce the identical scenario, byte for byte, on any host. Nothing
-is drawn from wall-clock time, the process, or the host.
+stable label, reduced into the relevant bound. The same scenario seed and
+profile always produce the identical scenario, byte for byte, on any host.
+Nothing is drawn from wall-clock time, the process, or the host.
 
 The seed is an ordinary scenario seed: the generated scenario carries
 `run.seed`, so the run it drives is itself reproducible in the usual way.
@@ -200,26 +201,35 @@ Two areas are deliberately conservative in this contract version:
 
 ```bash
 # Print a generated scenario (built-in default profile).
-overnet-burner generate --seed 42
+overnet-burner generate --scenario-seed 42
 
 # Generate within a profile, into a file.
-overnet-burner generate --seed 42 --profile profiles/local-resilience.yml --out scenario.yml
+overnet-burner generate --scenario-seed 42 --profile profiles/local-resilience.yml --out scenario.yml
+
+# Generate a random profile envelope from a versioned template.
+overnet-burner generate-profile --profile-seed 1001 --profile-template profile-templates/local-containers.yml --out profile.yml
 
 # Generate and run in one step; the exact scenario lands in the run ledger.
 # The profile's relay endpoints must be reachable by the workers.
-overnet-burner run --random --seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers
-overnet-burner run --random --seed 42 --profile profiles/local-resilience.yml --runner rex-local-workers
+overnet-burner run --random-scenario --scenario-seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers
+overnet-burner run --random-scenario --scenario-seed 42 --profile profiles/local-resilience.yml --runner rex-local-workers
 
 # Generate a managed local-container topology and let burner start the relays.
-overnet-burner run --random --seed 42 --profile profiles/local-containers-smoke.yml --runner rex-local-workers --verbose
+overnet-burner run --random-scenario --scenario-seed 42 --profile profiles/local-containers-smoke.yml --runner rex-local-workers --verbose
+
+# Generate the profile envelope first, then generate and run a scenario in it.
+overnet-burner run --random-profile --profile-seed 1001 --profile-template profile-templates/local-containers.yml --random-scenario --scenario-seed 42 --runner rex-local-workers --verbose
 ```
 
 `generate` writes the scenario as YAML to standard output, or to `--out` when
-given. `run --random` is `--scenario` replaced by generation: it generates
-the scenario from `--seed` (and optional `--profile`), then runs it exactly
-as if it had been passed on disk. The run's `scenario.yml`,
-`config.normalized.json`, and `plan.json` record precisely what ran, and
+given. `run --random-scenario` is `--scenario` replaced by generation: it
+generates the scenario from `--scenario-seed` (and optional `--profile`),
+then runs it exactly as if it had been passed on disk. `generate-profile`
+and `run --random-profile` add the profile-generation layer documented in
+[profile-generation.md](profile-generation.md). The run's `scenario.yml`,
+`config.normalized.json`, and `plan.json` record precisely what ran; random
+profile runs also record `profile-template.yml` and `profile.generated.yml`.
 `report.json` records the run result before the command exits.
-Pass `--verbose` to `run --random` to see generation, lifecycle, provider,
+Pass `--verbose` to random runs to see generation, lifecycle, provider,
 worker, chaos, and provisioning progress on standard error while preserving
 the normal machine-readable run/report paths on standard output.

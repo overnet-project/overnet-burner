@@ -22,6 +22,8 @@ like $content, qr/prove\s+-r\s+-l\s+-v\s+t\//mxs,          'workflow runs normal
 like $content, qr/prove\s+-r\s+-l\s+-v\s+xt\/author\//mxs, 'workflow runs author tests';
 like $content, qr/-\s+'README[.]md'/mxs,                   'workflow runs when README changes';
 like $content, qr{-\s+'docs/[*][*]'}mxs,                   'workflow runs when documentation changes';
+like $content, qr{-\s+'profile-templates/[*][*]'}mxs,      'workflow runs when profile templates change';
+like $content, qr{-\s+'schemas/[*][*]'}mxs,                'workflow runs when schemas change';
 like $content, qr/-\s+'MANIFEST'/mxs,                      'workflow runs when MANIFEST changes';
 is scalar(() = $content =~ /^\s+path:\s+overnet-burner\s*$/gms), 2,
   'both workflow jobs check out this repo in the sibling checkout layout';

@@ -11,6 +11,7 @@ use Test2::V0;
 use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Config;
+use Overnet::Burner::Generator;
 use Overnet::Burner::Plan;
 
 my $repo     = "$FindBin::Bin/..";
@@ -210,6 +211,32 @@ subtest 'generate emits a deterministic, valid scenario' => sub {
   like $no_seed, qr/--seed\ is\ required/mx, 'generate reports the missing seed';
 };
 
+subtest 'generate-profile emits a deterministic, valid profile' => sub {
+  my $template = "$repo/profile-templates/local-containers.yml";
+  my $first    = `$^X $bin generate-profile --profile-seed 1001 --profile-template $template 2>&1`;
+  is $?, 0, 'generate-profile exits successfully' or diag($first);
+  my $second = `$^X $bin generate-profile --profile-seed 1001 --profile-template $template 2>&1`;
+  is $first, $second, 'generate-profile is deterministic for a fixed profile seed';
+  like $first, qr/kind:\ local-containers/mx, 'generated profile carries the managed environment';
+
+  my $tmp = tempdir(CLEANUP => 1);
+  my $out = File::Spec->catfile($tmp, 'profile.yml');
+  my $written =
+    `$^X $bin generate-profile --profile-seed 1001 --profile-template $template --out $out 2>&1`;
+  is $?, 0, 'generate-profile --out exits successfully' or diag($written);
+  like $written, qr{\Agenerated\ profile:\ \Q$out\E\n?\z}xm, 'generate-profile --out reports the file';
+  my $loaded = Overnet::Burner::Generator->load_profile($out);
+  is $loaded->{environment}{kind}, 'local-containers', 'the written generated profile loads and validates';
+
+  my $no_seed = `$^X $bin generate-profile --profile-template $template 2>&1`;
+  is $? >> 8, 2, 'generate-profile rejects missing profile seed';
+  like $no_seed, qr/--profile-seed\ is\ required/mx, 'generate-profile reports the missing profile seed';
+
+  my $no_template = `$^X $bin generate-profile --profile-seed 1001 2>&1`;
+  is $? >> 8, 2, 'generate-profile rejects missing profile template';
+  like $no_template, qr/--profile-template\ is\ required/mx, 'generate-profile reports the missing template';
+};
+
 subtest 'run --random generates, records, and runs a scenario' => sub {
   my $random_tmp = tempdir(CLEANUP => 1);
   my $run_output = `$^X $bin run --random --seed 7 --runs-dir $random_tmp --run-id random-001 --runner noop 2>&1`;
@@ -242,6 +269,60 @@ subtest 'run --random generates, records, and runs a scenario' => sub {
   my $both = `$^X $bin run --random --seed 7 --scenario $scenario --runner noop 2>&1`;
   is $? >> 8, 2, 'run rejects --random combined with --scenario';
   like $both, qr/--scenario\ cannot\ be\ combined\ with\ --random/mx, 'run reports the conflicting flags';
+};
+
+subtest 'run supports explicit random scenario and profile layers' => sub {
+  my $profile = "$repo/profiles/local-containers-smoke.yml";
+  my $template = "$repo/profile-templates/local-containers.yml";
+
+  my $scenario_tmp = tempdir(CLEANUP => 1);
+  my $scenario_output =
+`$^X $bin run --random-scenario --scenario-seed 7 --profile $profile --runs-dir $scenario_tmp --run-id random-scenario-001 --runner noop 2>&1`;
+  is $?, 0, 'run --random-scenario exits successfully' or diag($scenario_output);
+  my $scenario_manifest = _read_json(File::Spec->catfile($scenario_tmp, 'random-scenario-001', 'manifest.json'));
+  is $scenario_manifest->{scenario}{name}, 'random-7', 'explicit random scenario run records the generated scenario';
+  is $scenario_manifest->{seed}, 7, 'explicit random scenario run records the scenario seed';
+  ok -e File::Spec->catfile($scenario_tmp, 'random-scenario-001', 'scenario.yml'),
+    'explicit random scenario run records scenario.yml';
+
+  my $profile_tmp = tempdir(CLEANUP => 1);
+  my $profile_output =
+`$^X $bin run --random-profile --profile-seed 1001 --profile-template $template --random-scenario --scenario-seed 7 --runs-dir $profile_tmp --run-id random-profile-001 --runner noop 2>&1`;
+  is $?, 0, 'run can generate a profile and then a scenario' or diag($profile_output);
+  my $run_dir = File::Spec->catdir($profile_tmp, 'random-profile-001');
+  ok -e File::Spec->catfile($run_dir, 'profile-template.yml'), 'random-profile run records the template';
+  ok -e File::Spec->catfile($run_dir, 'profile.generated.yml'), 'random-profile run records the generated profile';
+  ok -e File::Spec->catfile($run_dir, 'scenario.yml'), 'random-profile run records the generated scenario';
+  my $generated_profile = Overnet::Burner::Generator->load_profile(File::Spec->catfile($run_dir, 'profile.generated.yml'));
+  is $generated_profile->{environment}{kind}, 'local-containers', 'ledger generated profile is loadable';
+  my $report      = _read_json(File::Spec->catfile($run_dir, 'report.json'));
+  my %artifact_id = map { $_->{id} => $_ } @{$report->{artifacts}};
+  ok $artifact_id{profile_template}, 'random-profile report records the profile template artifact';
+  ok $artifact_id{generated_profile}, 'random-profile report records the generated profile artifact';
+
+  my $missing_scenario_seed =
+    `$^X $bin run --random-scenario --profile $profile --runs-dir $scenario_tmp --run-id missing-scenario-seed --runner noop 2>&1`;
+  is $? >> 8, 2, 'run --random-scenario rejects missing scenario seed';
+  like $missing_scenario_seed, qr/--scenario-seed\ is\ required/mx,
+    'run --random-scenario reports the missing scenario seed';
+
+  my $profile_conflict =
+`$^X $bin run --random-profile --profile-seed 1 --profile-template $template --profile $profile --random-scenario --scenario-seed 7 --runner noop 2>&1`;
+  is $? >> 8, 2, 'run rejects --profile with --random-profile';
+  like $profile_conflict, qr/--profile\ cannot\ be\ combined\ with\ --random-profile/mx,
+    'run reports profile conflict';
+
+  my $template_without_random_profile =
+    `$^X $bin run --random-scenario --scenario-seed 7 --profile-template $template --runner noop 2>&1`;
+  is $? >> 8, 2, 'run rejects profile template without random profile';
+  like $template_without_random_profile, qr/--profile-template\ requires\ --random-profile/mx,
+    'run reports stray profile template';
+
+  my $random_profile_without_scenario =
+    `$^X $bin run --random-profile --profile-seed 1 --profile-template $template --runner noop 2>&1`;
+  is $? >> 8, 2, 'run rejects random profile without random scenario';
+  like $random_profile_without_scenario, qr/--random-profile\ requires\ --random-scenario/mx,
+    'run reports missing random scenario layer';
 };
 
 done_testing;

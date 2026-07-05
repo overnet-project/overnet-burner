@@ -3,6 +3,7 @@ use strictures 2;
 
 use Cwd        qw(abs_path);
 use English    qw(-no_match_vars);
+use File::Spec;
 use File::Temp ();
 use FindBin;
 use Getopt::Long qw(GetOptionsFromArray);
@@ -11,11 +12,12 @@ use lib "$FindBin::Bin/../lib";
 use Overnet::Burner::Config;
 use Overnet::Burner::Generator;
 use Overnet::Burner::Plan;
+use Overnet::Burner::ProfileGenerator;
 use Overnet::Burner::Report;
 use Overnet::Burner::RexBundle;
 use Overnet::Burner::RunLedger;
 use Overnet::Burner::Runner;
-use Overnet::Burner::Util qw(checked_print write_file);
+use Overnet::Burner::Util qw(checked_print read_file write_file);
 use Overnet::Burner::WorkerCommand;
 
 our $VERSION = '0.001';
@@ -37,6 +39,9 @@ sub main {
     }
     if ($command eq 'generate') {
       return _generate(@args);
+    }
+    if ($command eq 'generate-profile') {
+      return _generate_profile(@args);
     }
     if ($command eq 'init-run') {
       return _init_run(@args);
@@ -110,16 +115,24 @@ sub _plan {
 sub _generate {
   my @args = @_;
   my $seed;
+  my $scenario_seed;
   my $profile_path;
   my $out_path;
 
   GetOptionsFromArray(
     \@args,
-    'seed=s'    => \$seed,
-    'profile=s' => \$profile_path,
-    'out=s'     => \$out_path,
+    'seed=s'          => \$seed,
+    'scenario-seed=s' => \$scenario_seed,
+    'profile=s'       => \$profile_path,
+    'out=s'           => \$out_path,
   ) or return _usage();
 
+  if (defined $seed && defined $scenario_seed) {
+    die "--seed cannot be combined with --scenario-seed\n";
+  }
+  if (!defined $seed && defined $scenario_seed) {
+    $seed = $scenario_seed;
+  }
   if (!defined $seed) {
     die "--seed is required\n";
   }
@@ -138,6 +151,43 @@ sub _generate {
   return 0;
 }
 
+sub _generate_profile {
+  my @args = @_;
+  my $profile_seed;
+  my $profile_template_path;
+  my $out_path;
+
+  GetOptionsFromArray(
+    \@args,
+    'profile-seed=s'     => \$profile_seed,
+    'profile-template=s' => \$profile_template_path,
+    'out=s'              => \$out_path,
+  ) or return _usage();
+
+  if (!defined $profile_seed) {
+    die "--profile-seed is required\n";
+  }
+  if (!defined $profile_template_path) {
+    die "--profile-template is required\n";
+  }
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
+
+  my $template = Overnet::Burner::ProfileGenerator->load_template($profile_template_path);
+  my $profile  = Overnet::Burner::ProfileGenerator->generate(seed => $profile_seed, template => $template);
+  my $yaml     = Overnet::Burner::ProfileGenerator->profile_yaml($profile);
+
+  if (defined $out_path) {
+    write_file($out_path, $yaml);
+    checked_print(\*STDOUT, "generated profile: $out_path\n");
+  } else {
+    checked_print(\*STDOUT, $yaml);
+  }
+
+  return 0;
+}
+
 sub _generate_scenario_yaml {
   my ($seed, $profile_path) = @_;
 
@@ -145,6 +195,14 @@ sub _generate_scenario_yaml {
     defined $profile_path
     ? Overnet::Burner::Generator->load_profile($profile_path)
     : Overnet::Burner::Generator->default_profile;
+  my $scenario = Overnet::Burner::Generator->generate(seed => $seed, profile => $profile);
+
+  return Overnet::Burner::Generator->scenario_yaml($scenario);
+}
+
+sub _generate_scenario_yaml_from_profile {
+  my ($seed, $profile) = @_;
+
   my $scenario = Overnet::Burner::Generator->generate(seed => $seed, profile => $profile);
 
   return Overnet::Burner::Generator->scenario_yaml($scenario);
@@ -232,48 +290,107 @@ sub _run {
   my $runs_dir = 'runs';
   my $run_id;
   my $runner_name = 'noop';
-  my $random;
+  my $legacy_random;
+  my $random_scenario;
   my $seed;
+  my $scenario_seed;
   my $profile_path;
+  my $random_profile;
+  my $profile_seed;
+  my $profile_template_path;
   my $verbose;
 
   GetOptionsFromArray(
     \@args,
-    'scenario=s' => \$scenario_path,
-    'runs-dir=s' => \$runs_dir,
-    'run-id=s'   => \$run_id,
-    'runner=s'   => \$runner_name,
-    'random'     => \$random,
-    'seed=s'     => \$seed,
-    'profile=s'  => \$profile_path,
-    'verbose'    => \$verbose,
+    'scenario=s'        => \$scenario_path,
+    'runs-dir=s'        => \$runs_dir,
+    'run-id=s'          => \$run_id,
+    'runner=s'          => \$runner_name,
+    'random'            => \$legacy_random,
+    'random-scenario'   => \$random_scenario,
+    'seed=s'            => \$seed,
+    'scenario-seed=s'   => \$scenario_seed,
+    'profile=s'         => \$profile_path,
+    'random-profile'    => \$random_profile,
+    'profile-seed=s'    => \$profile_seed,
+    'profile-template=s' => \$profile_template_path,
+    'verbose'           => \$verbose,
   ) or return _usage();
 
   my $verbose_observer = $verbose ? _verbose_event_observer() : undef;
 
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
+  if ($legacy_random) {
+    $random_scenario = 1;
+  }
+  if (defined $seed && defined $scenario_seed) {
+    die "--seed cannot be combined with --scenario-seed\n";
+  }
+  if (!defined $scenario_seed && defined $seed) {
+    $scenario_seed = $seed;
+  }
+  if ($profile_path && $random_profile) {
+    die "--profile cannot be combined with --random-profile\n";
+  }
+  if (defined $profile_template_path && !$random_profile) {
+    die "--profile-template requires --random-profile\n";
+  }
+  if (defined $profile_seed && !$random_profile) {
+    die "--profile-seed requires --random-profile\n";
+  }
+  if ($random_profile && !$random_scenario) {
+    die "--random-profile requires --random-scenario\n";
+  }
+  if ($random_profile && !defined $profile_seed) {
+    die "--profile-seed is required with --random-profile\n";
+  }
+  if ($random_profile && !defined $profile_template_path) {
+    die "--profile-template is required with --random-profile\n";
+  }
+
   # A generated run replaces --scenario with generation: the generated
   # document is written into the run so scenario.yml records exactly what ran.
   my $generated_scenario;
-  if ($random) {
+  my $generated_profile_yaml;
+  my $profile_template_text;
+  if ($random_scenario) {
     if ($scenario_path) {
-      die "--scenario cannot be combined with --random\n";
+      die $legacy_random
+        ? "--scenario cannot be combined with --random\n"
+        : "--scenario cannot be combined with --random-scenario\n";
     }
-    if (!defined $seed) {
-      die "--seed is required with --random\n";
+    if (!defined $scenario_seed) {
+      die $legacy_random ? "--seed is required with --random\n" : "--scenario-seed is required\n";
     }
-    _verbose_message($verbose, "generating scenario: seed=$seed" . (defined $profile_path ? " profile=$profile_path" : q{}));
+    my $profile;
+    if ($random_profile) {
+      _verbose_message($verbose, "generating profile: seed=$profile_seed template=$profile_template_path");
+      $profile_template_text = read_file($profile_template_path);
+      my $template = Overnet::Burner::ProfileGenerator->load_template($profile_template_path);
+      $profile                = Overnet::Burner::ProfileGenerator->generate(seed => $profile_seed, template => $template);
+      $generated_profile_yaml = Overnet::Burner::ProfileGenerator->profile_yaml($profile);
+    }
+    _verbose_message(
+      $verbose,
+      "generating scenario: seed=$scenario_seed"
+        . (defined $profile_path     ? " profile=$profile_path" : q{})
+        . ($random_profile           ? " profile=generated"     : q{}),
+    );
     $generated_scenario = File::Temp->new(SUFFIX => '.yml');
-    print {$generated_scenario} _generate_scenario_yaml($seed, $profile_path)
+    my $scenario_yaml =
+      $random_profile
+      ? _generate_scenario_yaml_from_profile($scenario_seed, $profile)
+      : _generate_scenario_yaml($scenario_seed, $profile_path);
+    print {$generated_scenario} $scenario_yaml
       or die "write generated scenario: $OS_ERROR\n";
     $generated_scenario->flush;
     $scenario_path = $generated_scenario->filename;
-  } elsif (defined $seed || defined $profile_path) {
-    die "--seed and --profile require --random\n";
+  } elsif (defined $scenario_seed || defined $profile_path) {
+    die "--scenario-seed and --profile require --random-scenario\n";
   } elsif (!$scenario_path) {
     die "--scenario is required\n";
-  }
-  if (@args) {
-    die "unexpected arguments: @args\n";
   }
 
   my $scenario = Overnet::Burner::Config->load_file($scenario_path);
@@ -285,6 +402,10 @@ sub _run {
     $verbose_observer ? (event_observer => $verbose_observer) : (),
   );
   _verbose_message($verbose, "created run: $ledger->{run_dir}");
+  if ($random_profile) {
+    write_file(File::Spec->catfile($ledger->{run_dir}, 'profile-template.yml'),  $profile_template_text);
+    write_file(File::Spec->catfile($ledger->{run_dir}, 'profile.generated.yml'), $generated_profile_yaml);
+  }
 
   $ledger->mark_started(runner => $runner_name);
 
@@ -498,11 +619,13 @@ sub _usage {
 usage:
   overnet-burner validate --scenario scenarios/single-relay-baseline.yml
   overnet-burner plan --scenario scenarios/single-relay-baseline.yml
-  overnet-burner generate --seed N [--profile profiles/local-smoke.yml] [--out scenario.yml]
+  overnet-burner generate --scenario-seed N [--profile profiles/local-smoke.yml] [--out scenario.yml]
+  overnet-burner generate-profile --profile-seed N --profile-template profile-templates/local-containers.yml [--out profile.yml]
   overnet-burner init-run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
   overnet-burner render-rex --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID]
   overnet-burner run --scenario scenarios/single-relay-baseline.yml [--runs-dir runs] [--run-id ID] [--runner noop|rex-local|rex-local-provider|rex-local-workers] [--verbose]
-  overnet-burner run --random --seed N [--profile profiles/local-smoke.yml] [--runs-dir runs] [--run-id ID] [--runner ...] [--verbose]
+  overnet-burner run --random-scenario --scenario-seed N [--profile profiles/local-smoke.yml] [--runs-dir runs] [--run-id ID] [--runner ...] [--verbose]
+  overnet-burner run --random-profile --profile-seed N --profile-template profile-templates/local-containers.yml --random-scenario --scenario-seed N [--runs-dir runs] [--run-id ID] [--runner ...] [--verbose]
   overnet-burner report --run-dir runs/RUN_ID
   overnet-burner worker
 USAGE

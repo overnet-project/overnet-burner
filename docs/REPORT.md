@@ -207,6 +207,11 @@ Every artifact reference includes:
 Automation can use those fields to verify the evidence it consumes. Artifact
 paths are relative to the run directory.
 
+The required input artifact is always `scenario.yml`. Runs created with
+`--random-profile` also include optional input artifacts
+`profile-template.yml` and `profile.generated.yml`, so automation can
+reconstruct the profile envelope that produced the generated scenario.
+
 ## Human Summary
 
 `human_summary` is non-authoritative. Automation must use structured fields
