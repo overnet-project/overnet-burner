@@ -27,7 +27,6 @@ is(
   $args->{CONFIGURE_REQUIRES},
   {
     'ExtUtils::MakeMaker' => 0,
-    'strictures'          => 2,
   },
   'configure prerequisites are explicit',
 );

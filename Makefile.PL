@@ -1,4 +1,5 @@
-use strictures 2;
+use strict;
+use warnings;
 
 use ExtUtils::MakeMaker;
 
@@ -14,7 +15,6 @@ WriteMakefile(
   EXE_FILES          => ['bin/overnet-burner', 'bin/overnet-burner-worker'],
   CONFIGURE_REQUIRES => {
     'ExtUtils::MakeMaker' => 0,
-    'strictures'          => 2,
   },
   PREREQ_PM => {
     'JSON'       => 0,
