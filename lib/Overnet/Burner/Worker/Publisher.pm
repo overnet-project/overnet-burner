@@ -142,6 +142,7 @@ sub _publish_once {
       ['v',           '0.1.0'],
       ['t',           'burner.publish'],
       ['o',           'burner.workload'],
+      ['d',           $self->_workload_object_id],
     ],
   );
 
