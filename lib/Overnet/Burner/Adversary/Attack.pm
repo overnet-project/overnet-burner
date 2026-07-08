@@ -158,6 +158,29 @@ sub session {
   return $session;
 }
 
+sub interaction {
+  my ($class, $name, %args) = @_;
+  my $attack  = $class->attack($name);
+  my $outcome = defined $args{outcome} ? $args{outcome} : 'exploited';
+  if (!($outcome eq 'defended' || $outcome eq 'exploited')) {
+    croak "outcome must be defended or exploited\n";
+  }
+
+  my @actions   = map { _copy($_) } @{$attack->{actions}};
+  my @responses = map { [] } @actions;
+
+  # The catalog's outcome observations are the whole transcript for the attack;
+  # a recorded arena aligns one response batch to each action, so we attach the
+  # entire transcript to the final action. The oracle judges the session by its
+  # observations regardless of which action they trail, so the verdict matches
+  # the equivalent Attack->session exactly.
+  if (@responses) {
+    $responses[-1] = [map { _copy($_) } @{$attack->{$outcome}}];
+  }
+
+  return {actions => \@actions, responses => \@responses};
+}
+
 sub _copy {
   my ($value) = @_;
   if (ref($value) eq 'HASH') {
@@ -222,6 +245,16 @@ Builds an L<Overnet::Burner::Adversary::Session> for an attack. Takes the attack
 name and optional C<outcome> (C<defended> or C<exploited>, default C<exploited>)
 and C<seed>. The session replays the attack's actions and then the observations
 for the chosen outcome.
+
+=head2 interaction
+
+Builds the driver-and-arena view of an attack for
+L<Overnet::Burner::Adversary::Runner>. Takes the attack name and optional
+C<outcome> (C<defended> or C<exploited>, default C<exploited>). Returns
+C<< { actions => [...], responses => [...] } >>: the actions a driver submits
+and a positionally-aligned list of recorded observation batches (one per
+action) for a L<Overnet::Burner::Adversary::Arena::Recorded>. The outcome's
+whole transcript is attached to the final action's batch.
 
 =head1 DIAGNOSTICS
 

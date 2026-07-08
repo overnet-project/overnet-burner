@@ -22,8 +22,11 @@ examples/abuse-metric-events-v1-sample.jsonl
 examples/metric-events-v1-sample.jsonl
 examples/report-v1-smoke.json
 examples/worker-input-v1-sample.json
+lib/Overnet/Burner/Adversary/Arena/Recorded.pm
 lib/Overnet/Burner/Adversary/Attack.pm
+lib/Overnet/Burner/Adversary/Driver/Scripted.pm
 lib/Overnet/Burner/Adversary/Oracle.pm
+lib/Overnet/Burner/Adversary/Runner.pm
 lib/Overnet/Burner/Adversary/Session.pm
 lib/Overnet/Burner/Config.pm
 lib/Overnet/Burner/ContainerEngine.pm
@@ -85,6 +88,7 @@ schemas/report-v1.schema.json
 schemas/worker-input-v1.schema.json
 t/adversary-attack.t
 t/adversary-oracle.t
+t/adversary-runner.t
 t/adversary-session.t
 t/abuse-classify.t
 t/cli.t
