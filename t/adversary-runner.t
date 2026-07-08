@@ -10,6 +10,21 @@ use Overnet::Burner::Adversary::Attack;
 
 my $ATTACK = 'Overnet::Burner::Adversary::Attack';
 
+# A fresh driver mock that emits a single valid action once and then stops, so
+# a misbehaving-arena test drives exactly one apply before the arena fails.
+sub _single_action_driver {
+  my $done = 0;
+  return mock {} => (
+    add => [
+      next_actions => sub {
+        return [] if $done;
+        $done = 1;
+        return [{type => 'go'}];
+      },
+    ],
+  );
+}
+
 sub _run {
   my ($name, $outcome) = @_;
   my $attack      = $ATTACK->attack($name);
@@ -148,6 +163,64 @@ subtest 'the runner validates its collaborators and required arguments' => sub {
   like dies {
     $runner->run(driver => undef, arena => $ok_arena, oracle => $ok_oracle, session_id => 's', seed => '1');
   }, qr/driver\ is\ required/mx, 'a missing driver is rejected';
+};
+
+# The harness's whole value is catching misbehavior, so its own guardrails
+# against a malformed driver or arena must themselves be exercised.
+subtest 'the runner rejects a misbehaving driver or arena' => sub {
+  my $ok_oracle = Overnet::Burner::Adversary::Oracle->new;
+  my $ok_arena  = Overnet::Burner::Adversary::Arena::Recorded->new(responses => []);
+  my $runner    = Overnet::Burner::Adversary::Runner->new;
+
+  my $bad_return_driver = mock {} => (add => [next_actions => sub { return {not => 'an array'}; }]);
+  like dies {
+    $runner->run(
+      driver     => $bad_return_driver,
+      arena      => $ok_arena,
+      oracle     => $ok_oracle,
+      session_id => 's',
+      seed       => '1'
+    );
+  }, qr/next_actions\ must\ return\ an\ array\ reference/mx, 'a non-arrayref from the driver is rejected';
+
+  my $typeless_action_driver = mock {} => (add => [next_actions => sub { return [{payload => {}}]; }]);
+  like dies {
+    $runner->run(
+      driver     => $typeless_action_driver,
+      arena      => $ok_arena,
+      oracle     => $ok_oracle,
+      session_id => 's',
+      seed       => '1'
+    );
+  }, qr/driver\ produced\ an\ action\ without\ a\ type/mx, 'a typeless action is rejected';
+
+  my $bad_return_arena =
+    mock {} =>
+    (add => [baseline_ref => sub { return 'x'; }, reset => sub { return; }, apply => sub { return {not => 'array'}; }],
+    );
+  like dies {
+    $runner->run(
+      driver     => _single_action_driver(),
+      arena      => $bad_return_arena,
+      oracle     => $ok_oracle,
+      session_id => 's',
+      seed       => '1'
+    );
+  }, qr/arena\ apply\ must\ return\ an\ array\ reference/mx, 'a non-arrayref from the arena is rejected';
+
+  my $typeless_obs_arena =
+    mock {} =>
+    (add => [baseline_ref => sub { return 'x'; }, reset => sub { return; }, apply => sub { return [{payload => {}}]; }],
+    );
+  like dies {
+    $runner->run(
+      driver     => _single_action_driver(),
+      arena      => $typeless_obs_arena,
+      oracle     => $ok_oracle,
+      session_id => 's',
+      seed       => '1'
+    );
+  }, qr/arena\ produced\ an\ observation\ without\ a\ type/mx, 'a typeless observation is rejected';
 };
 
 subtest 'the reference drivers and arenas validate their inputs' => sub {

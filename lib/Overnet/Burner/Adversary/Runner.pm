@@ -77,7 +77,14 @@ sub _apply_action {
     croak "arena apply must return an array reference\n";
   }
   for my $observation (@{$observations}) {
-    if (!(ref($observation) eq 'HASH' && defined $observation->{type} && !ref($observation->{type}))) {
+    if (
+      !(
+           ref($observation) eq 'HASH'
+        && defined $observation->{type}
+        && !ref($observation->{type})
+        && length $observation->{type}
+      )
+    ) {
       croak "arena produced an observation without a type\n";
     }
     $session->append_observation(type => $observation->{type}, payload => $observation->{payload});
