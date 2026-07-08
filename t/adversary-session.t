@@ -47,7 +47,7 @@ subtest 'a new session opens with a meta record' => sub {
 subtest 'actions and observations append in order' => sub {
   my $session = _session();
   $session->append_action(type => 'publish_control', payload => {kind => 9000});
-  $session->append_observation(type => 'relay_outcome', payload => {accepted => JSON::false});
+  $session->append_observation(type => 'relay_outcome', payload => {accepted => 0, reason => q{unauthorized}});
 
   my $steps = $session->steps;
   is scalar(@{$steps}),             3,                 'meta plus two steps';
@@ -90,7 +90,7 @@ subtest 'every emitted record validates against the contract schema' => sub {
 subtest 'a session round-trips through JSONL' => sub {
   my $session = _session();
   $session->append_action(type => 'publish_control', payload => {kind => 9000, signer => 'attacker'});
-  $session->append_observation(type => 'relay_outcome', payload => {accepted => JSON::false});
+  $session->append_observation(type => 'relay_outcome', payload => {accepted => 0, reason => q{unauthorized}});
 
   my $jsonl  = $session->to_jsonl;
   my $replay = Overnet::Burner::Adversary::Session->from_jsonl($jsonl);
