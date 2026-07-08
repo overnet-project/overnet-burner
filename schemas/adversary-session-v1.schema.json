@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://overnet-project.org/schemas/overnet-burner/adversary-session-v1.schema.json",
+  "title": "overnet-burner adversary session record v1",
+  "description": "One step in an adversary session. A session log is JSONL: one step object per line, in ascending seq. The first line is the meta step (seq 0). Actions are what a driver attempted; observations are what the system under test exposed in response. The log is the replay artifact: replaying the same actions against the same arena baseline reproduces the session.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_version",
+    "session_id",
+    "seq",
+    "kind",
+    "type",
+    "payload"
+  ],
+  "properties": {
+    "record_version": {
+      "const": "1"
+    },
+    "session_id": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "kind": {
+      "enum": [
+        "meta",
+        "action",
+        "observation"
+      ]
+    },
+    "type": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
