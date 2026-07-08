@@ -4,16 +4,23 @@ use strictures 2;
 use Moo;
 
 use Carp qw(croak);
+use JSON ();
 
 our $VERSION = '0.001';
 
+my $JSON = JSON->new->utf8->canonical;
+$JSON->allow_nonref(1);
 my $CLAIM_SEPARATOR = "\0";
 my %VALID_STATUS    = map { $_ => 1 } qw(upheld violated inconclusive);
 
 has invariants => (is => 'lazy');
 
 sub _build_invariants {
-  return {authorization => \&_authorization_invariant};
+  return {
+    authorization => \&_authorization_invariant,
+    admission     => \&_admission_invariant,
+    convergence   => \&_convergence_invariant,
+  };
 }
 
 sub add_invariant {
@@ -108,6 +115,108 @@ sub _authorization_invariant {
   };
 }
 
+sub _admission_invariant {
+  my ($session, $ground_truth) = @_;
+
+  my %expected;
+  for my $entry (@{$ground_truth->{expected_admissions} || []}) {
+    $expected{_admission_key($entry)} = _bool($entry->{admitted});
+  }
+
+  my @findings;
+  my $judged = 0;
+  for my $step (@{_observations_of_type($session, 'observed_admission')}) {
+    my $claim = $step->{payload};
+    my $key   = _admission_key($claim);
+    if (!exists $expected{$key}) {
+      next;
+    }
+    $judged++;
+    my $observed = _bool($claim->{admitted});
+    if ($observed != $expected{$key}) {
+      push @findings,
+        {
+        summary => sprintf(
+          'subject %s was %s in scope %s but authoritative admission is %s',
+          _claim_field($claim, 'subject'),
+          ($observed ? 'admitted' : 'refused'),
+          _claim_field($claim, 'scope'),
+          ($expected{$key} ? 'admit' : 'refuse'),
+        ),
+        subject           => _claim_field($claim, 'subject'),
+        scope             => _claim_field($claim, 'scope'),
+        expected_admitted => $expected{$key},
+        observed_admitted => $observed,
+        evidence_seq      => $step->{seq},
+        };
+    }
+  }
+
+  if (!$judged) {
+    return {status => 'inconclusive', findings => []};
+  }
+  return {
+    status   => (@findings ? 'violated' : 'upheld'),
+    findings => \@findings,
+  };
+}
+
+sub _convergence_invariant {
+  my ($session, $ground_truth) = @_;
+
+  my %by_scope;
+  for my $step (@{_observations_of_type($session, 'observed_state')}) {
+    my $claim    = $step->{payload};
+    my $scope    = _claim_field($claim, 'scope');
+    my $instance = _claim_field($claim, 'instance');
+    $by_scope{$scope}{$instance} = {
+      digest => $JSON->encode($claim->{state}),
+      seq    => $step->{seq},
+    };
+  }
+
+  my @judgeable = grep { keys %{$by_scope{$_}} >= 2 } keys %by_scope;
+  if (!@judgeable) {
+    return {status => 'inconclusive', findings => []};
+  }
+
+  my @findings;
+  for my $scope (sort @judgeable) {
+    my $instances = $by_scope{$scope};
+    my %digests   = map { $instances->{$_}{digest} => 1 } keys %{$instances};
+    if (keys %digests > 1) {
+      my @seqs = sort { $a <=> $b } map { $instances->{$_}{seq} } keys %{$instances};
+      push @findings,
+        {
+        summary      => "instances disagree on authoritative state for scope $scope",
+        scope        => $scope,
+        instances    => [sort keys %{$instances}],
+        evidence_seq => $seqs[0],
+        };
+    }
+  }
+
+  return {
+    status   => (@findings ? 'violated' : 'upheld'),
+    findings => \@findings,
+  };
+}
+
+sub _observations_of_type {
+  my ($session, $type) = @_;
+  return [grep { $_->{type} eq $type } @{$session->steps_of_kind('observation')}];
+}
+
+sub _admission_key {
+  my ($claim) = @_;
+  return join $CLAIM_SEPARATOR, map { _claim_field($claim, $_) } qw(subject scope);
+}
+
+sub _bool {
+  my ($value) = @_;
+  return $value ? 1 : 0;
+}
+
 sub _claim_key {
   my ($claim) = @_;
   return join $CLAIM_SEPARATOR, map { _claim_field($claim, $_) } qw(subject capability scope);
@@ -152,18 +261,34 @@ It is independent of both the driver that produced the session and the system
 under test: its ground truth is supplied by the harness from the provenance of
 the actions it injected, never read back from the system under test.
 
-The built-in C<authorization> invariant enforces the core authority rule in a
-protocol-neutral form: every capability the system under test is observed to
-hold (an C<observed_capability> observation, with a C<subject>, C<capability>,
-and C<scope>) must appear in the harness's set of authorized capabilities. An
-observed capability with no authorizing grant is a finding - the generalized
-shape of privilege escalation. With no observed capabilities the invariant is
-C<inconclusive> rather than C<upheld>, because nothing was checked.
+Three invariants are built in, each protocol-neutral and each C<inconclusive>
+rather than C<upheld> when the session carries no observation it can judge:
 
-Additional invariants (admission, convergence, defense category, availability)
+=over
+
+=item * C<authorization> - every capability the system under test is observed to
+hold (an C<observed_capability> observation with a C<subject>, C<capability>,
+and C<scope>) must appear in the harness's authorized capabilities. An observed
+capability with no authorizing grant is a finding: the generalized shape of
+privilege escalation.
+
+=item * C<admission> - every admission decision the system under test is
+observed to make (an C<observed_admission> observation with a C<subject>,
+C<scope>, and C<admitted> flag) must match the harness's expected admission for
+that subject and scope. Admitting a subject the harness knows should be refused,
+or refusing one it should admit, is a finding: the shape of ban evasion and
+unauthorized admission.
+
+=item * C<convergence> - instances that have seen the same accepted events must
+expose the same authoritative state. Two C<observed_state> observations for the
+same C<scope> from different C<instance> values whose C<state> differs are a
+finding: the shape of authority-state divergence.
+
+=back
+
+Further invariants (defense category, availability, and protocol-specific ones)
 register through L</add_invariant>; a protocol profile maps its
-implementation-specific observations onto the neutral claim shape this oracle
-judges.
+implementation-specific observations onto the neutral shapes this oracle judges.
 
 =head1 SUBROUTINES/METHODS
 
