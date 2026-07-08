@@ -172,7 +172,12 @@ sub _record_rule_violation {
       return (0, "$field is required");
     }
   }
-  if (!(defined $rec->{seq} && !ref($rec->{seq}) && $rec->{seq} =~ /\A\d+\z/mxs)) {
+
+  # Validate seq against a lexical copy: matching the stored value directly
+  # would cache a string form on it, producing a dualvar that some JSON
+  # backends then serialize as a string, breaking byte-stable round-trips.
+  my $seq = $rec->{seq};
+  if (!(defined $seq && !ref($seq) && $seq =~ /\A\d+\z/mxs)) {
     return (0, 'seq must be a non-negative integer');
   }
   if (!(defined $rec->{kind} && $STEP_KIND{$rec->{kind}})) {

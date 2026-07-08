@@ -100,6 +100,10 @@ subtest 'a session round-trips through JSONL' => sub {
   is $replay->arena_baseline_ref, 'baseline-abc',  'arena baseline survives round-trip';
   is $replay->steps,              $session->steps, 'steps are identical after round-trip';
   is $replay->to_jsonl,           $jsonl,          're-serialization is byte-stable';
+
+  # seq must serialize as a bare JSON number for every record, not a string:
+  # a dualvar seq encodes inconsistently across JSON backends.
+  unlike $jsonl, qr/"seq":"/mx, 'seq is a JSON number, never a quoted string';
 };
 
 subtest 'from_jsonl rejects a log without an opening meta record' => sub {
