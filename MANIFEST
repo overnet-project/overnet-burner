@@ -136,6 +136,7 @@ t/worker-observer.t
 t/worker-publisher.t
 t/worker-query-reader.t
 t/worker-subscriber.t
+xt/author/coverage.t
 xt/author/perlcritic.t
 xt/author/pod-coverage.t
 xt/author/pod-syntax.t

@@ -121,4 +121,77 @@ subtest 'from_jsonl rejects a log without an opening meta record' => sub {
     qr/must\ begin\ with\ a\ session_open\ meta\ record/mx, 'meta-first is enforced';
 };
 
+subtest 'the constructor requires every identifying field' => sub {
+  for my $field (qw(session_id seed arena_baseline_ref)) {
+    my %args = (session_id => 'sess-1', seed => '42', arena_baseline_ref => 'baseline-abc');
+    delete $args{$field};
+    like dies { Overnet::Burner::Adversary::Session->new(%args) }, qr/\Q$field\E\ is\ required/mx, "$field is required";
+  }
+  like dies { Overnet::Burner::Adversary::Session->new('session_id') },
+    qr/constructor\ arguments\ must\ be\ a\ hash/mx, 'an odd argument list is rejected';
+};
+
+sub _meta_line {
+  return JSON->new->canonical->encode(
+    {
+      record_version => '1',
+      session_id     => 'sess-1',
+      seq            => 0,
+      kind           => 'meta',
+      type           => 'session_open',
+      payload        => {seed => '42', arena_baseline_ref => 'baseline-abc'},
+    }
+  ) . "\n";
+}
+
+sub _record_line {
+  my (%override) = @_;
+  my %record = (
+    record_version => '1',
+    session_id     => 'sess-1',
+    seq            => 1,
+    kind           => 'action',
+    type           => 'publish_control',
+    payload        => {},
+    %override,
+  );
+  return JSON->new->canonical->encode(\%record) . "\n";
+}
+
+subtest 'from_jsonl enforces every record rule' => sub {
+  like dies { Overnet::Burner::Adversary::Session->from_jsonl(undef) }, qr/JSONL\ text\ is\ required/mx,
+    'text is required';
+
+  my %case = (
+    'record_version must be 1'                  => _record_line(record_version => '2'),
+    'session_id is required'                    => _record_line(session_id     => q{}),
+    'type is required'                          => _record_line(type           => q{}),
+    'seq must be a non-negative integer'        => _record_line(seq            => 'x'),
+    'kind must be meta, action, or observation' => _record_line(kind           => 'nonsense'),
+    'payload must be an object'                 => _record_line(payload        => []),
+  );
+  for my $reason (sort keys %case) {
+    like dies { Overnet::Burner::Adversary::Session->from_jsonl(_meta_line() . $case{$reason}) },
+      qr/\Q$reason\E/mx, "from_jsonl rejects: $reason";
+  }
+};
+
+subtest 'from_jsonl requires contiguous seqs and ignores blank lines' => sub {
+  like dies { Overnet::Burner::Adversary::Session->from_jsonl(_meta_line() . _record_line(seq => 5)) },
+    qr/contiguous\ seq/mx, 'a seq gap is rejected';
+
+  my $session = Overnet::Burner::Adversary::Session->from_jsonl("\n" . _meta_line() . "\n" . _record_line() . "\n");
+  is scalar(@{$session->steps}), 2, 'blank lines are skipped and the records load';
+};
+
+subtest 'validate_record reports the rule it violated' => sub {
+  my ($ok, $reason) = Overnet::Burner::Adversary::Session->validate_record('not-a-hash');
+  ok !$ok, 'a non-object record is invalid';
+  like $reason, qr/record\ must\ be\ an\ object/mx, 'the reason names the rule';
+
+  my ($ok2) = Overnet::Burner::Adversary::Session->validate_record(
+    {record_version => '1', session_id => 'sess-1', seq => 0, kind => 'meta', type => 'session_open', payload => {}});
+  ok $ok2, 'a well-formed record is valid';
+};
+
 done_testing;
