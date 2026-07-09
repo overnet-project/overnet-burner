@@ -17,6 +17,7 @@ docs/METRICS.md
 docs/profile-generation.md
 docs/PROPOSAL.md
 docs/provisioning.md
+docs/rex-backend.md
 docs/REPORT.md
 docs/topology-providers.md
 docs/workers.md
@@ -57,6 +58,7 @@ lib/Overnet/Burner/Runner/Noop.pm
 lib/Overnet/Burner/Runner/RexLocal.pm
 lib/Overnet/Burner/Runner/RexLocalProvider.pm
 lib/Overnet/Burner/Runner/RexLocalWorkers.pm
+lib/Overnet/Burner/Runner/RexRemote.pm
 lib/Overnet/Burner/TopologyProvider.pm
 lib/Overnet/Burner/Util.pm
 lib/Overnet/Burner/Worker.pm
@@ -121,6 +123,7 @@ t/provenance.t
 t/reference-image.t
 t/report-contract.t
 t/report-generation.t
+t/rex-bundle-performed.t
 t/rex-bundle.t
 t/run-ledger.t
 t/runner-noop.t
@@ -131,6 +134,7 @@ t/runner-provision-virtual.t
 t/runner-rex-local-provider.t
 t/runner-rex-local-workers.t
 t/runner-rex-local.t
+t/runner-rex-remote.t
 t/topology-provider-external-command.t
 t/worker-abuse.t
 t/worker-object-reader.t

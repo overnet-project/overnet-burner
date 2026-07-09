@@ -64,8 +64,14 @@ to every versioned contract in `schemas/`.
 
 ## Architecture Boundaries
 
-- Rex owns orchestration: inventory, deployment, process control, chaos
-  execution, artifact collection, cleanup. Rex is not the load generator.
+- Runners choose an execution backend. The guest interface (local `exec`,
+  `connect` SSH, `container`, `virtual`) is the default substrate and owns
+  transport: provisioning, process control, chaos execution, artifact
+  collection, and cleanup run through it. Rex is the reference remote-execution
+  backend — an opt-in path (see [docs/rex-backend.md](docs/rex-backend.md)) that
+  a runner selects to deploy and lifecycle the system under test on real hosts,
+  and it genuinely performs when selected. Neither backend is the load
+  generator.
 - Workers are dedicated processes that generate load and record measurements.
   Workers must emit structured metrics continuously and avoid controller
   round trips on hot paths.

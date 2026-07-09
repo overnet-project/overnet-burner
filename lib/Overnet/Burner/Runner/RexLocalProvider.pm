@@ -204,13 +204,10 @@ sub _run_topology_provider_command {
     exists $args{phase} ? (phase => $args{phase}) : (),
   );
 
-  my $guest = $self->_relay_guest_for($actor_id);
-  $self->_record_topology_provider_event(%event_base, guest => $guest->name, status => 'started');
+  my $executor = $self->_provider_command_executor($actor_id);
+  $self->_record_topology_provider_event(%event_base, guest => $executor, status => 'started');
 
-  my $outcome = $guest->run_command(
-    command => $command,
-    cwd     => File::Spec->rel2abs($self->{run_dir}),
-  );
+  my $outcome = $self->_provider_command_outcome(actor_id => $actor_id, kind => $kind, command => $command,);
   write_file(File::Spec->rel2abs(File::Spec->catfile($self->{run_dir}, $relative_stdout)), $outcome->{stdout} // q{},);
   write_file(File::Spec->rel2abs(File::Spec->catfile($self->{run_dir}, $relative_stderr)), $outcome->{stderr} // q{},);
 
@@ -218,7 +215,7 @@ sub _run_topology_provider_command {
   my $result_status = defined $exit_code && $exit_code == 0 ? 'completed' : 'failed';
   my %result        = (
     %event_base,
-    guest  => $guest->name,
+    guest  => $executor,
     status => $result_status,
     defined $exit_code ? (exit_code => $exit_code) : (),
   );
@@ -235,6 +232,28 @@ sub _run_topology_provider_command {
     ? "exited with status $exit_code"
     : 'ended by a signal or transport failure';
   croak "provider command failed: $actor_id $kind $detail\n";
+}
+
+# Execute one provider command and return {stdout, stderr, exit_code}. The base
+# provider runner runs it through the relay's guest (the controller host, or the
+# guest a relay was placed on). A Rex-backed runner overrides this to run the
+# command as a real Rex task instead.
+sub _provider_command_outcome {
+  my ($self, %args) = @_;
+
+  my $guest = $self->_relay_guest_for($args{actor_id});
+  return $guest->run_command(
+    command => $args{command},
+    cwd     => File::Spec->rel2abs($self->{run_dir}),
+  );
+}
+
+# A label naming what executed the provider command, recorded on each command
+# event. The base runner names the guest; a Rex runner names its backend.
+sub _provider_command_executor {
+  my ($self, $actor_id) = @_;
+
+  return $self->_relay_guest_for($actor_id)->name;
 }
 
 sub _relay_guest_for {

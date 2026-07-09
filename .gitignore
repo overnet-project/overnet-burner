@@ -21,3 +21,4 @@ cover_db/
 *.orig
 *.rej
 .DS_Store
+Rexfile.lock

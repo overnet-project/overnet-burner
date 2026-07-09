@@ -1,8 +1,10 @@
 # Topology Providers
 
 Topology providers are the implementation-under-test boundary in
-`overnet-burner`. Rex remains the execution substrate; provider descriptors
-only describe what a relay implementation needs for lifecycle orchestration.
+`overnet-burner`. Provider descriptors only describe what a relay
+implementation needs for lifecycle orchestration; runners choose the execution
+backend that performs it — the guest interface by default, or Rex when a Rex
+runner is selected (see [rex-backend.md](rex-backend.md)).
 
 ## `generic-relay`
 
@@ -40,7 +42,13 @@ It reads `start`, `health`, and `stop` commands from the rendered
 `topology-provider.json`, writes command stdout and stderr under
 `logs/provider/`, records command events in `logs/runner.jsonl`, and attempts
 `stop` cleanup for relays whose `start` command completed before a later
-failure.
+failure. `rex-local-provider` executes those commands through the controller's
+guest primitive.
+
+The `rex-remote` runner performs the same lifecycle through **real Rex tasks**
+against each relay's host, renders the bundle in `performed` mode, and reports a
+truthful `execution.remote_execution` value. See
+[rex-backend.md](rex-backend.md).
 
 ## Relay Endpoints
 

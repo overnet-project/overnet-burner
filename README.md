@@ -28,9 +28,12 @@ The design is documented in [docs/PROPOSAL.md](docs/PROPOSAL.md).
 - **Stable automation contract.** `report.json` is the stable machine-readable
   result of a run, defined by [docs/REPORT.md](docs/REPORT.md) and
   [schemas/report-v1.schema.json](schemas/report-v1.schema.json).
-- **Rex orchestrates; workers measure.** [Rex](https://www.rexify.org/) owns
-  machine and process orchestration. Dedicated worker processes generate load
-  and record measurements.
+- **Guests execute; workers measure.** Runners execute a plan through the guest
+  interface (local `exec`, `connect` SSH, `container`, `virtual`);
+  [Rex](https://www.rexify.org/) is the opt-in reference remote-execution
+  backend for deploying and lifecycling the system under test on real hosts (see
+  [docs/rex-backend.md](docs/rex-backend.md)). Dedicated worker processes
+  generate load and record measurements.
 
 ## Usage
 

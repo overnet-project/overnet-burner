@@ -20,10 +20,7 @@ no Moo;
 sub prepare {
   my ($self) = @_;
 
-  my $bundle = Overnet::Burner::RexBundle->render(
-    run_dir => $self->{run_dir},
-    plan    => $self->{plan},
-  );
+  my $bundle = $self->_render_rex_bundle;
 
   $self->{ledger}->record_rex_bundle(
     relative_dir => $bundle->{relative_dir},
@@ -33,12 +30,30 @@ sub prepare {
   $self->{rex_bundle} = {
     path             => $bundle->{relative_dir},
     rendered         => 1,
-    remote_execution => 'not_performed',
+    remote_execution => $bundle->{remote_execution} || $self->_remote_execution_mode,
     files            => $bundle->{files},
   };
   $self->{rex_tasks} = [];
 
   return 1;
+}
+
+# Render the Rex bundle for this run. The base runner renders a planned
+# (rendered-only) bundle; a runner that genuinely performs remote execution
+# overrides this to render a performed bundle with a real host inventory.
+sub _render_rex_bundle {
+  my ($self) = @_;
+
+  return Overnet::Burner::RexBundle->render(
+    run_dir => $self->{run_dir},
+    plan    => $self->{plan},
+  );
+}
+
+# The execution state a runner reports for its bundle. The base runner only
+# renders, so it reports 'not_performed'; a performing runner overrides this.
+sub _remote_execution_mode {
+  return 'not_performed';
 }
 
 sub start {

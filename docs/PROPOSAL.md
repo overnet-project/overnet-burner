@@ -102,8 +102,9 @@ The correct split is:
 - The system must be general and configurable.
 - The system must not be tied to IRC, relay-perl, or a specific deployment.
 - The Perl reference relay may be an early topology target, not the architecture.
-- Rex is the core execution substrate for orchestration; burner runners should
-  use Rex wherever orchestration is required.
+- The guest interface is the default execution substrate; Rex is the opt-in
+  reference remote-execution backend for real-host deployment (see
+  [rex-backend.md](rex-backend.md)). Runners choose the backend a plan uses.
 - Scenario definitions must be portable across environments.
 - Every run must be reproducible from its recorded manifest.
 - Every run must produce machine-readable artifacts.
@@ -151,9 +152,10 @@ Rex execution bundle:
 - logs, metrics, state, and artifact locations
 - implementation version metadata
 
-Rex remains the execution substrate. Topology providers describe what should be
-run and observed; Rex-based burner runners decide how to orchestrate that work
-across machines.
+The guest interface is the default execution substrate, and Rex is the opt-in
+reference remote-execution backend for real-host deployment. Topology providers
+describe what should be run and observed; burner runners decide which backend
+orchestrates that work across machines.
 
 The initial provider descriptor contracts are documented in
 [`topology-providers.md`](topology-providers.md).
