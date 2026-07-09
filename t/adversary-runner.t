@@ -103,6 +103,28 @@ subtest 'the runner records the driver actions and arena observations in order' 
   is $meta->{payload}{arena_baseline_ref}, 'recorded', 'the session baseline comes from the arena';
 };
 
+subtest 'step advances a session one action at a time and returns its observations' => sub {
+  my $arena = Overnet::Burner::Adversary::Arena::Recorded->new(
+    responses => [[{type => 'relay_outcome', payload => {accepted => 0}}]],);
+  $arena->reset;
+  my $session = Overnet::Burner::Adversary::Session->new(
+    session_id         => 'step-1',
+    seed               => '1',
+    arena_baseline_ref => $arena->baseline_ref,
+  );
+
+  my $observations = Overnet::Burner::Adversary::Runner->new->step(
+    arena   => $arena,
+    session => $session,
+    action  => {type => 'publish_control', payload => {kind => 9001}},
+  );
+
+  is scalar(@{$observations}), 1,               'step returns the appended observations';
+  is $observations->[0]{type}, 'relay_outcome', 'the observation is the arena batch';
+  my @kinds = map { $_->{kind} } @{$session->steps};
+  is \@kinds, ['meta', 'action', 'observation'], 'step appends the action and its observation to the session';
+};
+
 subtest 'a scripted driver emits its actions once and then stops' => sub {
   my $driver =
     Overnet::Burner::Adversary::Driver::Scripted->new(actions => [{type => 'join', payload => {subject => 'x'}}],);

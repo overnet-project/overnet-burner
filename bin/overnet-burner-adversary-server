@@ -1,0 +1,162 @@
+#!/usr/bin/env perl
+use strictures 2;
+
+use FindBin;
+use lib "$FindBin::Bin/../lib";
+
+use Getopt::Long     qw(GetOptionsFromArray);
+use IO::Socket::INET ();
+use JSON             ();
+
+use Overnet::Burner::Adversary::Server;
+
+our $VERSION = '0.001';
+
+my $JSON = JSON->new->utf8->canonical;
+
+if (!caller) {
+  exit run(@ARGV);
+}
+
+sub run {
+  my (@argv) = @_;
+  my %opt = (host => '127.0.0.1', port => 7480);
+  GetOptionsFromArray(\@argv, 'host=s' => \$opt{host}, 'port=i' => \$opt{port})
+    or die "usage: overnet-burner-adversary-server [--host HOST] [--port PORT]\n";
+
+  my $server   = Overnet::Burner::Adversary::Server->new;
+  my $listener = IO::Socket::INET->new(
+    LocalHost => $opt{host},
+    LocalPort => $opt{port},
+    Proto     => 'tcp',
+    Listen    => 16,
+    ReuseAddr => 1,
+  ) or die "listen on $opt{host}:$opt{port}: $!\n";
+
+  print {*STDERR} "adversary server listening on $opt{host}:$opt{port}\n"
+    or die "print: $!\n";
+
+  while (my $connection = $listener->accept) {
+    _serve_connection($server, $connection);
+    close $connection or die "close: $!\n";
+  }
+
+  return 0;
+}
+
+sub _serve_connection {
+  my ($server, $connection) = @_;
+
+  my $request = _read_request($connection);
+  if (!$request) {
+    return _write_response($connection, {status => 400, body => {error => 'malformed request'}});
+  }
+
+  my $body;
+  if (length $request->{body}) {
+    my $decoded = eval { $JSON->decode($request->{body}) };
+    if (!$decoded) {
+      return _write_response($connection, {status => 400, body => {error => 'request body is not valid JSON'}});
+    }
+    $body = $decoded;
+  }
+
+  my $response = $server->dispatch(
+    method => $request->{method},
+    path   => $request->{path},
+    body   => $body,
+  );
+  return _write_response($connection, $response);
+}
+
+sub _read_request {
+  my ($connection) = @_;
+  my $request_line = readline $connection;
+  if (!(defined $request_line && $request_line =~ /\A(\S+)\ (\S+)\ HTTP/mxs)) {
+    return;
+  }
+  my ($method, $target) = ($1, $2);
+  $target =~ s/[?].*\z//mxs;
+
+  my $length = 0;
+  while (my $header = readline $connection) {
+    $header =~ s/\r?\n\z//mxs;
+    if (!length $header) {
+      last;
+    }
+    if ($header =~ /\AContent-Length:\s*(\d+)\z/imxs) {
+      $length = $1;
+    }
+  }
+
+  my $body = q{};
+  while ($length > length $body) {
+    my $chunk;
+    my $read = read $connection, $chunk, $length - length $body;
+    if (!$read) {
+      last;
+    }
+    $body .= $chunk;
+  }
+
+  return {method => $method, path => $target, body => $body};
+}
+
+sub _write_response {
+  my ($connection, $response) = @_;
+  my $status  = $response->{status} || 200;
+  my $payload = $JSON->encode($response->{body} || {});
+  my $length  = length $payload;
+
+  print {$connection} "HTTP/1.1 $status ",
+    _reason($status),
+    "\r\nContent-Type: application/json\r\nContent-Length: $length\r\nConnection: close\r\n\r\n", $payload
+    or die "print: $!\n";
+  return 1;
+}
+
+my %REASON = (
+  200 => 'OK',
+  201 => 'Created',
+  400 => 'Bad Request',
+  404 => 'Not Found',
+  409 => 'Conflict',
+  429 => 'Too Many Requests',
+);
+
+sub _reason {
+  my ($status) = @_;
+  return defined $REASON{$status} ? $REASON{$status} : 'Status';
+}
+
+1;
+
+=head1 NAME
+
+overnet-burner-adversary-server - HTTP binding for the adversary session API
+
+=head1 VERSION
+
+Version 0.001.
+
+=head1 SYNOPSIS
+
+  overnet-burner-adversary-server --host 127.0.0.1 --port 7480
+
+=head1 DESCRIPTION
+
+Serves L<Overnet::Burner::Adversary::Server> over HTTP so an external driver can
+create adversary sessions, submit actions, read observations, and fetch
+verdicts. The socket loop is intentionally thin - it decodes the request body as
+JSON, calls C<< $server->dispatch >>, and encodes the response - so all API
+behavior lives in the transport-neutral server module.
+
+=head1 AUTHOR
+
+Nicholas B. Hubbard C<< <nicholashubbard@posteo.net> >>
+
+=head1 LICENSE AND COPYRIGHT
+
+This software is distributed under the GNU General Public License, version 3.
+
+=cut

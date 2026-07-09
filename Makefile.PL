@@ -12,7 +12,7 @@ WriteMakefile(
   ABSTRACT           => 'Rex-based scalable Overnet system-test harness',
   LICENSE            => 'gpl_3',
   MIN_PERL_VERSION   => '5.040',
-  EXE_FILES          => ['bin/overnet-burner', 'bin/overnet-burner-worker'],
+  EXE_FILES          => ['bin/overnet-burner', 'bin/overnet-burner-worker', 'bin/overnet-burner-adversary-server'],
   CONFIGURE_REQUIRES => {
     'ExtUtils::MakeMaker' => 0,
   },

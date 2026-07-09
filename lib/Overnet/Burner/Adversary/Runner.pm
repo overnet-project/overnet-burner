@@ -57,15 +57,19 @@ sub _drive {
         croak "runner exceeded max_steps ($self->{max_steps})\n";
       }
       $steps++;
-      $self->_apply_action($arena, $session, $action);
+      $self->step(arena => $arena, session => $session, action => $action);
     }
   }
 
   return;
 }
 
-sub _apply_action {
-  my ($self, $arena, $session, $action) = @_;
+sub step {
+  my ($self, %args) = @_;
+  my $arena   = $args{arena};
+  my $session = $args{session};
+  my $action  = $args{action};
+
   if (!(ref($action) eq 'HASH' && defined $action->{type} && !ref($action->{type}) && length $action->{type})) {
     croak "driver produced an action without a type\n";
   }
@@ -76,6 +80,8 @@ sub _apply_action {
   if (ref($observations) ne 'ARRAY') {
     croak "arena apply must return an array reference\n";
   }
+
+  my @recorded;
   for my $observation (@{$observations}) {
     if (
       !(
@@ -87,10 +93,10 @@ sub _apply_action {
     ) {
       croak "arena produced an observation without a type\n";
     }
-    $session->append_observation(type => $observation->{type}, payload => $observation->{payload});
+    push @recorded, $session->append_observation(type => $observation->{type}, payload => $observation->{payload});
   }
 
-  return;
+  return \@recorded;
 }
 
 sub _require_role {
@@ -165,6 +171,14 @@ Runs one adversary episode. Takes C<driver>, C<arena>, C<oracle>,
 C<session_id>, C<seed>, and optional C<ground_truth>. Resets the arena, drives
 the driver's actions through it into a fresh session, evaluates the session
 with the oracle, and returns C<< { session => $session, verdict => $verdict } >>.
+
+=head2 step
+
+Applies one action to an arena and records it, plus the arena's observations,
+into a session. Takes C<arena>, C<session>, and C<action>, and returns an array
+reference of the appended observation records. This is the single incremental
+step C</run> loops over; it is public so an interactive driver - such as the
+adversary server - can advance a session one action at a time.
 
 =head1 DIAGNOSTICS
 
