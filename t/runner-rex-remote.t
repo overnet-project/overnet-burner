@@ -11,6 +11,7 @@ use lib "$FindBin::Bin/../lib";
 use Overnet::Burner::Config;
 use Overnet::Burner::Runner;
 use Overnet::Burner::RunLedger;
+use YAML::PP;
 
 # rex-remote genuinely invokes the rex binary, so the tests need it. It ships as
 # a dependency and lives beside this perl; fall back to PATH, and skip only if
@@ -94,7 +95,65 @@ subtest 'rex-remote performs the lifecycle over ssh and reports remote execution
   ok -e $stop_marker,  'real Rex executed the stop command over ssh';
 };
 
+subtest 'rex-remote deploys files to the host with real Rex before starting' => sub {
+  my $tmp    = tempdir(CLEANUP => 1);
+  my $source = File::Spec->catfile($tmp, 'relay.conf');
+  my $dest   = File::Spec->catfile($tmp, 'deployed-relay.conf');
+  _write($source, "relay-config-body\n");
+
+  my $start_marker  = File::Spec->catfile($tmp, 'start-ran');
+  my $scenario_path = File::Spec->catfile($tmp, 'deploy.yml');
+  _write(
+    $scenario_path,
+    _deploy_scenario_yaml(
+      source   => $source,
+      dest     => $dest,
+      commands => {
+        start  => "touch '$start_marker'",
+        health => "test -e '$start_marker'",
+        stop   => "true",
+      },
+    ),
+  );
+
+  my $summary = _run_runner(
+    scenario_path => $scenario_path,
+    runs_dir      => File::Spec->catdir($tmp, 'runs'),
+    run_id        => 'deploy',
+  );
+
+  ok -e $dest, 'real Rex deployed the file to the destination';
+  is _slurp($dest), "relay-config-body\n", 'the deployed file has the source content';
+
+  my @kinds = map { $_->{command_kind} } @{$summary->{topology_provider_commands}};
+  is \@kinds, [qw(deploy start health stop)], 'deploy runs before start, then the lifecycle';
+  my ($deploy) = grep { $_->{command_kind} eq 'deploy' } @{$summary->{topology_provider_commands}};
+  is $deploy->{status}, 'completed', 'the deploy command completes';
+  is $deploy->{guest},  'rex:local', 'rex is recorded as the deploy executor';
+};
+
 done_testing;
+
+sub _deploy_scenario_yaml {
+  my (%args) = @_;
+  my $scenario = {
+    run      => {name => 'rex-remote-deploy', duration => 60, seed => 24680},
+    topology => {
+      relays => {
+        count    => 1,
+        provider => 'external-command',
+        command  => $args{commands},
+        deploy   => {files => [{source => $args{source}, dest => $args{dest}}]},
+      },
+      publishers     => {count => 0},
+      subscribers    => {count => 0},
+      query_readers  => {count => 0},
+      object_readers => {count => 0},
+    },
+    workload => {publish_rate_per_second => 0},
+  };
+  return YAML::PP->new(boolean => 'perl', schema => ['Core'])->dump_string($scenario);
+}
 
 sub _run_runner {
   my (%args) = @_;

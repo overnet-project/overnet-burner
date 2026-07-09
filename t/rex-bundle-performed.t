@@ -11,6 +11,7 @@ use Overnet::Burner::Config;
 use Overnet::Burner::RexBundle;
 use Overnet::Burner::RunLedger;
 use Overnet::Burner::Util qw(read_json_file);
+use YAML::PP;
 
 # A scenario whose relay uses the external-command provider, so the rendered
 # topology-provider bundle carries real start/health/stop command strings.
@@ -127,7 +128,75 @@ subtest 'performed mode against the controller renders a local task and reports 
   is $index->{execution}{remote_execution}, 'local', 'bundle index records local execution';
 };
 
+subtest 'performed mode renders a Rex deploy task from the descriptor' => sub {
+  my $deploy_scenario_path = File::Spec->catfile($tmp, 'deploy.yml');
+  _write($deploy_scenario_path, _deploy_scenario_yaml());
+  my $deploy_scenario = Overnet::Burner::Config->load_file($deploy_scenario_path);
+
+  my $ledger = Overnet::Burner::RunLedger->create(
+    scenario      => $deploy_scenario,
+    scenario_path => $deploy_scenario_path,
+    runs_dir      => File::Spec->catdir($tmp, 'deploy-run'),
+    run_id        => 'deploy',
+    now           => sub {'2026-07-09T14:00:00Z'},
+    host_facts    => {hostname => 'builder', os => 'linux', arch => 'x86_64'},
+    repo_sha      => 'abc123',
+    rex_version   => undef,
+  );
+  my $run_dir = $ledger->{run_dir};
+  my $plan    = Overnet::Burner::RunLedger->load_plan($run_dir);
+
+  Overnet::Burner::RexBundle->render(
+    run_dir   => $run_dir,
+    plan      => $plan,
+    execution => 'performed',
+    inventory => {transport => 'ssh', host => 'relay.example', user => 'burner', key => '/keys/id'},
+  );
+
+  my $bundle_dir = File::Spec->catdir($run_dir, 'artifacts', 'rex');
+  my $rexfile    = _read($bundle_dir, 'Rexfile');
+  like $rexfile, qr/task\ 'deploy'/mx,                    'performed render exposes a deploy task';
+  like $rexfile, qr/file\ '\/etc\/overnet\/relay[.]conf'/mx, 'the deploy task places the destination file';
+  like $rexfile, qr/source\ =>/mx,                        'the deploy task copies from a source';
+
+  my $topology = read_json_file(File::Spec->catfile($bundle_dir, 'topology-provider.json'));
+  is $topology->{relays}[0]{deploy}{files}[0]{dest}, '/etc/overnet/relay.conf', 'topology provider records the deploy file';
+  is $topology->{relays}[0]{deploy}{execution},      'performed',               'the deploy block is performed';
+};
+
+subtest 'a performed render without a deploy renders no deploy task' => sub {
+  my ($run_dir, $plan) = _plan_run_dir('no-deploy');
+  Overnet::Burner::RexBundle->render(
+    run_dir   => $run_dir,
+    plan      => $plan,
+    execution => 'performed',
+    inventory => {transport => 'local'},
+  );
+  my $rexfile = _read(File::Spec->catdir($run_dir, 'artifacts', 'rex'), 'Rexfile');
+  unlike $rexfile, qr/task\ 'deploy'/mx, 'no deploy task when the descriptor has none';
+};
+
 done_testing;
+
+sub _deploy_scenario_yaml {
+  my $scenario = {
+    run      => {name => 'performed-deploy', duration => 60, seed => 13579},
+    topology => {
+      relays => {
+        count    => 1,
+        provider => 'external-command',
+        command  => {start => 'true', stop => 'true', health => 'true'},
+        deploy   => {files => [{source => 'relay.conf', dest => '/etc/overnet/relay.conf'}]},
+      },
+      publishers     => {count => 0},
+      subscribers    => {count => 0},
+      query_readers  => {count => 0},
+      object_readers => {count => 0},
+    },
+    workload => {publish_rate_per_second => 0},
+  };
+  return YAML::PP->new(boolean => 'perl', schema => ['Core'])->dump_string($scenario);
+}
 
 sub _write {
   my ($path, $content) = @_;

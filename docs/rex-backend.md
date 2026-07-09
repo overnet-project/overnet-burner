@@ -65,6 +65,21 @@ Rex task invocation goes through the same seam every Rex runner uses:
 `OVERNET_BURNER_REX`. A non-zero Rex exit fails the run with the captured
 output, and the failure is recorded before the exception propagates.
 
+## Deploying files before start
+
+When an `external-command` relay declares a `topology.relays.deploy.files` block
+(see [topology-providers.md](topology-providers.md)), a Rex execution runner
+places those files on the relay host before running the `start` command. It does
+this with Rex's own `file` primitive rather than a shell copy: the performed
+`Rexfile` gains a `deploy` task whose body is one `file '<dest>', source =>
+'<source>'` per declared file, and the runner invokes it as a `deploy` provider
+command ahead of `start`. Sources are controller-side paths (resolved relative to
+the run directory when not absolute); destinations are paths on the relay host.
+
+This is the first step of Rex-driven deployment. Package installation
+(`pkg`), service management (`service`), and cloud provisioning are future
+extensions of this backend and are not defined here.
+
 ## Reported execution state
 
 The run manifest and `report.json` carry `execution.remote_execution`, one of

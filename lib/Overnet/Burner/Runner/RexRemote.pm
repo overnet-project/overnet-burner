@@ -5,11 +5,12 @@ use Moo;
 
 extends 'Overnet::Burner::Runner::RexLocalProvider';
 
-use Carp    qw(croak);
-use English qw(-no_match_vars);
+use Carp       qw(croak);
+use English    qw(-no_match_vars);
+use File::Path qw(make_path);
 use File::Spec;
 
-use Overnet::Burner::Util qw(read_json_file);
+use Overnet::Burner::Util qw(read_json_file write_file);
 
 our $VERSION = '0.001';
 
@@ -28,6 +29,64 @@ sub start {
   # the eight generic phase tasks; a performed bundle renders only the
   # provider-command task, so those are deliberately not run here.
   $self->_run_topology_provider_start;
+
+  return 1;
+}
+
+# Before a relay starts, deploy its declared files to the host with a real Rex
+# `file` task, so the SUT's config/artifacts are in place before start.
+sub _before_relay_start {
+  my ($self, $relay) = @_;
+
+  my $deploy = $relay->{deploy};
+  if (!(ref $deploy eq 'HASH' && @{$deploy->{files} || []})) {
+    return 1;
+  }
+
+  $self->_run_deploy(actor_id => $relay->{actor_id}, deploy => $deploy);
+  return 1;
+}
+
+sub _run_deploy {
+  my ($self, %args) = @_;
+
+  my $actor_id         = $args{actor_id} || croak "actor_id is required\n";
+  my $file_count       = scalar @{$args{deploy}{files} || []};
+  my $log_label        = "$actor_id-deploy";
+  my $relative_stdout  = File::Spec->catfile('logs', 'provider', "$log_label.stdout");
+  my $relative_stderr  = File::Spec->catfile('logs', 'provider', "$log_label.stderr");
+  my $provider_log_dir = File::Spec->catdir($self->{run_dir}, 'logs', 'provider');
+  if (!-d $provider_log_dir) {
+    make_path($provider_log_dir);
+  }
+
+  my %event_base = (
+    actor_id     => $actor_id,
+    command_kind => 'deploy',
+    command      => "deploy $file_count file" . ($file_count == 1 ? q{} : 's'),
+    stdout_path  => $relative_stdout,
+    stderr_path  => $relative_stderr,
+  );
+  my $executor = $self->_provider_command_executor($actor_id);
+  $self->_record_topology_provider_event(%event_base, guest => $executor, status => 'started');
+
+  my $bundle              = $self->_rex_bundle;
+  my $absolute_bundle_dir = File::Spec->catdir(File::Spec->rel2abs($self->{run_dir}), $bundle->{path});
+  my ($output, $exit_code) = $self->_capture_rex(
+    cwd     => $absolute_bundle_dir,
+    command => [$self->_rex_command, '-f', File::Spec->catfile($absolute_bundle_dir, 'Rexfile'), 'deploy'],
+  );
+  write_file(File::Spec->rel2abs(File::Spec->catfile($self->{run_dir}, $relative_stdout)), $output // q{});
+  write_file(File::Spec->rel2abs(File::Spec->catfile($self->{run_dir}, $relative_stderr)), q{});
+
+  my $status = $exit_code == 0 ? 'completed' : 'failed';
+  my %result = (%event_base, guest => $executor, status => $status, exit_code => $exit_code);
+  push @{$self->{topology_provider_commands}}, \%result;
+  $self->_record_topology_provider_event(%result);
+
+  if ($status ne 'completed') {
+    croak "deploy failed: $actor_id exited with status $exit_code\n";
+  }
 
   return 1;
 }

@@ -13,6 +13,7 @@ use Overnet::Burner::Plan;
 use Overnet::Burner::RexBundle;
 use Overnet::Burner::RunLedger;
 use Overnet::Burner::TopologyProvider;
+use YAML::PP;
 
 my $repo = "$FindBin::Bin/..";
 my $bin  = "$repo/bin/overnet-burner";
@@ -172,7 +173,60 @@ my $cli_plan = _read_json(File::Spec->catfile($cli_tmp, $cli_run_id, 'plan.json'
 is $cli_plan->{topology_provider}{command}, $command, 'CLI render-rex writes descriptor into plan.json';
 ok !exists $cli_plan->{provider}, 'CLI render-rex plan avoids ambiguous root provider field';
 
+subtest 'external-command accepts an optional deploy.files block' => sub {
+  my $deploy = {files => [{source => 'relay.conf', dest => '/etc/overnet/relay.conf'}]};
+  my $deploy_path = File::Spec->catfile($tmp, 'deploy.yml');
+  _write_yaml($deploy_path, _deploy_yaml($command, $deploy));
+
+  my $deploy_scenario = Overnet::Burner::Config->load_file($deploy_path);
+  my $deploy_provider = Overnet::Burner::TopologyProvider->from_relay_config($deploy_scenario->{topology}{relays},);
+  is $deploy_provider, {name => 'external-command', command => $command, deploy => $deploy},
+    'provider descriptor carries the deploy block';
+
+  my $deploy_plan = Overnet::Burner::Plan->build($deploy_scenario);
+  is $deploy_plan->{relays}[0]{topology_provider_descriptor}, {command => $command, deploy => $deploy},
+    'relay actor descriptor carries deploy for Rex rendering';
+};
+
+subtest 'external-command rejects a malformed deploy block' => sub {
+  my @cases = (
+    ['deploy-not-mapping', 'nope',                 qr/topology[.]relays[.]deploy\ must\ be\ a\ mapping/mx],
+    ['files-not-array',    {files => {}},          qr/topology[.]relays[.]deploy[.]files\ must\ be\ an\ array/mx],
+    ['missing-source',     {files => [{dest => '/x'}]}, qr/topology[.]relays[.]deploy[.]files\[0\][.]source/mx],
+    ['missing-dest',       {files => [{source => 'x'}]}, qr/topology[.]relays[.]deploy[.]files\[0\][.]dest/mx],
+  );
+  for my $case (@cases) {
+    my ($label, $deploy, $pattern) = @{$case};
+    my $bad = File::Spec->catfile($tmp, "bad-deploy-$label.yml");
+    _write_yaml($bad, _deploy_yaml($command, $deploy));
+    eval { Overnet::Burner::Config->load_file($bad) };
+    like $@, $pattern, "rejects $label";
+  }
+};
+
 done_testing;
+
+sub _deploy_yaml {
+  my ($command_value, $deploy) = @_;
+
+  my $scenario = {
+    run      => {name => 'external-command-relay', duration => 60, seed => 24680},
+    topology => {
+      relays => {
+        count    => 1,
+        provider => 'external-command',
+        command  => $command_value,
+        deploy   => $deploy,
+      },
+      publishers    => {count => 0},
+      subscribers   => {count => 0},
+      query_readers => {count => 0},
+      object_readers => {count => 0},
+    },
+    workload => {publish_rate_per_second => 0},
+  };
+  return YAML::PP->new(boolean => 'perl', schema => ['Core'])->dump_string($scenario);
+}
 
 sub _scenario_yaml {
   my ($command_value, %args) = @_;

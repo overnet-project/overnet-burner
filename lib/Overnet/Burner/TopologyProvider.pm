@@ -31,9 +31,46 @@ sub from_relay_config {
       start  => _require_member_string($command, 'start',  "$path.command.start"),
       stop   => _require_member_string($command, 'stop',   "$path.command.stop"),
     };
+
+    if (exists $relays->{deploy}) {
+      $provider->{deploy} = _relay_deploy($relays->{deploy}, "$path.deploy");
+    }
   }
 
   return _clone($provider);
+}
+
+# The optional deploy step: files the runner should place on the relay host
+# before starting it. Each file names a controller-side source and a host-side
+# destination. It is opt-in - absent unless the scenario declares it.
+sub _relay_deploy {
+  my ($deploy, $path) = @_;
+
+  _require_mapping_ref($deploy, $path);
+
+  my %result;
+  if (exists $deploy->{files}) {
+    my $files = $deploy->{files};
+    if (ref $files ne 'ARRAY') {
+      croak "invalid field: $path.files must be an array\n";
+    }
+
+    my @parsed;
+    my $index = 0;
+    for my $entry (@{$files}) {
+      my $entry_path = "$path.files[$index]";
+      _require_mapping_ref($entry, $entry_path);
+      push @parsed,
+        {
+        source => _require_member_string($entry, 'source', "$entry_path.source"),
+        dest   => _require_member_string($entry, 'dest',   "$entry_path.dest"),
+        };
+      $index++;
+    }
+    $result{files} = \@parsed;
+  }
+
+  return \%result;
 }
 
 sub relay_actor_descriptor {
@@ -42,6 +79,9 @@ sub relay_actor_descriptor {
   my $descriptor = {};
   if (exists $provider->{command}) {
     $descriptor->{command} = _clone($provider->{command});
+  }
+  if (exists $provider->{deploy}) {
+    $descriptor->{deploy} = _clone($provider->{deploy});
   }
 
   return $descriptor;

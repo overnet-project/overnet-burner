@@ -50,6 +50,31 @@ against each relay's host, renders the bundle in `performed` mode, and reports a
 truthful `execution.remote_execution` value. See
 [rex-backend.md](rex-backend.md).
 
+### Deploying files
+
+An `external-command` relay may declare an optional `deploy` block that lists
+files to place on the relay host before it starts:
+
+```yaml
+topology:
+  relays:
+    provider: external-command
+    command:
+      start: ...
+      stop: ...
+      health: ...
+    deploy:
+      files:
+        - source: config/relay.conf
+          dest: /etc/overnet/relay.conf
+```
+
+Each `deploy.files` entry has a required non-empty `source` (a controller-side
+path, resolved relative to the run directory when not absolute) and `dest` (the
+path on the relay host). The `rex-remote` runner copies each file with Rex's own
+`file` primitive before running the `start` command, recording it as a `deploy`
+provider command. Package and service installation are not yet part of `deploy`.
+
 ## Relay Endpoints
 
 Scenarios that launch workers declare the client-facing endpoint of each

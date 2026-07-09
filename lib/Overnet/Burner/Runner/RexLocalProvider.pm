@@ -147,6 +147,8 @@ sub _run_topology_provider_start {
       next;
     }
 
+    $self->_before_relay_start($relay);
+
     $self->_run_topology_provider_command(
       actor_id => $actor_id,
       kind     => 'start',
@@ -232,6 +234,13 @@ sub _run_topology_provider_command {
     ? "exited with status $exit_code"
     : 'ended by a signal or transport failure';
   croak "provider command failed: $actor_id $kind $detail\n";
+}
+
+# A hook run just before a relay's start command. The base runner does nothing;
+# a runner that deploys files to the relay host overrides this to perform the
+# deploy step first.
+sub _before_relay_start {
+  return 1;
 }
 
 # Execute one provider command and return {stdout, stderr, exit_code}. The base
