@@ -22,6 +22,7 @@ has group_id         => (is => 'ro');
 has auth_scope       => (is => 'ro');
 has snapshot_signers => (is => 'ro');
 has seed             => (is => 'ro');
+has store_factory    => (is => 'ro');
 
 my %HANDLER = (
   new_identity       => \&_do_new_identity,
@@ -30,6 +31,7 @@ my %HANDLER = (
   publish_snapshot   => \&_do_publish_snapshot,
   join               => \&_do_join,
   observe_capability => \&_do_observe_capability,
+  observe_state      => \&_do_observe_state,
 );
 
 sub BUILDARGS {
@@ -59,6 +61,13 @@ sub BUILDARGS {
     }
   }
   $built{snapshot_signers} = [@{$signers}];
+
+  if (defined $args{store_factory}) {
+    if (ref($args{store_factory}) ne 'CODE') {
+      croak "store_factory must be a code reference returning a fresh relay store\n";
+    }
+    $built{store_factory} = $args{store_factory};
+  }
 
   return \%built;
 }
@@ -206,6 +215,32 @@ sub _do_observe_capability {
   return [_observation('observed_capability', {subject => $subject, capability => $capability, scope => $scope})];
 }
 
+sub _do_observe_state {
+  my ($self, $payload) = @_;
+  my $scope    = _require_field($payload, 'scope');
+  my $instance = _require_field($payload, 'instance');
+  my $subjects = $payload->{subjects};
+  if (!(ref($subjects) eq 'ARRAY' && @{$subjects})) {
+    croak "subjects must be a non-empty array reference of identity names\n";
+  }
+
+  my @operators;
+  for my $subject (@{$subjects}) {
+    if (!(defined $subject && !ref($subject) && length $subject)) {
+      croak "each subject must be a non-empty identity name\n";
+    }
+    if ($self->_probe_operator($subject)) {
+      push @operators, $subject;
+    }
+  }
+
+  # The derived operator set is read only from the live relay's own decisions
+  # (via the probe), sorted into a canonical order so two instances that have
+  # seen the same accepted events digest identically for the oracle.
+  my @sorted = sort @operators;
+  return [_observation('observed_state', {scope => $scope, instance => $instance, state => {operators => \@sorted}}),];
+}
+
 sub _ingest {
   my ($self, $event, $force_store) = @_;
   my $relay = $self->_relay;
@@ -314,10 +349,13 @@ sub _build_relay {
     push @signer_pubkeys, $self->_key($name)->pubkey_hex;
   }
 
+  my $store = $self->store_factory ? $self->store_factory->() : undef;
+
   return Overnet::Authority::HostedChannel::Relay::build_authoritative_relay(
     relay_url  => $self->relay_url,
     grant_kind => $self->grant_kind,
     (@signer_pubkeys ? (snapshot_pubkeys => \@signer_pubkeys) : ()),
+    (defined $store  ? (store            => $store)           : ()),
   );
 }
 
@@ -510,6 +548,13 @@ and return the relay's decision plus an C<observed_admission>.
 probe whether the subject holds the capability and emit an
 C<observed_capability> only if the live relay grants it.
 
+=item * C<observe_state> - C<scope>, C<instance>, C<subjects> (list of identity
+names): probe each subject and emit one C<observed_state> whose C<state> is the
+canonical sorted set of subjects the live relay derives as operators, tagged
+with the given C<instance>. Two instances driven the same accepted events in
+different store orders emit matching C<observed_state>, which the oracle's
+convergence invariant judges; a divergence is a replay-ordering defect.
+
 =back
 
 =head1 SUBROUTINES/METHODS
@@ -520,6 +565,12 @@ Creates a live arena. Takes optional C<relay_url> (default
 C<ws://127.0.0.1:7448>), C<grant_kind> (default 14142), C<group_id>,
 C<auth_scope>, C<snapshot_signers> (identity names that are the relay's
 authoritative snapshot signers), and C<seed>.
+
+C<store_factory> is an optional code reference returning a fresh relay store;
+the arena calls it on each C<reset> so an episode can drive the relay against an
+alternate persistence backend - for example a store that hands events back in
+delivery order rather than a canonical order, to exercise replay and
+duplicate-delivery ordering. When omitted the relay uses its default store.
 
 =head2 baseline_ref
 
