@@ -21,7 +21,7 @@ is $args->{AUTHOR},           'Nicholas B. Hubbard <nicholashubbard@posteo.net>'
 is $args->{ABSTRACT},         'Rex-based scalable Overnet system-test harness',   'abstract';
 is $args->{LICENSE},          'gpl_3',                                            'license';
 is $args->{MIN_PERL_VERSION}, '5.040',                                            'minimum Perl version';
-is $args->{EXE_FILES}, ['bin/overnet-burner', 'bin/overnet-burner-worker'],
+is $args->{EXE_FILES}, ['bin/overnet-burner', 'bin/overnet-burner-worker', 'bin/overnet-burner-adversary-server'],
   'installable CLIs are explicit';
 is(
   $args->{CONFIGURE_REQUIRES},
