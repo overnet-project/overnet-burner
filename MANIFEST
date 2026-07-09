@@ -27,6 +27,7 @@ examples/worker-input-v1-sample.json
 lib/Overnet/Burner/Adversary/Arena/Live.pm
 lib/Overnet/Burner/Adversary/Arena/Recorded.pm
 lib/Overnet/Burner/Adversary/Attack.pm
+lib/Overnet/Burner/Adversary/Driver/Adaptive.pm
 lib/Overnet/Burner/Adversary/Driver/Scripted.pm
 lib/Overnet/Burner/Adversary/Oracle.pm
 lib/Overnet/Burner/Adversary/Runner.pm
@@ -90,6 +91,7 @@ schemas/metric-event-v1.schema.json
 schemas/profile-template-v1.schema.json
 schemas/report-v1.schema.json
 schemas/worker-input-v1.schema.json
+t/adversary-adaptive.t
 t/adversary-attack.t
 t/adversary-live-arena.t
 t/adversary-oracle.t
