@@ -214,6 +214,40 @@ class C1/C2) and ban-mask evasion (the admission class). CI replays the whole
 corpus against the real relay in the adversary-regression job on every change,
 so any regression that reopens a sealed hole fails the build.
 
+### Implementation: `Overnet::Burner::Adversary::Campaign`
+
+The corpus grows by hand through `add`; the **campaign** is the loop that grows
+it *automatically* and hunts for the holes worth guarding. It composes the
+[fuzzer](#the-ai-drivable-seam) and the corpus without changing either, and
+splits the discover→guard loop into its two honest halves:
+
+- **`hunt`** sweeps the mutation neighbourhood of every guarded attack (the
+  corpus entries by default, or a supplied list of bases) against the live
+  relay, driving each through the fuzzer, and aggregates the **regressions** —
+  every variant the oracle now judges *violated*, tagged with the base it
+  mutated. This is the continuous hole-hunt: run over a hardened relay it finds
+  nothing (each guarded attack withstands its whole neighbourhood); run over a
+  regressed relay it surfaces the reopened hole and the minimal trace that
+  reaches it. `hunt` holds the **honest baseline** fixed: a mutation that drops
+  or reorders an authoritative snapshot (one signed by a declared
+  `snapshot_signer`) is a ground-truth artifact, not a reopened hole — the
+  adversary does not get to un-publish the honest authority's established state,
+  and the sweep discards such verdicts rather than reporting a false regression.
+  `hunt` only **reports** — it never writes to the corpus, because a live
+  violation must not be committed into a green regression set.
+- **`promote`** is the guard half. Given an attack, it confirms the attack is
+  **currently defended** (it replays it and checks the verdict is not violated)
+  and **novel** (no existing entry has the same canonical action signature), and
+  only then calls `add`. Promoting a live violation is refused (`not-defended`);
+  promoting a duplicate is a no-op (`already-guarded`). So the only thing that
+  ever enters the corpus is a fresh attack the system already withstands —
+  exactly the ratchet the design calls for.
+
+This is the shape of an autonomous red-team loop: `hunt` to find a hole, close
+it in the system under test, then `promote` the attack that found it so it is
+replayed forever after. The arena is injectable, so the loop runs against the
+in-process live relay in CI and against a stub in unit tests.
+
 ## Driver — pluggable policy
 
 A **driver** is any process that speaks the session API. Its interface is one

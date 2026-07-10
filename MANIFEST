@@ -31,6 +31,7 @@ examples/worker-input-v1-sample.json
 lib/Overnet/Burner/Adversary/Arena/Live.pm
 lib/Overnet/Burner/Adversary/Arena/Recorded.pm
 lib/Overnet/Burner/Adversary/Attack.pm
+lib/Overnet/Burner/Adversary/Campaign.pm
 lib/Overnet/Burner/Adversary/Corpus.pm
 lib/Overnet/Burner/Adversary/Driver/Adaptive.pm
 lib/Overnet/Burner/Adversary/Driver/Scripted.pm
@@ -100,6 +101,7 @@ schemas/report-v1.schema.json
 schemas/worker-input-v1.schema.json
 t/adversary-adaptive.t
 t/adversary-attack.t
+t/adversary-campaign.t
 t/adversary-corpus.t
 t/adversary-fuzzer.t
 t/adversary-live-arena.t

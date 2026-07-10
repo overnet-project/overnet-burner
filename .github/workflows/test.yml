@@ -183,7 +183,7 @@ jobs:
         run: |
           prove -r -l -v t/adversary-attack.t t/adversary-oracle.t t/adversary-runner.t \
             t/adversary-session.t t/adversary-adaptive.t t/adversary-live-arena.t t/adversary-server.t \
-            t/adversary-fuzzer.t t/adversary-corpus.t
+            t/adversary-fuzzer.t t/adversary-corpus.t t/adversary-campaign.t
 
   coverage:
     runs-on: ubuntu-latest
