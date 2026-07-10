@@ -1,0 +1,50 @@
+{
+   "actions": [
+      {
+         "payload": {
+            "bans": [
+               "*!*@banned.example"
+            ],
+            "kind": 39000,
+            "signer": "snapshot-authority"
+         },
+         "type": "publish_snapshot"
+      },
+      {
+         "payload": {
+            "actor": "banned",
+            "scope": "channel:#ops"
+         },
+         "type": "join"
+      },
+      {
+         "payload": {
+            "actor": "guest",
+            "mask": "*!*@guest.example",
+            "scope": "channel:#ops"
+         },
+         "type": "join"
+      }
+   ],
+   "description": "A banned subject omitting its mask must be refused (fail-closed) while a non-matching guest is admitted.",
+   "ground_truth": {
+      "expected_admissions": [
+         {
+            "admitted": 0,
+            "scope": "channel:#ops",
+            "subject": "banned"
+         },
+         {
+            "admitted": 1,
+            "scope": "channel:#ops",
+            "subject": "guest"
+         }
+      ]
+   },
+   "name": "ban-mask-evasion",
+   "seed": "1",
+   "snapshot_signers": [
+      "snapshot-authority"
+   ],
+   "target_invariant": "admission"
+}

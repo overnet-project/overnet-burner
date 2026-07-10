@@ -1,0 +1,92 @@
+{
+   "actions": [
+      {
+         "payload": {
+            "name": "operator"
+         },
+         "type": "new_identity"
+      },
+      {
+         "payload": {
+            "actor": "operator",
+            "delegate": "operator-session",
+            "id": "operator-grant"
+         },
+         "type": "publish_grant"
+      },
+      {
+         "payload": {
+            "actor": "operator",
+            "authority": "operator-grant",
+            "kind": 9000,
+            "roles": [
+               {
+                  "role": "irc.operator",
+                  "subject": "operator"
+               }
+            ],
+            "signer": "operator-session"
+         },
+         "type": "publish_control"
+      },
+      {
+         "payload": {
+            "name": "attacker"
+         },
+         "type": "new_identity"
+      },
+      {
+         "payload": {
+            "actor": "attacker",
+            "delegate": "attacker-session",
+            "id": "forged-grant"
+         },
+         "type": "publish_grant"
+      },
+      {
+         "payload": {
+            "actor": "operator",
+            "authority": "forged-grant",
+            "kind": 9001,
+            "roles": [
+               {
+                  "role": "irc.operator",
+                  "subject": "attacker"
+               }
+            ],
+            "signer": "attacker-session"
+         },
+         "type": "publish_control"
+      },
+      {
+         "payload": {
+            "scope": "channel:#ops",
+            "subject": "attacker"
+         },
+         "type": "observe_capability"
+      },
+      {
+         "payload": {
+            "scope": "channel:#ops",
+            "subject": "operator"
+         },
+         "type": "observe_capability"
+      }
+   ],
+   "description": "A nobody forges a session delegation and grants itself operator; the relay must reject it.",
+   "ground_truth": {
+      "authorized_capabilities": [
+         {
+            "capability": "irc.operator",
+            "scope": "channel:#ops",
+            "subject": "operator"
+         }
+      ]
+   },
+   "name": "forged-grant-escalation",
+   "seed": "1",
+   "snapshot_signers": [
+      "snapshot-authority"
+   ],
+   "target_invariant": "authorization"
+}

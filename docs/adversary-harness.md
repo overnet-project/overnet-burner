@@ -183,6 +183,37 @@ deterministic test. The corpus only grows, and CI replays all of it on every
 change across every implementation — the attack that found C1 would fail the
 build the moment a regression reopened it.
 
+### Implementation: `Overnet::Burner::Adversary::Corpus`
+
+The corpus is implemented as a module backed by a directory of JSON entries
+(`corpus/adversary/*.json` by default). It is the concrete form of the ratchet
+above — the durable, self-growing memory of the harness.
+
+Each entry is a frozen attack: a `name`, the `target_invariant` it guards, an
+optional `seed` and `snapshot_signers` (the arena baseline), the `actions`
+(the typed adversary vocabulary of §3), and the harness's independent
+`ground_truth`. The entry format is exactly the `scripted`/`replay` driver
+contract — an entry replays with no AI in the loop.
+
+The module exposes three operations:
+
+- **`entries`** loads and validates every entry from the corpus directory,
+  ordered by name so a run is reproducible.
+- **`replay($entry)`** runs one entry against the live relay through the same
+  arena, runner, and oracle the rest of the harness uses, and returns the
+  oracle verdict. An entry *passes* when the verdict is **not** violated: the
+  attack it encodes is still defended. A regression that reopens the hole flips
+  the verdict and fails the run.
+- **`add($entry)`** validates and persists a new entry as `<name>.json`, so a
+  newly discovered attack — from the fuzzer, the adaptive driver, or by hand —
+  becomes a permanent regression guard. This is the "corpus only grows" step.
+
+The seed corpus captures the core authority and admission defenses:
+forged-grant escalation and forged-snapshot self-grant (the authorization
+class C1/C2) and ban-mask evasion (the admission class). CI replays the whole
+corpus against the real relay in the adversary-regression job on every change,
+so any regression that reopens a sealed hole fails the build.
+
 ## Driver — pluggable policy
 
 A **driver** is any process that speaks the session API. Its interface is one
