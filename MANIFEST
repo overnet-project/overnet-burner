@@ -131,6 +131,7 @@ t/metrics-unit.t
 t/metrics.t
 t/plan.t
 t/profile-generator.t
+t/provenance-unit.t
 t/provenance.t
 t/reference-image.t
 t/report-contract.t
