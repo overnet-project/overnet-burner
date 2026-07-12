@@ -121,6 +121,7 @@ t/guest-container.t
 t/guest-exec.t
 t/guest-remote.t
 t/guest-ssh.t
+t/hardware-unit.t
 t/hardware.t
 t/makemaker-metadata.t
 t/manifest-skip-policy.t
