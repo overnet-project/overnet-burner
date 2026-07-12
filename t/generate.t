@@ -368,6 +368,19 @@ subtest 'malformed profiles are rejected' => sub {
       },
       qr/lifecycle\ chaos.*external-command/mx,
     ],
+    [
+      'invalid environment engine',
+      {environment => {kind => 'local-containers', engine => 'hypervisor'}},
+      qr/environment\.engine\ must\ be/mx,
+    ],
+    [
+      'empty environment image',
+      {environment => {kind => 'local-containers', image => q{}}},
+      qr/environment\.image\ must\ be\ a\ non-empty/mx,
+    ],
+    ['unknown relay field',   {roles => {}, relays => {galaxy   => 1}},        qr/unknown\ relay\ profile\ field/mx],
+    ['invalid relay provider', {roles => {}, relays => {provider => 'weird'}}, qr/relays\.provider\ must\ be/mx],
+    ['non-mapping profile',    ['not', 'a', 'map'],                            qr/profile\ must\ be\ a\ mapping/mx],
   );
   for my $case (@cases) {
     my ($name, $profile, $pattern) = @{$case};
@@ -376,5 +389,36 @@ subtest 'malformed profiles are rejected' => sub {
     like $err, $pattern, "$name is rejected";
   }
 };
+
+subtest 'a managed profile may pin its engine and image' => sub {
+  my $profile = Overnet::Burner::Generator->load_profile_data(
+    {environment => {kind => 'local-containers', engine => 'docker', image => 'burner:pinned'}});
+  is $profile->{environment}{engine}, 'docker',        'a valid engine is accepted';
+  is $profile->{environment}{image},  'burner:pinned', 'a valid image is accepted';
+};
+
+subtest 'load_profile reads YAML and tolerates an empty document' => sub {
+  my $dir = tempdir(CLEANUP => 1);
+
+  my $good = "$dir/good.yml";
+  _spew($good, "roles:\n  publishers:\n    max: 1\nrelays:\n  min: 1\n  max: 1\n  endpoints:\n    - ws://127.0.0.1:7001\n");
+  ok(Overnet::Burner::Generator->load_profile($good), 'a YAML profile loads');
+
+  my $empty = "$dir/empty.yml";
+  _spew($empty, q{});
+  ok(Overnet::Burner::Generator->load_profile($empty), 'an empty YAML document loads as an empty profile');
+
+  my $broken = "$dir/broken.yml";
+  _spew($broken, "roles: [unterminated\n");
+  like dies { Overnet::Burner::Generator->load_profile($broken) }, qr/broken\.yml/mx, 'malformed YAML names the file';
+};
+
+sub _spew {
+  my ($path, $content) = @_;
+  open my $fh, '>', $path or die "open $path: $!";
+  print {$fh} $content or die "print: $!";
+  close $fh or die "close: $!";
+  return;
+}
 
 done_testing;
