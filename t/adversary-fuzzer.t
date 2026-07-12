@@ -140,6 +140,36 @@ subtest 'a variant budget caps and reports truncation' => sub {
   ok $result->{truncated} > 0,      'the shortfall is reported, not silently dropped';
 };
 
+subtest 'the constructor accepts a single hash reference' => sub {
+  my $fuzzer =
+    Overnet::Burner::Adversary::Fuzzer->new({arena_factory => sub { return CollisionArena->new }, operators => [sub { return [] }]});
+  my $result = $fuzzer->explore(base => [{type => 'noop'}]);
+  is $result->{explored}, 1, 'a hash-reference constructor produces a working fuzzer';
+};
+
+subtest 'explore defaults ground_truth and seed' => sub {
+  my $fuzzer = _fuzzer(operators => [sub { return [] }]);
+  my $result = $fuzzer->explore(base => [{type => 'noop'}]);
+  is $result->{explored}, 1, 'explore runs with default ground_truth and seed';
+  is scalar(@{$result->{errors}}), 0, 'the default run produces no errors';
+};
+
+subtest 'explore validates operator output' => sub {
+  like dies { _fuzzer(operators => [sub { return 'nope' }])->explore(base => [{type => 'noop'}]) },
+    qr/operator\ must\ return\ an\ array\ reference/mx, 'an operator must return an array reference';
+  like dies { _fuzzer(operators => [sub { return [{label => 'x'}] }])->explore(base => [{type => 'noop'}]) },
+    qr/each\ mutant\ must\ have\ a\ label\ and\ an\ actions/mx, 'each mutant needs a label and actions';
+};
+
+subtest 'structurally identical variants are explored once' => sub {
+  # Two identical actions: dropping either index yields the same single-action
+  # mutant, so the deduplication path collapses them.
+  my $fuzzer = _fuzzer();
+  my $result = $fuzzer->explore(base => [{type => 'noop'}, {type => 'noop'}]);
+  ok $result->{total_variants} >= 2, 'variants were generated';
+  ok $result->{explored} < $result->{total_variants} + 1, 'duplicate structural mutants are collapsed';
+};
+
 subtest 'the hardened live relay withstands the whole mutation neighbourhood' => sub {
   my $relay_available = eval {
     require Overnet::Authority::HostedChannel::Relay;

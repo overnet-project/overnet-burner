@@ -103,6 +103,7 @@ t/adversary-adaptive.t
 t/adversary-attack.t
 t/adversary-campaign.t
 t/adversary-corpus.t
+t/adversary-driver-scripted-unit.t
 t/adversary-fuzzer.t
 t/adversary-live-arena.t
 t/adversary-oracle.t
