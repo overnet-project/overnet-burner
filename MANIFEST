@@ -124,6 +124,7 @@ t/guest-ssh.t
 t/hardware.t
 t/makemaker-metadata.t
 t/manifest-skip-policy.t
+t/metrics-unit.t
 t/metrics.t
 t/plan.t
 t/profile-generator.t
@@ -144,6 +145,7 @@ t/runner-rex-local-workers.t
 t/runner-rex-local.t
 t/runner-rex-remote.t
 t/topology-provider-external-command.t
+t/util-unit.t
 t/worker-abuse-unit.t
 t/worker-abuse.t
 t/worker-base-unit.t
