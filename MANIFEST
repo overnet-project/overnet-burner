@@ -147,8 +147,11 @@ t/topology-provider-external-command.t
 t/worker-abuse.t
 t/worker-object-reader-unit.t
 t/worker-object-reader.t
+t/worker-observer-unit.t
 t/worker-observer.t
+t/worker-publisher-unit.t
 t/worker-publisher.t
+t/worker-query-reader-unit.t
 t/worker-query-reader.t
 t/worker-subscriber.t
 xt/author/coverage.t
