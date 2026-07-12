@@ -146,6 +146,8 @@ t/runner-rex-remote.t
 t/topology-provider-external-command.t
 t/worker-abuse-unit.t
 t/worker-abuse.t
+t/worker-base-unit.t
+t/worker-command-unit.t
 t/worker-object-reader-unit.t
 t/worker-object-reader.t
 t/worker-observer-unit.t
