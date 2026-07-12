@@ -60,7 +60,7 @@ sub perform_abuse {
     after => $SUBSCRIBE_TIMEOUT,
     cb    => sub {
       my $timed_out = delete $args{pending}{$subscription_id};
-      if ($timed_out) {
+      if ($timed_out) {    # uncoverable branch false reason: entry present whenever the timer fires
         $timed_out->send([0, 'error: subscription timed out']);
       }
     },
