@@ -121,6 +121,7 @@ t/github-ci.t
 t/guest-base-unit.t
 t/guest-container.t
 t/guest-exec.t
+t/guest-remote-unit.t
 t/guest-remote.t
 t/guest-ssh.t
 t/guest-virtual-unit.t
