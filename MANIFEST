@@ -153,6 +153,7 @@ t/worker-publisher-unit.t
 t/worker-publisher.t
 t/worker-query-reader-unit.t
 t/worker-query-reader.t
+t/worker-subscriber-unit.t
 t/worker-subscriber.t
 xt/author/coverage.t
 xt/author/perlcritic.t
