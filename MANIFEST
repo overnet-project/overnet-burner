@@ -116,6 +116,7 @@ t/config-managed-environment.t
 t/container-engine.t
 t/generate.t
 t/github-ci.t
+t/guest-base-unit.t
 t/guest-container.t
 t/guest-exec.t
 t/guest-remote.t
@@ -144,6 +145,7 @@ t/runner-rex-local.t
 t/runner-rex-remote.t
 t/topology-provider-external-command.t
 t/worker-abuse.t
+t/worker-object-reader-unit.t
 t/worker-object-reader.t
 t/worker-observer.t
 t/worker-publisher.t
