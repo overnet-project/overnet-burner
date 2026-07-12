@@ -98,6 +98,33 @@ subtest 'readiness aggregates in one remote command' => sub {
   is $guest->ready_actors(File::Spec->catdir($tmp, 'no-such-root')), [], 'a missing workers root reports nothing ready';
 };
 
+subtest 'a guest without user, port, or key builds a bare invocation' => sub {
+  my $log2 = File::Spec->catfile($tmp, 'nocred-ssh.log');
+  local $ENV{OVERNET_BURNER_TEST_SSH} = $log2;
+  my $bare = Overnet::Burner::Guest::SSH->new(name => 'bare-guest', role => 'workers', address => 'plainhost');
+
+  my $dir = File::Spec->catdir($tmp, 'bare-remote');
+  $bare->make_path($dir);
+  $bare->write_file(File::Spec->catfile($dir, 'note.txt'), "bare\n");
+  is $bare->read_file(File::Spec->catfile($dir, 'note.txt')), "bare\n",
+    'a credential-free guest still round-trips files';
+
+  my $argv = _slurp($log2);
+  like $argv,   qr/(?:\A|\x{0})plainhost\x{0}/mx, 'the target is the bare address with no user';
+  unlike $argv, qr/-p\x{0}/mx,                    'no port option without a configured port';
+  unlike $argv, qr/-i\x{0}/mx,                    'no key option without a configured key';
+};
+
+subtest 'a failed scp transfer is fatal' => sub {
+  my $fail_scp = File::Spec->catfile($tmp, 'fail-scp');
+  _spew($fail_scp, "#!/usr/bin/env perl\nexit 1;\n");
+  chmod 0755, $fail_scp or die "chmod: $!";
+  local $ENV{OVERNET_BURNER_SCP} = $fail_scp;
+
+  like dies { $guest->write_file(File::Spec->catfile($tmp, 'unwritable.txt'), 'data') },
+    qr/could\ not\ write/mx, 'a non-zero scp exit is reported as a guest write failure';
+};
+
 subtest 'a real sshd exercises the transport when available' => sub {
   skip_all 'set OVERNET_BURNER_TEST_SSH_HOST to run against a real sshd'
     if !$ENV{OVERNET_BURNER_TEST_SSH_HOST};
