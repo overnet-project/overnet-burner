@@ -1,5 +1,6 @@
 use strictures 2;
 
+use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
 use Test2::V0;
@@ -57,6 +58,43 @@ subtest 'the corpus grows: add persists a new replayable entry' => sub {
   my $reloaded = Overnet::Burner::Adversary::Corpus->new(dir => $dir);
   is scalar(@{$reloaded->entries}), 1,               'the added entry is persisted and reloads';
   is $reloaded->entries->[0]{name}, 'sample-attack', 'the entry round-trips by name';
+};
+
+subtest 'the constructor accepts a single hash reference and a missing directory reads empty' => sub {
+  my $dir    = tempdir(CLEANUP => 1);
+  my $corpus = Overnet::Burner::Adversary::Corpus->new({dir => $dir});
+  is $corpus->dir, $dir, 'a hash-reference constructor sets the directory';
+
+  my $absent = Overnet::Burner::Adversary::Corpus->new(dir => File::Spec->catdir($dir, 'not-created-yet'));
+  is $absent->entries, [], 'entries from a directory that does not exist is empty';
+};
+
+subtest 'add fills in defaults for a minimal entry' => sub {
+  my $dir    = tempdir(CLEANUP => 1);
+  my $corpus = Overnet::Burner::Adversary::Corpus->new(dir => $dir);
+  $corpus->add(
+    {
+      name         => 'minimal-attack',
+      actions      => [{type => 'new_identity', payload => {name => 'x'}}],
+      ground_truth => 'not-a-hash',
+    }
+  );
+  my $entry = Overnet::Burner::Adversary::Corpus->new(dir => $dir)->entries->[0];
+  is $entry->{description},       q{}, 'a missing description defaults to empty';
+  is $entry->{target_invariant}, q{}, 'a missing target invariant defaults to empty';
+  is $entry->{seed},             '1', 'a missing seed defaults to 1';
+  is $entry->{ground_truth},     {},  'a non-mapping ground truth becomes an empty object';
+};
+
+subtest 'replay defaults an entry seed and ground truth' => sub {
+  my $relay_available = eval { require Overnet::Authority::HostedChannel::Relay; 1 };
+  if (!$relay_available) {
+    plan skip_all => 'relay-perl not available';
+  }
+  my $corpus  = Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1));
+  my $verdict = $corpus->replay(
+    {name => 'defaulted', actions => [{type => 'new_identity', payload => {name => 'operator'}}]});
+  ok exists $verdict->{violated}, 'a minimal entry replays and yields a verdict';
 };
 
 subtest 'add rejects malformed entries' => sub {

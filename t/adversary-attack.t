@@ -62,8 +62,29 @@ subtest 'a replayed catalog session round-trips through JSONL' => sub {
 
 subtest 'the catalog validates its inputs' => sub {
   like dies { $ATTACK->attack('no-such-attack') }, qr/unknown\ attack/mx, 'unknown attack rejected';
+  like dies { $ATTACK->attack(undef) }, qr/unknown\ attack:\ \(undef\)/mx, 'an undefined name is named in the error';
   like dies { $ATTACK->session('forged_grant_escalation', outcome => 'sideways') },
     qr/outcome\ must\ be\ defended\ or\ exploited/mx, 'bad outcome rejected';
+};
+
+subtest 'session defaults the outcome and seed' => sub {
+  my $session = $ATTACK->session('forged_grant_escalation');
+  is $session->session_id, 'forged_grant_escalation-exploited', 'the default outcome is exploited';
+  is $session->seed,       '1',                                 'the default seed is 1';
+};
+
+subtest 'interaction builds an action/response transcript' => sub {
+  my $interaction = $ATTACK->interaction('forged_grant_escalation');
+  ok scalar(@{$interaction->{actions}}),   'the interaction carries the attack actions';
+  is scalar(@{$interaction->{responses}}), scalar(@{$interaction->{actions}}),
+    'each action gets a response batch';
+  ok scalar(@{$interaction->{responses}[-1]}), 'the outcome transcript trails the final action';
+
+  my $defended = $ATTACK->interaction('forged_grant_escalation', outcome => 'defended');
+  ok scalar(@{$defended->{responses}[-1]}), 'a defended interaction also carries its transcript';
+
+  like dies { $ATTACK->interaction('forged_grant_escalation', outcome => 'sideways') },
+    qr/outcome\ must\ be\ defended\ or\ exploited/mx, 'interaction rejects a bad outcome';
 };
 
 done_testing;
