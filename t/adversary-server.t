@@ -244,6 +244,53 @@ subtest 'the HTTP binding serves the API over a socket' => sub {
   waitpid $pid, 0;
 };
 
+subtest 'dispatch defaults, routing gaps, and arena errors' => sub {
+  my $server = Overnet::Burner::Adversary::Server->new;
+
+  is $server->dispatch->{status}, 404, 'dispatch with no method or path defaults to GET / and 404s';
+
+  _create_recorded($server, 'sess-route');
+  is $server->dispatch(method => 'POST', path => '/sessions/sess-route')->{status}, 404,
+    'an unsupported method on a session route is 404';
+
+  # A session created without an arena spec falls back to a recorded arena.
+  my $defaulted = $server->dispatch(method => 'POST', path => '/sessions', body => {session_id => 'sess-default'});
+  is $defaulted->{status}, 201, 'a session without an arena spec defaults to recorded';
+
+  is $server->dispatch(
+    method => 'POST',
+    path   => '/sessions',
+    body   => {session_id => 'sess-gt', arena => {type => 'recorded', responses => []}, ground_truth => 'nope'},
+  )->{status}, 400, 'a non-object ground_truth is 400';
+
+  is $server->dispatch(
+    method => 'POST',
+    path   => '/sessions',
+    body   => {session_id => 'sess-bad-arena', arena => 'not-a-hash'},
+  )->{status}, 400, 'a non-object arena spec is 400';
+
+  is $server->dispatch(
+    method => 'POST',
+    path   => '/sessions',
+    body   => {session_id => 'sess-unknown-arena', arena => {type => 'imaginary'}},
+  )->{status}, 400, 'an unknown arena type is 400';
+};
+
+subtest 'a session can be closed and is then gone' => sub {
+  my $server = Overnet::Burner::Adversary::Server->new;
+  _create_recorded($server, 'sess-close');
+  is $server->dispatch(method => 'DELETE', path => '/sessions/sess-close')->{status}, 200,
+    'a session can be closed';
+  is $server->dispatch(method => 'GET', path => '/sessions/sess-close')->{status}, 404,
+    'a closed session no longer exists';
+};
+
+subtest 'an arena missing the interface is rejected' => sub {
+  my $server = Overnet::Burner::Adversary::Server->new(arena_factory => sub { return bless {}, 'IncompleteArena' });
+  is $server->dispatch(method => 'POST', path => '/sessions', body => {session_id => 'sess-incomplete'})->{status}, 400,
+    'an arena that does not implement the interface is 400';
+};
+
 done_testing;
 
 sub _free_port {
