@@ -115,7 +115,51 @@ subtest 'operations use the shared CLI surface' => sub {
     'build_image builds the requested context with the requested tag';
 };
 
+subtest 'an engine whose version is neither docker nor podman is not usable' => sub {
+  my $unknown = _write_fake_engine($tmp, 'fake-unknown', 'containerd version 1.0');
+  local $ENV{OVERNET_BURNER_DOCKER} = $unknown;
+  local $ENV{OVERNET_BURNER_PODMAN} = File::Spec->catfile($tmp, 'no-such-binary');
+  like dies { Overnet::Burner::ContainerEngine->detect(engine => 'auto') }, qr/no\ container\ engine/mx,
+    'an unidentifiable engine is rejected';
+};
+
+subtest 'failing engine commands surface as errors' => sub {
+  my $failing = _write_failing_engine($tmp, 'fake-failing');
+  local $ENV{OVERNET_BURNER_DOCKER} = $failing;
+  my $engine = Overnet::Burner::ContainerEngine->detect(engine => 'docker');
+
+  like dies { $engine->run_detached(name => 'g', image => 'img') }, qr/could\ not\ start\ container/mx,
+    'a failed run_detached (no network, no command) croaks';
+  like dies { $engine->build_image(tag => 't', context => $tmp) }, qr/could\ not\ build\ image/mx,
+    'a failed build croaks';
+  like dies { $engine->copy_to('g', "$tmp/engine-argv.log", '/tmp/dest') }, qr/could\ not\ copy/mx,
+    'a failed copy croaks';
+  like dies { $engine->network_create('net') }, qr/could\ not\ create\ network/mx, 'a failed network create croaks';
+  like dies { $engine->network_disconnect('net', 'g') }, qr/could\ not\ disconnect/mx, 'a failed disconnect croaks';
+  like dies { $engine->network_connect('net', 'g') }, qr/could\ not\ connect/mx, 'a failed connect croaks';
+
+  is $engine->remove('g'),           0, 'remove reports failure without dying';
+  is $engine->network_remove('net'), 0, 'network_remove reports failure without dying';
+};
+
 done_testing;
+
+sub _write_failing_engine {
+  my ($dir, $basename) = @_;
+  my $path = File::Spec->catfile($dir, $basename);
+  _spew($path, <<'PERL');
+#!/usr/bin/env perl
+use strict;
+use warnings;
+if (@ARGV && $ARGV[0] eq '--version') {
+  print "Docker version 99.0-fake\n";
+  exit 0;
+}
+exit 1;
+PERL
+  chmod 0755, $path or die "chmod: $!";
+  return $path;
+}
 
 sub _write_fake_engine {
   my ($dir, $basename, $version_line) = @_;
