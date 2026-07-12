@@ -176,6 +176,39 @@ subtest 'a performed render without a deploy renders no deploy task' => sub {
   unlike $rexfile, qr/task\ 'deploy'/mx, 'no deploy task when the descriptor has none';
 };
 
+subtest 'render validates its arguments and execution mode' => sub {
+  my ($run_dir, $plan) = _plan_run_dir('validate');
+
+  like dies { Overnet::Burner::RexBundle->render(run_dir => File::Spec->catdir($tmp, 'nope'), plan => $plan) },
+    qr/run_dir\ does\ not\ exist/mx, 'a missing run directory is fatal';
+  like dies { Overnet::Burner::RexBundle->render(run_dir => $run_dir, plan => $plan, execution => 'weird') },
+    qr/execution\ must\ be/mx, 'an unknown execution mode is fatal';
+  like dies { Overnet::Burner::RexBundle->render(run_dir => $run_dir, plan => $plan, execution => 'performed') },
+    qr/requires\ an\ inventory/mx, 'a performed render needs an inventory';
+  like dies {
+    Overnet::Burner::RexBundle->render(
+      run_dir => $run_dir, plan => $plan, execution => 'performed', inventory => {transport => 'ftp'})
+  }, qr/transport\ must\ be/mx, 'the transport must be ssh or local';
+  like dies {
+    Overnet::Burner::RexBundle->render(
+      run_dir => $run_dir, plan => $plan, execution => 'performed', inventory => {transport => 'ssh'})
+  }, qr/requires\ an\ inventory\ host/mx, 'a performed ssh render needs a host';
+};
+
+subtest 'a performed ssh render without credentials still binds the host and honours a custom port' => sub {
+  my ($run_dir, $plan) = _plan_run_dir('ssh-minimal');
+  Overnet::Burner::RexBundle->render(
+    run_dir   => $run_dir,
+    plan      => $plan,
+    execution => 'performed',
+    inventory => {transport => 'ssh', host => 'relay.example', port => 2222},
+  );
+  my $rexfile = _read(File::Spec->catdir($run_dir, 'artifacts', 'rex'), 'Rexfile');
+  unlike $rexfile, qr/private_key/mx, 'no key line without a configured key';
+  unlike $rexfile, qr/^user\ /mx,     'no user line without a configured user';
+  like $rexfile,   qr/group\ 'relays'\ =>\ 'relay[.]example:2222'/mx, 'a non-default port is appended to the host';
+};
+
 done_testing;
 
 sub _deploy_scenario_yaml {
