@@ -100,6 +100,7 @@ schemas/profile-template-v1.schema.json
 schemas/report-v1.schema.json
 schemas/worker-input-v1.schema.json
 t/adversary-adaptive.t
+t/adversary-arena-recorded-unit.t
 t/adversary-attack.t
 t/adversary-campaign.t
 t/adversary-corpus.t
