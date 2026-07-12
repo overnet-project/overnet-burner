@@ -135,6 +135,70 @@ subtest 'promote refuses a live violation' => sub {
     'a live violation never enters the corpus';
 };
 
+subtest 'the constructor accepts a hash reference and an explicit oracle and validates the corpus' => sub {
+  my $corpus = Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1));
+  my $campaign = Overnet::Burner::Adversary::Campaign->new(
+    {corpus => $corpus, arena_factory => sub { return DefendedArena->new }, oracle => Overnet::Burner::Adversary::Oracle->new});
+  ok $campaign, 'a hash-reference constructor with an explicit oracle builds a campaign';
+  like dies { Overnet::Burner::Adversary::Campaign->new(corpus => 'not-a-corpus') }, qr/corpus\ is\ required/mx,
+    'an object without the corpus interface is rejected';
+};
+
+subtest 'hunt validates its bases' => sub {
+  my $campaign = Overnet::Burner::Adversary::Campaign->new(
+    corpus        => Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1)),
+    arena_factory => sub { return DefendedArena->new },
+  );
+  like dies { $campaign->hunt(bases => 'nope') }, qr/bases\ must\ be\ an\ array/mx, 'bases must be an array';
+  like dies { $campaign->hunt(bases => ['not-a-hash']) }, qr/base\ must\ be\ an\ object/mx, 'a base must be an object';
+  like dies { $campaign->hunt(bases => [{actions => [{type => 'x'}]}]) }, qr/base\ name\ is\ required/mx,
+    'a base needs a name';
+  like dies { $campaign->hunt(bases => [{name => 'n', actions => []}]) },
+    qr/base\ actions\ must\ be\ a\ non-empty/mx, 'a base needs actions';
+};
+
+subtest 'hunt defaults max_variants, seed and ground_truth and honours the baseline' => sub {
+  my $campaign = Overnet::Burner::Adversary::Campaign->new(
+    corpus        => Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1)),
+    arena_factory => sub { return DefendedArena->new },
+  );
+
+  # A base with no seed, no ground_truth, snapshot_signers and an authoritative
+  # snapshot action: exercises the default paths and the baseline digest's
+  # snapshot-matching branch.
+  my $base = {
+    name             => 'snapshotted',
+    snapshot_signers => ['authority'],
+    actions          => [
+      {type => 'publish_snapshot',  payload => {signer  => 'authority'}},
+      {type => 'observe_capability', payload => {subject => 'attacker', scope => $SCOPE}},
+    ],
+  };
+  my $result = $campaign->hunt(bases => [$base]);
+  is $result->{swept}, 1, 'the base was swept with the default budget';
+};
+
+subtest 'promote iterates existing entries and defaults the replay' => sub {
+  my $dir      = tempdir(CLEANUP => 1);
+  my $corpus   = Overnet::Burner::Adversary::Corpus->new(dir => $dir);
+  my $campaign = Overnet::Burner::Adversary::Campaign->new(
+    corpus        => $corpus,
+    arena_factory => sub { return DefendedArena->new },
+  );
+
+  # Seed the corpus with one attack, then promote a structurally different one
+  # that has no seed or ground_truth, so the signature loop skips a non-match
+  # and the replay defaults kick in.
+  $campaign->promote(_base('first'));
+  my $novel = {
+    name    => 'second',
+    actions => [{type => 'observe_capability', payload => {subject => 'other', scope => $SCOPE}}],
+  };
+  my $added = $campaign->promote($novel);
+  is $added->{added}, 1, 'a structurally distinct attack is promoted past the existing entry';
+  is scalar(@{Overnet::Burner::Adversary::Corpus->new(dir => $dir)->entries}), 2, 'the corpus grew to two entries';
+};
+
 subtest 'the hardened live relay withstands the whole corpus neighbourhood' => sub {
   my $relay_available = eval { require Overnet::Authority::HostedChannel::Relay; 1 };
   if (!$relay_available) {
