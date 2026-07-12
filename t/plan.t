@@ -198,6 +198,30 @@ ok $abuse_streams{'replayer-001'},            'replayer stream is declared';
 is $abuse_plan->{workload}{phases}[0]{abuse}, {flooder => {publish_rate_per_second => 5000}},
   'abuse configuration is carried into each phase';
 
+my $external = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
+$external->{topology}{relays}{provider} = 'external-command';
+$external->{topology}{relays}{command}  = {health => 'health.sh', start => 'start.sh', stop => 'stop.sh'};
+my $external_plan = Overnet::Burner::Plan->build($external);
+is $external_plan->{relays}[0]{topology_provider_descriptor}{command},
+  {health => 'health.sh', start => 'start.sh', stop => 'stop.sh'},
+  'a provider with a command carries its descriptor onto the relay actor';
+
+my $object_phase = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
+$object_phase->{workload}{warmup} = {duration => 5, object_reads => {rate_per_second => 9}};
+my $object_phase_plan = Overnet::Burner::Plan->build($object_phase);
+is $object_phase_plan->{workload}{phases}[0]{object_reads}{rate_per_second}, 9,
+  'a phase can override the object read rate';
+is $object_phase_plan->{workload}{phases}[1]{object_reads}{rate_per_second},
+  $scenario->{workload}{object_reads}{rate_per_second},
+  'the main phase keeps the workload object read rate';
+
+my $untimed_chaos = JSON::decode_json(Overnet::Burner::Config->normalized_json($scenario));
+$untimed_chaos->{chaos} = [{action => 'restart', target => 'relay:1'}];
+my $untimed_chaos_plan = Overnet::Burner::Plan->build($untimed_chaos);
+ok !exists $untimed_chaos_plan->{chaos_hooks}[0]{at_seconds},
+  'a chaos hook without a scheduled time carries no at_seconds';
+is $untimed_chaos_plan->{chaos_hooks}[0]{action}, 'restart', 'an untimed chaos hook still records its action';
+
 my $json_a = Overnet::Burner::Plan->canonical_json($plan_a);
 my $json_b = Overnet::Burner::Plan->canonical_json($plan_b);
 is $json_a,                    $json_b, 'canonical plan JSON is deterministic';
