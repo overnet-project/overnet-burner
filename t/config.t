@@ -1341,6 +1341,106 @@ YAML
   }
 };
 
+subtest 'provision blocks are validated' => sub {
+  my @rejections = (
+    [
+      'container without an image',
+      "provision:\n  workers:\n    how: container\n    count: 2\n    network: bridge",
+      qr/provision\.workers\.image\ is\ required\ for\ how:\ container/mx,
+    ],
+    [
+      'container with a bad managed_image',
+      "provision:\n  workers:\n    how: container\n    image: w:1\n    count: 2\n    network: bridge\n    managed_image: yes",
+      qr/provision\.workers\.managed_image\ must\ be\ reference/mx,
+    ],
+    [
+      'container with an unknown engine',
+      "provision:\n  workers:\n    how: container\n    image: w:1\n    count: 2\n    network: bridge\n    engine: hypervisor",
+      qr/provision\.workers\.engine\ must\ be\ one\ of/mx,
+    ],
+    [
+      'virtual without an image',
+      "provision:\n  workers:\n    how: virtual\n    count: 2",
+      qr/provision\.workers\.image\ is\ required\ for\ how:\ virtual/mx,
+    ],
+    [
+      'virtual with a container-only field',
+      "provision:\n  workers:\n    how: virtual\n    image: img\n    count: 1\n    network: bridge",
+      qr/provision\.workers\.network\ is\ only\ valid\ for\ how:\ container/mx,
+    ],
+    [
+      'connect guest without an address',
+      "provision:\n  workers:\n    how: connect\n    guests:\n      - user: burner",
+      qr/provision\.workers\.guests\[0\]\.address\ must\ be\ a\ non-empty/mx,
+    ],
+    [
+      'connect guest with an empty user',
+      "provision:\n  workers:\n    how: connect\n    guests:\n      - address: host-1\n        user: ''",
+      qr/provision\.workers\.guests\[0\]\.user\ must\ be\ a\ non-empty/mx,
+    ],
+    [
+      'connect guest with a bad port',
+      "provision:\n  workers:\n    how: connect\n    guests:\n      - address: host-1\n        port: abc",
+      qr/provision\.workers\.guests\[0\]\.port\ must\ be\ a\ positive\ integer/mx,
+    ],
+  );
+
+  for my $case (@rejections) {
+    my ($name, $body, $pattern) = @{$case};
+    my $path = "$tmp/provision-$name.yml";
+    $path =~ s/\ /-/gmx;
+    _write_yaml($path, <<"YAML");
+run:
+  name: provision-invalid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+workload:
+  publish_rate_per_second: 1
+$body
+YAML
+    eval { Overnet::Burner::Config->load_file($path) };
+    like $@, $pattern, "$name is rejected";
+  }
+};
+
+subtest 'managed environment engine and image are validated' => sub {
+  my @rejections = (
+    [
+      'unknown engine',
+      "environment:\n  kind: local-containers\n  engine: hypervisor",
+      qr/environment\.engine\ must\ be\ one\ of/mx,
+    ],
+    [
+      'empty image',
+      "environment:\n  kind: local-containers\n  engine: docker\n  image: ''",
+      qr/environment\.image\ must\ be\ a\ non-empty\ string/mx,
+    ],
+  );
+  for my $case (@rejections) {
+    my ($name, $body, $pattern) = @{$case};
+    my $path = "$tmp/managed-$name.yml";
+    $path =~ s/\ /-/gmx;
+    _write_yaml($path, <<"YAML");
+$body
+run:
+  name: managed-invalid
+  duration: 60
+  seed: 1
+topology:
+  relays:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+YAML
+    eval { Overnet::Burner::Config->load_file($path) };
+    like $@, $pattern, "$name is rejected";
+  }
+};
+
 done_testing;
 
 sub _write_yaml {
