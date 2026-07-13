@@ -270,7 +270,231 @@ is [map { $_->{command_kind} } @{$cli_manifest->{lifecycle}{topology_provider_co
 ok !exists $cli_manifest->{provider},           'CLI provider run avoids ambiguous provider field';
 ok !exists $cli_manifest->{execution_provider}, 'CLI provider run avoids execution provider field';
 
+subtest 'a health failure in process stops started relays and skips unstarted ones' => sub {
+  my $tmp         = tempdir(CLEANUP => 1);
+  my $fake_rex    = _write_fake_rex($tmp);
+  my $stop_marker = File::Spec->catfile($tmp, 'relay.stopped');
+  local $ENV{OVERNET_BURNER_REX}          = $fake_rex;
+  local $ENV{OVERNET_BURNER_TEST_REX_LOG} = File::Spec->catfile($tmp, 'fake-rex.log');
+
+  my $scenario_path = File::Spec->catfile($tmp, 'external.yml');
+  _write_yaml(
+    $scenario_path,
+    _external_scenario_yaml(
+      {
+        start  => 'exit 0',
+        health => 'echo health failed >&2; exit 42',
+        stop   => "printf stop >> '$stop_marker'",
+      },
+      count => 2,
+    ),
+  );
+
+  my $runner    = _load_provider_runner(scenario_path => $scenario_path, tmp => $tmp, run_id => 'health-fail');
+  my $completed = eval { $runner->run_lifecycle; 1 };
+  my $error     = $@;
+  ok !$completed, 'the lifecycle fails when health fails';
+  like $error, qr/provider\ command\ failed:\ relay-001\ health\ exited\ with\ status\ 42/mx,
+    'the health failure reports the exit status';
+  unlike $error, qr/cleanup\ failed/mx, 'the cleanup stop completes';
+
+  is _read_file($stop_marker), 'stop', 'only the started relay is stopped during cleanup';
+
+  my %fields = $runner->summary_fields;
+  is [map {"$_->{actor_id}:$_->{command_kind}:$_->{status}"} @{$fields{topology_provider_commands}}],
+    ['relay-001:start:completed', 'relay-001:health:failed', 'relay-001:stop:completed'],
+    'the command results record the failed health and the cleanup stop';
+
+  ok $runner->stop, 'a second stop after the attempted cleanup is a no-op';
+  is scalar @{$fields{topology_provider_commands}}, 3, 'the repeated stop runs no further commands';
+
+  ok $runner->cleanup_after_lifecycle_failure(failed_phase => 'start'),
+    'cleanup after the stop has already run has nothing to do';
+  $runner->{topology_provider_needs_stop} = 1;
+  ok $runner->cleanup_after_lifecycle_failure(failed_phase => 'start'),
+    'cleanup is not repeated once a stop was attempted';
+};
+
+subtest 'a failing cleanup stop is appended to the phase error in process' => sub {
+  my $tmp      = tempdir(CLEANUP => 1);
+  my $fake_rex = _write_fake_rex($tmp);
+  local $ENV{OVERNET_BURNER_REX}          = $fake_rex;
+  local $ENV{OVERNET_BURNER_TEST_REX_LOG} = File::Spec->catfile($tmp, 'fake-rex.log');
+
+  my $scenario_path = File::Spec->catfile($tmp, 'external.yml');
+  _write_yaml(
+    $scenario_path,
+    _external_scenario_yaml(
+      {
+        start  => 'exit 0',
+        health => 'exit 42',
+        stop   => 'echo stop failed >&2; exit 43',
+      },
+    ),
+  );
+
+  my $runner    = _load_provider_runner(scenario_path => $scenario_path, tmp => $tmp, run_id => 'cleanup-fail');
+  my $completed = eval { $runner->run_lifecycle; 1 };
+  my $error     = $@;
+  ok !$completed, 'the lifecycle fails when health and cleanup stop both fail';
+  like $error,
+    qr/provider\ command\ failed:\ relay-001\ health.*;\ cleanup\ failed:
+       .*provider\ command\ failed:\ relay-001\ stop\ exited\ with\ status\ 43/mxs,
+    'the cleanup stop failure is appended to the health failure';
+
+  my $fresh_runner =
+    _load_provider_runner(scenario_path => $scenario_path, tmp => $tmp, run_id => 'nothing-started');
+  $fresh_runner->prepare;
+  ok $fresh_runner->cleanup_after_lifecycle_failure(failed_phase => 'start'),
+    'cleanup before any relay started has nothing to stop';
+  ok $fresh_runner->cleanup_after_lifecycle_failure(failed_phase => 'stop'),
+    'cleanup after a failed stop phase does not stop again';
+
+  $fresh_runner->{topology_provider_needs_stop} = 1;
+  ok $fresh_runner->cleanup_after_lifecycle_failure(failed_phase => 'start'),
+    'cleanup without a phase map still stops started relays';
+
+  my $bare_runner =
+    _load_provider_runner(scenario_path => $scenario_path, tmp => $tmp, run_id => 'bare-cleanup-fail');
+  $bare_runner->prepare;
+  $bare_runner->{topology_provider_started}{'relay-001'} = 1;
+  $bare_runner->{topology_provider_needs_stop} = 1;
+  my $cleaned = eval { $bare_runner->cleanup_after_lifecycle_failure(failed_phase => 'start'); 1 };
+  my $bare_error = $@;
+  ok !$cleaned, 'a cleanup without a phase map still reports a failed stop';
+  like $bare_error, qr/provider\ command\ failed:\ relay-001\ stop/mx,
+    'the phase-map-less cleanup failure names the stop command';
+};
+
+subtest 'provider start and stop skip incomplete relay descriptors' => sub {
+  my $tmp      = tempdir(CLEANUP => 1);
+  my $fake_rex = _write_fake_rex($tmp);
+  local $ENV{OVERNET_BURNER_REX}          = $fake_rex;
+  local $ENV{OVERNET_BURNER_TEST_REX_LOG} = File::Spec->catfile($tmp, 'fake-rex.log');
+
+  my $scenario_path = File::Spec->catfile($tmp, 'external.yml');
+  _write_yaml(
+    $scenario_path,
+    _external_scenario_yaml({start => 'exit 0', health => 'exit 0', stop => 'exit 0'}),
+  );
+
+  my $runner = _load_provider_runner(scenario_path => $scenario_path, tmp => $tmp, run_id => 'doctored');
+  $runner->prepare;
+
+  my $descriptor_path =
+    File::Spec->catfile($runner->{run_dir}, 'artifacts', 'rex', 'topology-provider.json');
+  my $full_lifecycle = {
+    start  => {command => 'exit 0'},
+    health => {command => 'exit 0'},
+    stop   => {command => 'exit 0'},
+  };
+  _write_yaml(
+    $descriptor_path,
+    JSON->new->canonical(1)->encode(
+      {
+        relays => [
+          {lifecycle => $full_lifecycle},
+          {actor_id  => 'relay-partial', lifecycle => {start => {command => 'exit 0'}, stop => {command => 'exit 0'}}},
+          {actor_id  => 'relay-001',     lifecycle => $full_lifecycle},
+        ],
+      },
+    ),
+  );
+
+  ok $runner->start, 'start runs with incomplete descriptors present';
+  ok $runner->stop,  'stop runs with incomplete descriptors present';
+
+  my %fields = $runner->summary_fields;
+  is [map {"$_->{actor_id}:$_->{command_kind}"} @{$fields{topology_provider_commands}}],
+    ['relay-001:start', 'relay-001:health', 'relay-001:stop'],
+    'only complete descriptors with actor ids run provider commands';
+
+  _write_yaml($descriptor_path, '{}');
+  is [$runner->_topology_provider_command_relays], [], 'a descriptor without relays yields no command relays';
+};
+
+subtest 'direct provider command edges' => sub {
+  my $tmp      = tempdir(CLEANUP => 1);
+  my $fake_rex = _write_fake_rex($tmp);
+  local $ENV{OVERNET_BURNER_REX}          = $fake_rex;
+  local $ENV{OVERNET_BURNER_TEST_REX_LOG} = File::Spec->catfile($tmp, 'fake-rex.log');
+
+  my $scenario_path = File::Spec->catfile($tmp, 'external.yml');
+  _write_yaml(
+    $scenario_path,
+    _external_scenario_yaml({start => 'exit 0', health => 'exit 0', stop => 'exit 0'}),
+  );
+  my $runner = _load_provider_runner(scenario_path => $scenario_path, tmp => $tmp, run_id => 'direct');
+
+  for my $case (
+    [{kind     => 'start', command => 'exit 0'},      'actor_id',              'requires an actor id'],
+    [{actor_id => 'relay-001', command => 'exit 0'},  'provider command kind', 'requires a command kind'],
+    [{actor_id => 'relay-001', kind    => 'start'},   'provider command',      'requires a command'],
+  ) {
+    my ($bad_args, $field, $label) = @{$case};
+    my $ran       = eval { $runner->_run_topology_provider_command(%{$bad_args}); 1 };
+    my $bad_error = $@;
+    ok !$ran, "a provider command $label";
+    like $bad_error, qr/\Q$field\E\ is\ required/mx, "a provider command $label with a diagnostic";
+  }
+
+  ok(
+    $runner->_run_topology_provider_command(
+      actor_id  => 'relay-001',
+      kind      => 'health',
+      command   => 'exit 0',
+      phase     => 'observe',
+      log_label => 'custom-health',
+    ),
+    'a provider command accepts an explicit phase and log label',
+  );
+  ok -e File::Spec->catfile($runner->{run_dir}, 'logs', 'provider', 'custom-health.stdout'),
+    'the log label names the captured output';
+  my $events = _read_jsonl(File::Spec->catfile($runner->{run_dir}, 'logs', 'runner.jsonl'));
+  is $events->[-1]{phase}, 'observe', 'the explicit phase is recorded on the event';
+
+  my $signaled = eval {
+    $runner->_run_topology_provider_command(
+      actor_id => 'relay-001',
+      kind     => 'health',
+      command  => 'kill -TERM $$',
+    );
+    1;
+  };
+  my $signal_error = $@;
+  ok !$signaled, 'a signal-ended provider command fails';
+  like $signal_error, qr/relay-001\ health\ ended\ by\ a\ signal\ or\ transport\ failure/mx,
+    'the signal outcome is reported without an exit status';
+
+  ok !exists $runner->{topology_provider_commands}[-1]{exit_code},
+    'a signal-ended provider command records no exit code';
+};
+
 done_testing;
+
+sub _load_provider_runner {
+  my (%args) = @_;
+
+  my $scenario = Overnet::Burner::Config->load_file($args{scenario_path});
+  my $ledger   = Overnet::Burner::RunLedger->create(
+    scenario      => $scenario,
+    scenario_path => $args{scenario_path},
+    runs_dir      => File::Spec->catdir($args{tmp}, 'runs'),
+    run_id        => $args{run_id},
+    now           => sub {'2026-06-27T14:00:00Z'},
+    host_facts    => {hostname => 'builder-host', os => 'linux', arch => 'x86_64'},
+    repo_sha      => 'abc123',
+    rex_version   => undef,
+  );
+  my $plan = Overnet::Burner::RunLedger->load_plan($ledger->{run_dir});
+
+  return Overnet::Burner::Runner->load(
+    name    => 'rex-local-provider',
+    ledger  => $ledger,
+    plan    => $plan,
+    run_dir => $ledger->{run_dir},
+  );
+}
 
 sub _run_runner {
   my (%args) = @_;
@@ -302,7 +526,9 @@ sub _run_runner {
 }
 
 sub _external_scenario_yaml {
-  my ($command) = @_;
+  my ($command, %options) = @_;
+
+  my $count = $options{count} || 1;
 
   return <<"YAML";
 run:
@@ -312,7 +538,7 @@ run:
 
 topology:
   relays:
-    count: 1
+    count: $count
     provider: external-command
     command:
       start: $command->{start}
