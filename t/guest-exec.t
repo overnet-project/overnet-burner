@@ -115,4 +115,42 @@ subtest 'readiness is aggregated per guest' => sub {
   is $guest->ready_actors(File::Spec->catdir($tmp, 'no-such-root')), [], 'a missing workers root reports nothing ready';
 };
 
+subtest 'make_path is idempotent over an existing directory' => sub {
+  my $dir = File::Spec->catdir($tmp, 'already-there');
+  $guest->make_path($dir);
+  is $guest->make_path($dir), 1, 'making an existing path again is a no-op success';
+};
+
+subtest 'a command with an unreachable working directory fails cleanly' => sub {
+  my $result = $guest->run_command(command => 'true', cwd => File::Spec->catdir($tmp, 'no-such-cwd'));
+  is $result->{exit_code}, 127, 'a failed chdir in the child exits 127';
+};
+
+subtest 'a launch whose output cannot be opened exits in the child' => sub {
+  my $bad_out = $guest->launch(
+    command => 'true',
+    stdout  => File::Spec->catfile($tmp, 'no-such-dir', 'out'),
+    stderr  => File::Spec->catfile($tmp, 'stderr-ok'),
+  );
+  is _reap_within($guest, $bad_out, 10) >> 8, 127, 'an unopenable stdout exits the child 127';
+
+  my $bad_err = $guest->launch(
+    command => 'true',
+    stdout  => File::Spec->catfile($tmp, 'stdout-ok'),
+    stderr  => File::Spec->catfile($tmp, 'no-such-dir', 'err'),
+  );
+  is _reap_within($guest, $bad_err, 10) >> 8, 127, 'an unopenable stderr exits the child 127';
+};
+
 done_testing;
+
+sub _reap_within {
+  my ($guest, $handle, $timeout) = @_;
+  my $deadline = time + $timeout;
+  while (time < $deadline) {
+    my $status = $guest->try_reap($handle);
+    return $status if defined $status;
+    sleep 0.05;
+  }
+  die "process was not reaped within ${timeout}s\n";
+}
