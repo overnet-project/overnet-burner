@@ -139,6 +139,7 @@ t/provenance.t
 t/reference-image.t
 t/report-contract.t
 t/report-generation.t
+t/report-unit.t
 t/rex-bundle-performed.t
 t/rex-bundle.t
 t/run-ledger.t
