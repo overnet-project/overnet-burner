@@ -259,7 +259,133 @@ my $signal_rex_log  = File::Spec->catfile($signal_tmp, 'fake-rex.log');
   unlike $signal_run, qr/exited\ with\ status\ 0/mxs, 'signal failure is not reported as exit status zero';
 }
 
+subtest 'rex-local fails the lifecycle in process when a Rex task fails' => sub {
+  my $fail_tmp = tempdir(CLEANUP => 1);
+  local $ENV{OVERNET_BURNER_TEST_REX_LOG}       = File::Spec->catfile($fail_tmp, 'fake-rex.log');
+  local $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK} = 'warmup';
+
+  my $fail_runner = _make_runner($fail_tmp, 'in-process-fail');
+  my $completed   = eval { $fail_runner->run_lifecycle; 1 };
+  my $error       = $@;
+  ok !$completed, 'the lifecycle fails when a Rex task fails';
+  like $error, qr/Rex\ task\ command\ failed:.*exited\ with\ status\ 42:\ fake\ rex\ failed\ task:\ warmup/mxs,
+    'the failure reports the task exit status and its output';
+
+  my %fields = $fail_runner->summary_fields;
+  is $fields{rex_tasks}[-1],
+    {
+    task       => 'warmup',
+    status     => 'failed',
+    bundle_dir => 'artifacts/rex',
+    rexfile    => 'artifacts/rex/Rexfile',
+    },
+    'the failed task result is recorded';
+};
+
+subtest 'rex-local reports a signal-ended Rex task in process' => sub {
+  my $signal_run_tmp = tempdir(CLEANUP => 1);
+  local $ENV{OVERNET_BURNER_TEST_REX_LOG} = File::Spec->catfile($signal_run_tmp, 'fake-rex.log');
+  local $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK};
+  local $ENV{OVERNET_BURNER_TEST_REX_SIGNAL_TASK} = 'warmup';
+  delete $ENV{OVERNET_BURNER_TEST_REX_FAIL_TASK};
+
+  my $signal_runner = _make_runner($signal_run_tmp, 'in-process-signal');
+  my $completed     = eval { $signal_runner->run_lifecycle; 1 };
+  my $error         = $@;
+  ok !$completed, 'the lifecycle fails when a Rex task is killed by a signal';
+  like $error, qr/Rex\ task\ command\ failed:.*ended\ by\ signal\ 15/mxs, 'the failure names the signal';
+};
+
+subtest 'rex-local captures command failures directly' => sub {
+  my $capture_tmp = tempdir(CLEANUP => 1);
+  my $runner      = _make_runner($capture_tmp, 'capture-edges');
+
+  for my $case (
+    [{command => ['true']},        'cwd',     'capture requires a working directory'],
+    [{cwd     => $capture_tmp},    'command', 'capture requires a command'],
+  ) {
+    my ($bad_args, $field, $label) = @{$case};
+    my $captured = eval { $runner->_capture_command(%{$bad_args}); 1 };
+    my $bad_error = $@;
+    ok !$captured, $label;
+    like $bad_error, qr/\b$field\ is\ required\b/mx, "$label with a diagnostic";
+  }
+
+  my $silent = eval { $runner->_capture_command(cwd => $capture_tmp, command => ['/bin/sh', '-c', 'exit 5']); 1 };
+  my $silent_error = $@;
+  ok !$silent, 'a silent failing command still fails the capture';
+  like $silent_error,   qr/exited\ with\ status\ 5/mx, 'the silent failure reports the exit status';
+  unlike $silent_error, qr/status\ 5:/mx,              'the silent failure appends no output';
+
+  my $entered = eval {
+    $runner->_capture_command(
+      cwd     => File::Spec->catdir($capture_tmp, 'missing-dir'),
+      command => ['true'],
+    );
+    1;
+  };
+  my $chdir_error = $@;
+  ok !$entered, 'a working directory that cannot be entered fails the capture';
+  like $chdir_error, qr/exited\ with\ status\ 127/mx, 'the unenterable directory reports exit code 127';
+};
+
+subtest 'rex-local start validates the rendered lifecycle' => sub {
+  my $doctored_tmp = tempdir(CLEANUP => 1);
+  local $ENV{OVERNET_BURNER_TEST_REX_LOG} = File::Spec->catfile($doctored_tmp, 'fake-rex.log');
+
+  my $doctored_runner = _make_runner($doctored_tmp, 'doctored-lifecycle');
+  is $doctored_runner->_remote_execution_mode, 'not_performed', 'the base runner reports not_performed execution';
+
+  my $unrendered = eval { $doctored_runner->start; 1 };
+  my $unrendered_error = $@;
+  ok !$unrendered, 'start requires a rendered bundle';
+  like $unrendered_error, qr/Rex\ bundle\ has\ not\ been\ rendered/mx, 'the missing bundle is reported';
+
+  ok $doctored_runner->prepare, 'prepare renders the bundle';
+  my $lifecycle_path =
+    File::Spec->catfile($doctored_runner->{run_dir}, 'artifacts', 'rex', 'lifecycle.json');
+
+  _write_yaml($lifecycle_path, '{}');
+  ok $doctored_runner->start, 'a lifecycle without commands runs no tasks';
+
+  _write_yaml($lifecycle_path, '{"commands":[{}]}');
+  my $unnamed = eval { $doctored_runner->start; 1 };
+  my $unnamed_error = $@;
+  ok !$unnamed, 'a lifecycle command without a task is rejected';
+  like $unnamed_error, qr/Rex\ lifecycle\ task\ is\ required/mx, 'the missing task name is reported';
+
+  _write_yaml($lifecycle_path, '{"commands":[{"rex_task":"unrendered-task"}]}');
+  my $missing = eval { $doctored_runner->start; 1 };
+  my $missing_error = $@;
+  ok !$missing, 'a task absent from the Rexfile is rejected before execution';
+  like $missing_error, qr/Rex\ task\ not\ rendered\ in\ .*Rexfile:\ unrendered-task/mx,
+    'the unrendered task is reported';
+};
+
 done_testing;
+
+sub _make_runner {
+  my ($dir, $run_id) = @_;
+
+  my $run_ledger = Overnet::Burner::RunLedger->create(
+    scenario      => $scenario,
+    scenario_path => $scenario_path,
+    runs_dir      => File::Spec->catdir($dir, 'runs'),
+    run_id        => $run_id,
+    now           => sub {'2026-06-27T15:00:00Z'},
+    host_facts    => {hostname => 'builder-host', os => 'linux', arch => 'x86_64'},
+    repo_sha      => 'abc123',
+    rex_version   => undef,
+  );
+  my $run_plan = Overnet::Burner::RunLedger->load_plan($run_ledger->{run_dir});
+
+  return Overnet::Burner::Runner->load(
+    name    => 'rex-local',
+    ledger  => $run_ledger,
+    plan    => $run_plan,
+    run_dir => $run_ledger->{run_dir},
+  );
+}
 
 sub _write_fake_rex {
   my ($dir) = @_;

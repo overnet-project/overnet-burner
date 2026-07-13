@@ -197,7 +197,7 @@ sub _capture_command {
   my $command = $args{command} || croak "command is required\n";
 
   my $pid = open my $fh, q{-|};
-  if (!defined $pid) {
+  if (!defined $pid) {    # uncoverable branch true reason: fork cannot be forced to fail in a test
     croak "fork Rex command: $OS_ERROR\n";
   }
 
@@ -206,12 +206,13 @@ sub _capture_command {
       checked_print(\*STDERR, "chdir $cwd: $OS_ERROR\n");
       exit 127;
     };
+
     open STDERR, '>&', \*STDOUT
-      or do {
+      or do {    # uncoverable branch true reason: duplicating STDOUT onto STDERR cannot fail here
       checked_print(\*STDERR, "redirect STDERR: $OS_ERROR\n");
       exit 127;
       };
-    if (!exec @{$command}) {
+    if (!exec @{$command}) {    # uncoverable branch true reason: exec replaces the process on success
       checked_print(\*STDERR, "exec $command->[0]: $OS_ERROR\n");
       exit 127;
     }
