@@ -149,6 +149,7 @@ t/runner-provision-connect.t
 t/runner-provision-container.t
 t/runner-provision-virtual.t
 t/runner-rex-local-provider.t
+t/runner-rex-local-workers-unit.t
 t/runner-rex-local-workers.t
 t/runner-rex-local.t
 t/runner-rex-remote.t
