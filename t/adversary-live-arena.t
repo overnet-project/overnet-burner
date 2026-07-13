@@ -319,4 +319,71 @@ subtest 'two live instances converge on derived state regardless of store order'
   is $verdict->{invariants}{convergence}{findings}, [], 'no convergence divergence is reported';
 };
 
+subtest 'the live arena validates its construction' => sub {
+  my $L = 'Overnet::Burner::Adversary::Arena::Live';
+  ok $L->new({snapshot_signers => ['s']}), 'a single hash-reference constructor works';
+  ok $L->new, 'the arena constructs with all defaults';
+  like dies { $L->new(grant_kind => 'abc') }, qr/grant_kind\ must\ be\ a\ positive\ integer/mx,
+    'grant_kind must be a positive integer';
+  like dies { $L->new(snapshot_signers => 'x') }, qr/snapshot_signers\ must\ be\ an\ array/mx,
+    'snapshot_signers must be an array reference';
+  like dies { $L->new(snapshot_signers => ['']) }, qr/each\ snapshot\ signer\ must\ be/mx,
+    'each snapshot signer must be a non-empty name';
+  like dies { $L->new(store_factory => 'x') }, qr/store_factory\ must\ be\ a\ code\ reference/mx,
+    'store_factory must be a code reference';
+};
+
+subtest 'the live arena validates the actions it applies' => sub {
+  my $arena = _arena();
+  $arena->reset;
+
+  like dies { $arena->apply('not-a-hash') }, qr/apply\ expects\ an\ action\ object/mx, 'apply needs an action object';
+  like dies { $arena->apply({type => 'teleport'}) }, qr/unknown\ live\ action:\ teleport/mx,
+    'an unknown action type is rejected';
+  like dies { $arena->apply({type => 'new_identity', payload => 'x'}) }, qr/action\ payload\ must\ be\ an\ object/mx,
+    'the payload must be an object';
+  like dies { $arena->apply({type => 'new_identity'}) }, qr/name/mx, 'new_identity requires a name';
+  like dies { $arena->apply({type => 'observe_state', payload => {scope => 's', instance => 'i', subjects => 'x'}}) },
+    qr/subjects\ must\ be\ a\ non-empty\ array/mx, 'observe_state needs a subjects array';
+  like dies {
+    $arena->apply({type => 'observe_state', payload => {scope => 's', instance => 'i', subjects => ['']}})
+  }, qr/each\ subject\ must\ be/mx, 'each observed subject must be named';
+  like dies { $arena->apply({type => 'publish_snapshot', payload => {signer => 'sig', kind => 'notint'}}) },
+    qr/kind/mx, 'a snapshot kind must be a positive integer';
+
+  # observe_capability with and without an explicit capability exercises both
+  # sides of the capability default; an unknown subject simply observes nothing.
+  is $arena->apply({type => 'observe_capability', payload => {subject => 'ghost', scope => 'channel:#x'}}), [],
+    'observing an unknown subject yields nothing';
+  is $arena->apply(
+    {type => 'observe_capability', payload => {subject => 'ghost', scope => 'channel:#x', capability => 'irc.op'}}),
+    [], 'an explicit capability is accepted';
+
+  # A grant without an explicit id still applies (it is simply not remembered).
+  $arena->apply({type => 'new_identity', payload => {name => 'op'}});
+  $arena->apply({type => 'new_identity', payload => {name => 'op-session'}});
+  ok $arena->apply({type => 'publish_grant', payload => {actor => 'op', delegate => 'op-session'}}),
+    'a grant without an id is applied';
+
+  # A full snapshot with grants, bans, and a closed flag exercises the tag
+  # builders on their well-formed inputs.
+  ok $arena->apply(
+    {
+      type    => 'publish_snapshot',
+      payload => {
+        signer => $SNAPSHOT_AUTHORITY,
+        kind   => 39_100,
+        grants => [{subject => 'op', role => 'irc.operator'}],
+        bans   => ['*!*@x.example'],
+        closed => 1,
+      },
+    }
+    ),
+    'a closed snapshot with grants and bans is applied';
+
+  like dies {
+    $arena->apply({type => 'publish_snapshot', payload => {signer => $SNAPSHOT_AUTHORITY, kind => 39_101, bans => 'x'}})
+  }, qr/./mx, 'a non-array bans list is rejected';
+};
+
 done_testing;
