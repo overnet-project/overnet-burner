@@ -15,7 +15,7 @@ my $content = _read_file($workflow);
 like $content, qr/perl:\s*\['5\.40',\s*'latest'\]/mxs,    'workflow tests Perl 5.40 and latest';
 like $content, qr/shogo82148\/actions-setup-perl\@v1/mxs, 'workflow installs Perl with the project action';
 like $content, qr/cpanm\b[^\n]*--installdeps\s+\./mxs,    'workflow installs repository dependencies';
-is scalar(() = $content =~ /echo\s+"\$HOME\/perl5\/bin"\s+>>\s+"\$GITHUB_PATH"/gms), 4,
+is scalar(() = $content =~ /echo\s+"\$HOME\/perl5\/bin"\s+>>\s+"\$GITHUB_PATH"/gms), 5,
   'every workflow job adds local-lib scripts to PATH';
 like $content, qr/overnet-project\/overnet-perl-style/mxs, 'workflow installs shared Overnet Perl style policies';
 like $content, qr/prove\s+-r\s+-l\s+-v\s+t\//mxs,          'workflow runs normal tests';
@@ -25,15 +25,15 @@ like $content, qr{-\s+'docs/[*][*]'}mxs,                   'workflow runs when d
 like $content, qr{-\s+'profile-templates/[*][*]'}mxs,      'workflow runs when profile templates change';
 like $content, qr{-\s+'schemas/[*][*]'}mxs,                'workflow runs when schemas change';
 like $content, qr/-\s+'MANIFEST'/mxs,                      'workflow runs when MANIFEST changes';
-is scalar(() = $content =~ /^\s+path:\s+overnet-burner\s*$/gms), 4,
+is scalar(() = $content =~ /^\s+path:\s+overnet-burner\s*$/gms), 5,
   'every workflow job checks out this repo in the sibling checkout layout';
 like $content, qr/repository:\s+overnet-project\/core-perl\b[\s\S]*?path:\s+core-perl/mxs,
   'workflow checks out core-perl as a sibling';
 like $content, qr/repository:\s+overnet-project\/relay-perl\b[\s\S]*?path:\s+relay-perl/mxs,
   'workflow checks out relay-perl as a sibling';
-is scalar(() = $content =~ /repository:\s+overnet-project\/core-perl\b/gms), 4,
+is scalar(() = $content =~ /repository:\s+overnet-project\/core-perl\b/gms), 5,
   'every workflow job checks out core-perl';
-is scalar(() = $content =~ /repository:\s+overnet-project\/relay-perl\b/gms), 4,
+is scalar(() = $content =~ /repository:\s+overnet-project\/relay-perl\b/gms), 5,
   'every workflow job checks out relay-perl';
 like $content, qr/adversary-regression:/mxs,                'workflow has a dedicated adversary regression job';
 like $content, qr/prove\s+-r\s+-l\s+-v\s+t\/adversary-/mxs, 'the regression job replays the adversary catalog';
