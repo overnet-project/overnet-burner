@@ -1,0 +1,65 @@
+# applicable is only ever consumed via `== 0` in _outcome_from_tally; negating
+# every increment flips the sign but preserves zero vs non-zero, so no input can
+# distinguish this mutant.
+-    $tally{applicable}--;
++    $tally{applicable}++;
+
+# in_effect is only ever consumed via `== 0` in _outcome_from_tally; the sign
+# flip preserves zero vs non-zero and is therefore unobservable.
+-    $tally{in_effect}--;
++    $tally{in_effect}++;
+
+# The && mutant only proceeds when exactly one of protocol/origin is a valid
+# non-empty string. But an undef/empty protocol can never equal a record's
+# non-empty protocol, and an undef/empty origin can never equal or prefix-match a
+# record's non-empty origin, so no record can apply and the outcome stays
+# unverified in both variants.
+-  if (!_is_non_empty_string($protocol) && !_is_non_empty_string($origin)) {
++  if (!_is_non_empty_string($protocol) || !_is_non_empty_string($origin)) {
+
+# // and || differ only for a defined-but-false origin_match (0, '', '0'). Every
+# such value is `ne 'prefix'` whether kept by // or coerced to '' by ||, so the
+# `eq 'prefix'` test yields the same result for all inputs.
+-  if (($body->{origin_match} || q{}) eq 'prefix') {
++  if (($body->{origin_match} // q{}) eq 'prefix') {
+
+# // and || differ only for a defined-but-false provenance type (0, '', '0').
+# Every such value is `ne 'adapted'` whether kept by // or coerced to '' by ||,
+# so the not_applicable decision is identical for all inputs.
+-  if (!defined $provenance || ($provenance->{type} || q{}) ne 'adapted') {
++  if (!defined $provenance || ($provenance->{type} // q{}) ne 'adapted') {
+
+# excludes_key is only consumed via boolean truthiness in _outcome_from_tally
+# (`lists_key && excludes_key`); a sign flip preserves truthiness (non-zero stays
+# true, zero stays false), so it is unobservable.
+-      $tally{excludes_key}--;
++      $tally{excludes_key}++;
+
+# _body_lists_key is only reached after _record_in_effect has confirmed pubkeys is
+# a well-formed ARRAY, so `ref $body->{pubkeys} eq 'ARRAY'` is always true here.
+# The guard then reduces to `!defined $pubkey` (orig) vs always-false (mutant);
+# when pubkey is undef the mutant merely falls through to a loop that also matches
+# nothing, yielding the same 0 result.
+-  if (!(defined $pubkey || ref $body->{pubkeys} eq 'ARRAY')) {
++  if (!(defined $pubkey && ref $body->{pubkeys} eq 'ARRAY')) {
+
+# For undef content the JSON decode dies and is caught, returning undef; for a
+# reference the decode stringifies to a non-JSON value and also returns undef.
+# Both branches therefore yield undef for exactly the inputs the orig short
+# circuits on, so the early-return removal is unobservable.
+-  if (!defined $content && ref $content) {
++  if (!defined $content || ref $content) {
+
+# lists_key is consumed via truthiness in _outcome_from_tally (`lists_key &&
+# excludes_key` and `lists_key ? 'authoritative' : 'forged'`); a sign flip
+# preserves truthiness and is therefore unobservable.
+-      $tally{lists_key}--;
++      $tally{lists_key}++;
+
+# The mutant's `ref $pubkey && !defined $pubkey` is always false (a reference is
+# always defined), so the mutant rejects a pubkey only on regex mismatch. But any
+# reference stringifies to a non-hex value and undef stringifies to '', so both
+# already fail the 64-hex regex; the removed `ref`/`!defined` disjuncts are thus
+# redundant for every realistic pubkey and the acceptance decision is unchanged.
+-    if (ref $pubkey && !defined $pubkey || $pubkey !~ /\A[0-9a-f]{64}\z/mxs) {
++    if (ref $pubkey || !defined $pubkey || $pubkey !~ /\A[0-9a-f]{64}\z/mxs) {

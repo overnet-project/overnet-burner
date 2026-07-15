@@ -117,4 +117,30 @@ subtest 'the origin separator is configurable' => sub {
     {outcome => 'authoritative'}, 'a custom separator drives prefix matching';
 };
 
+subtest 'a record with an empty origin does not apply' => sub {
+  # An empty-string body origin must fail the non-empty-string guard: if it were
+  # treated as a present origin it would prefix-match anything starting with the
+  # separator and spuriously authorize the signer.
+  my $event = _event(provenance => {type => 'adapted', protocol => 'irc', origin => '/#chan'});
+  is _verify($event, [_record(origin => q{}, origin_match => 'prefix')]),
+    {outcome => 'unverified'}, 'an empty record origin is not a valid non-empty string';
+};
+
+subtest 'a non-integer validity bound is ignored, not treated as zero' => sub {
+  # A defined but non-integer not_after must fail the integer guard and be
+  # skipped, leaving the record in effect; if it were accepted as an integer it
+  # would numify to 0 and push every event past the bound.
+  is _verify(_event(created_at => 1000), [_record(not_after => 'abc')]),
+    {outcome => 'authoritative'}, 'a non-integer not_after does not bound the record';
+};
+
+subtest 'false-but-defined arguments fall back to their defaults' => sub {
+  # options and trusted_records use ||= so a defined-but-false scalar is replaced
+  # by the empty default rather than kept and dereferenced.
+  is _verify(_event, [_record()], 0), {outcome => 'authoritative'},
+    'a false options argument falls back to default options';
+  is _verify(_event, 0), {outcome => 'unverified'},
+    'a false trusted-records argument falls back to no records';
+};
+
 done_testing;
