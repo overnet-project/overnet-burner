@@ -142,6 +142,41 @@ subtest 'failing engine commands surface as errors' => sub {
   is $engine->network_remove('net'), 0, 'network_remove reports failure without dying';
 };
 
+subtest 'a specific engine request never silently falls back to the other engine' => sub {
+  local $ENV{OVERNET_BURNER_DOCKER} = File::Spec->catfile($tmp, 'no-such-binary');
+  local $ENV{OVERNET_BURNER_PODMAN} = $fake_podman;
+
+  like dies { Overnet::Burner::ContainerEngine->detect(engine => 'docker') }, qr/no\ container\ engine/mx,
+    'requesting docker when only podman answers fails rather than substituting podman';
+};
+
+subtest 'a version probe that exits nonzero is not a usable engine' => sub {
+  my $version_nonzero = _write_version_then_fail($tmp, 'fake-version-nonzero', 'Docker version 99.0-fake');
+  local $ENV{OVERNET_BURNER_DOCKER} = $version_nonzero;
+  local $ENV{OVERNET_BURNER_PODMAN} = File::Spec->catfile($tmp, 'no-such-binary');
+
+  like dies { Overnet::Burner::ContainerEngine->detect(engine => 'docker') }, qr/no\ container\ engine/mx,
+    'a probe that prints an identity but exits nonzero is rejected, not accepted on its output alone';
+};
+
+subtest 'a run that exits nonzero is a failure even when it prints an id' => sub {
+  my $run_nonzero = _write_run_then_fail($tmp, 'fake-run-nonzero');
+  local $ENV{OVERNET_BURNER_DOCKER} = $run_nonzero;
+  my $engine = Overnet::Burner::ContainerEngine->detect(engine => 'docker');
+
+  like dies { $engine->run_detached(name => 'g', image => 'img') }, qr/could\ not\ start\ container/mx,
+    'a run that prints a container id but exits nonzero still croaks';
+};
+
+subtest 'a run that exits zero but prints nothing is a failure' => sub {
+  my $run_empty = _write_run_then_empty($tmp, 'fake-run-empty');
+  local $ENV{OVERNET_BURNER_DOCKER} = $run_empty;
+  my $engine = Overnet::Burner::ContainerEngine->detect(engine => 'docker');
+
+  like dies { $engine->run_detached(name => 'g', image => 'img') }, qr/could\ not\ start\ container/mx,
+    'a run that yields an empty container id croaks instead of returning an empty id';
+};
+
 done_testing;
 
 sub _write_failing_engine {
@@ -156,6 +191,64 @@ if (@ARGV && $ARGV[0] eq '--version') {
   exit 0;
 }
 exit 1;
+PERL
+  chmod 0755, $path or die "chmod: $!";
+  return $path;
+}
+
+sub _write_version_then_fail {
+  my ($dir, $basename, $version_line) = @_;
+  my $path = File::Spec->catfile($dir, $basename);
+  _spew($path, <<"PERL");
+#!/usr/bin/env perl
+use strict;
+use warnings;
+if (\@ARGV && \$ARGV[0] eq '--version') {
+  print "$version_line\\n";
+  exit 1;
+}
+exit 1;
+PERL
+  chmod 0755, $path or die "chmod: $!";
+  return $path;
+}
+
+sub _write_run_then_fail {
+  my ($dir, $basename) = @_;
+  my $path = File::Spec->catfile($dir, $basename);
+  _spew($path, <<'PERL');
+#!/usr/bin/env perl
+use strict;
+use warnings;
+if (@ARGV && $ARGV[0] eq '--version') {
+  print "Docker version 99.0-fake\n";
+  exit 0;
+}
+if (@ARGV && $ARGV[0] eq 'run') {
+  print "printed-but-failed-id\n";
+  exit 1;
+}
+exit 0;
+PERL
+  chmod 0755, $path or die "chmod: $!";
+  return $path;
+}
+
+sub _write_run_then_empty {
+  my ($dir, $basename) = @_;
+  my $path = File::Spec->catfile($dir, $basename);
+  _spew($path, <<'PERL');
+#!/usr/bin/env perl
+use strict;
+use warnings;
+if (@ARGV && $ARGV[0] eq '--version') {
+  print "Docker version 99.0-fake\n";
+  exit 0;
+}
+if (@ARGV && $ARGV[0] eq 'run') {
+  exit 0;
+}
+exit 0;
 PERL
   chmod 0755, $path or die "chmod: $!";
   return $path;

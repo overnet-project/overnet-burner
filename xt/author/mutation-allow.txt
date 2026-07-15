@@ -63,3 +63,36 @@
 # redundant for every realistic pubkey and the acceptance decision is unchanged.
 -    if (ref $pubkey && !defined $pubkey || $pubkey !~ /\A[0-9a-f]{64}\z/mxs) {
 +    if (ref $pubkey || !defined $pubkey || $pubkey !~ /\A[0-9a-f]{64}\z/mxs) {
+
+
+# _probe rejects a probe whose --version output is empty. This mutant changes
+# `status != 0 || !defined || !length` to `status != 0 || (!defined && !length)`,
+# which differs from the original only when the status is 0 and the output is
+# defined-but-empty (''). There the original returns undef at the guard, while the
+# mutant falls through, chomps '', and the identity regex matches neither 'podman'
+# nor 'docker', so _probe returns undef anyway. An undef output also makes both
+# variants return (`!length undef` is true under the mutant's &&), so no probe
+# result can distinguish them. (The identical-looking run_detached guard IS a real
+# gap and is killed by a dedicated test; only this _probe occurrence is equivalent.)
+-  if ($status != 0 || !defined $output && !length $output) {
++  if ($status != 0 || !defined $output || !length $output) {
+
+# `exec LIST or exit 127` vs `exec LIST and exit 127` differ only when exec fails
+# to launch the binary (exec returns). This module only runs a not-yet-validated
+# path in _probe (via detect); every other method runs $self->binary, which detect
+# has already proven launchable. On a failed exec the fall-through child inherits
+# the pipe as its STDOUT and writes nothing to it before terminating (detect,
+# _probe, and croak never print to STDOUT), so the parent reads empty output and
+# _probe's `!length $output` guard returns undef exactly as the `exit 127` path
+# would. No detection outcome changes.
+-    exec {$argv[0]} @argv and exit 127;
++    exec {$argv[0]} @argv or exit 127;
+
+# This branch runs only when `close $fh` is false, which for a `-|` pipe means the
+# child terminated abnormally (nonzero exit or signal), leaving $CHILD_ERROR ($?)
+# nonzero. Whenever $CHILD_ERROR is nonzero, both `$CHILD_ERROR || -1` and
+# `$CHILD_ERROR && -1` yield a nonzero value, and $status is only ever consumed via
+# `$status != 0`, so the outcome is identical. The two differ only if close fails
+# with $CHILD_ERROR == 0, which the child-termination path cannot produce.
+-  my $status = close $fh ? 0 : ($CHILD_ERROR && -1);
++  my $status = close $fh ? 0 : ($CHILD_ERROR || -1);
