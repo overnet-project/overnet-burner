@@ -73,13 +73,14 @@ jobs:
           path: relay-perl
 
       - uses: shogo82148/actions-setup-perl@v1
+        id: setup-perl
         with:
           perl-version: ${{ matrix.perl }}
 
       - uses: actions/cache@v4
         with:
           path: ~/perl5
-          key: perl-${{ matrix.perl }}-${{ hashFiles('overnet-burner/Makefile.PL', 'overnet-burner/.github/workflows/test.yml') }}
+          key: perl-${{ steps.setup-perl.outputs.perl-version }}-${{ hashFiles('overnet-burner/Makefile.PL', 'overnet-burner/.github/workflows/test.yml') }}
 
       - name: Install dependencies
         run: |
@@ -261,13 +262,14 @@ jobs:
           path: relay-perl
 
       - uses: shogo82148/actions-setup-perl@v1
+        id: setup-perl
         with:
           perl-version: latest
 
       - uses: actions/cache@v4
         with:
           path: ~/perl5
-          key: perl-smoke-latest-${{ hashFiles('overnet-burner/Makefile.PL', 'overnet-burner/.github/workflows/test.yml') }}
+          key: perl-smoke-${{ steps.setup-perl.outputs.perl-version }}-${{ hashFiles('overnet-burner/Makefile.PL', 'overnet-burner/.github/workflows/test.yml') }}
 
       - name: Install dependencies
         run: |
