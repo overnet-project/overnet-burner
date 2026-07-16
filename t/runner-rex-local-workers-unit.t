@@ -44,6 +44,29 @@ package Overnet::Burner::Test::ScriptedGuest {
   sub destroy {1}
 }
 
+package Overnet::Burner::Test::ReapingGuest {
+  use Moo;
+
+  has name        => (is => 'ro', default => 'reaping-guest');
+  has role        => (is => 'ro', default => 'workers');
+  has transport   => (is => 'ro', default => 'exec');
+  has signals     => (is => 'ro', default => sub { [] });
+  has fail_signal => (is => 'ro', default => 0);
+
+  no Moo;
+
+  sub signal {
+    my ($self, $handle, $signal) = @_;
+    push @{$self->signals}, "$handle:$signal";
+    die "scripted signal failure\n" if $self->fail_signal;
+    return 1;
+  }
+
+  # Report a clean exit so the runner reaps the worker after the first pass.
+  sub try_reap {0}
+  sub destroy  {1}
+}
+
 my $tmp         = tempdir(CLEANUP => 1);
 my $fake_rex    = _write_fake_rex($tmp);
 my $fake_worker = _write_fake_worker($tmp);
@@ -778,6 +801,58 @@ YAML
   my $cleaned = eval { $failing_cleanup->cleanup_after_lifecycle_failure(failed_phase => 'observe'); 1 };
   ok !$cleaned, 'a failing provider stop still fails cleanup';
   like $@, qr/provider\ command/mx, 'the provider stop failure propagates after guest teardown';
+};
+
+subtest 'failure and signal cleanup terminate and reap still-running workers' => sub {
+  # A worker launched before the run failed (or was interrupted) is tracked in
+  # worker_pids. Both the lifecycle-failure and signal teardown paths must send
+  # it TERM and reap it, otherwise local worker processes are orphaned and keep
+  # generating load into the next run.
+  my $runner = _make_runner(
+    scenario_path => _write_workers_scenario(File::Spec->catfile($tmp, 'leak-cleanup.yml')),
+    run_id        => 'leak-cleanup',
+  );
+  $runner->prepare;
+  my $guest = Overnet::Burner::Test::ReapingGuest->new;
+  $runner->{actor_guests}{'publisher-001'} = $guest;
+  $runner->{worker_pids}{'publisher-001'}  = 4242;
+
+  ok $runner->cleanup_after_lifecycle_failure(failed_phase => 'observe'),
+    'lifecycle-failure cleanup succeeds';
+  is $runner->{worker_pids}, {},
+    'a still-running worker is reaped, not left tracked, on failure cleanup';
+  is $guest->signals, ['4242:TERM'],
+    'the running worker is sent TERM during failure cleanup';
+
+  my $sig_runner = _make_runner(
+    scenario_path => _write_workers_scenario(File::Spec->catfile($tmp, 'leak-signal.yml')),
+    run_id        => 'leak-signal',
+  );
+  $sig_runner->prepare;
+  my $sig_guest = Overnet::Burner::Test::ReapingGuest->new;
+  $sig_runner->{actor_guests}{'publisher-001'} = $sig_guest;
+  $sig_runner->{worker_pids}{'publisher-001'}  = 7373;
+
+  ok $sig_runner->teardown_on_signal, 'signal teardown succeeds';
+  is $sig_runner->{worker_pids}, {},
+    'a still-running worker is reaped on signal teardown';
+  is $sig_guest->signals, ['7373:TERM'],
+    'the running worker is sent TERM during signal teardown';
+
+  # A guest whose signal fails must not stop the worker being reaped or the
+  # cleanup from completing: teardown is best-effort per guest.
+  my $fail_runner = _make_runner(
+    scenario_path => _write_workers_scenario(File::Spec->catfile($tmp, 'leak-signal-fail.yml')),
+    run_id        => 'leak-signal-fail',
+  );
+  $fail_runner->prepare;
+  $fail_runner->{actor_guests}{'publisher-001'} = Overnet::Burner::Test::ReapingGuest->new(fail_signal => 1);
+  $fail_runner->{worker_pids}{'publisher-001'}  = 5555;
+
+  ok $fail_runner->cleanup_after_lifecycle_failure(failed_phase => 'observe'),
+    'cleanup succeeds even when a guest signal fails';
+  is $fail_runner->{worker_pids}, {},
+    'the worker is still reaped when its signal fails';
 };
 
 done_testing;

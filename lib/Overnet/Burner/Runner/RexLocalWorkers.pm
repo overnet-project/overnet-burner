@@ -712,11 +712,14 @@ sub _destroy_constructed_guests {
 sub teardown_on_signal {
   my ($self) = @_;
 
-  # Called from a signal handler: destroy every constructed guest so a
-  # Ctrl-C or kill leaves no orphaned container, virtual machine, or per-run
-  # network. Guest destroy is idempotent and best-effort (it never dies), so
-  # an orderly teardown that already ran makes this a quiet no-op. Connect
-  # guests are operator-owned and their destroy is a no-op by design.
+  # Called from a signal handler: TERM/KILL and reap every worker process still
+  # running, then destroy every constructed guest, so a Ctrl-C or kill leaves no
+  # orphaned worker, container, virtual machine, or per-run network. Reaping the
+  # workers first also stops load generators for the local/exec transport, whose
+  # guest destroy is a no-op. Both steps are best-effort and idempotent, so an
+  # orderly teardown that already drained the workers makes this a quiet no-op.
+  # Connect guests are operator-owned and their destroy is a no-op by design.
+  $self->_terminate_remaining_workers;
   $self->_destroy_constructed_guests;
 
   return 1;
@@ -724,6 +727,11 @@ sub teardown_on_signal {
 
 sub cleanup_after_lifecycle_failure {
   my ($self, %args) = @_;
+
+  # Stop and reap any worker still running from the failed run before anything
+  # else, so a launch/readiness/chaos failure mid-observe cannot orphan local
+  # load generators.
+  $self->_terminate_remaining_workers;
 
   if (!eval { $self->_pull_worker_logs; 1 }) {
     $self->_record_worker_event(status => 'worker_log_pull_failed', phase => 'cleanup');
@@ -1130,18 +1138,7 @@ sub _await_worker_exits {
     }
   }
 
-  if (%{$self->{worker_pids}}) {
-    for my $actor_id (sort keys %{$self->{worker_pids}}) {
-      $self->_guest_for($actor_id)->signal($self->{worker_pids}{$actor_id}, 'TERM');
-    }
-    $self->_reap_until(time + $KILL_GRACE_SECONDS);
-  }
-  if (%{$self->{worker_pids}}) {
-    for my $actor_id (sort keys %{$self->{worker_pids}}) {
-      $self->_guest_for($actor_id)->signal($self->{worker_pids}{$actor_id}, 'KILL');
-    }
-    $self->_reap_until(time + $KILL_GRACE_SECONDS);
-  }
+  $self->_terminate_remaining_workers;
 
   if (@pending) {
     my $described = join ', ', map { $_->{hook}{id} } @pending;
@@ -1157,6 +1154,33 @@ sub _await_worker_exits {
   if (@failed) {
     my $described = join ', ', map { $_->{actor_id} } @failed;
     croak "worker $described did not complete cleanly\n";
+  }
+
+  return 1;
+}
+
+sub _terminate_remaining_workers {
+  my ($self) = @_;
+
+  # Force every still-tracked worker process down and reap it: a graceful TERM
+  # with a grace window, then KILL for anything that ignores it. Best-effort and
+  # idempotent -- a no-op when nothing is left running -- so the normal exit
+  # path, the lifecycle-failure cleanup, and the signal teardown can all call it.
+  # Signalling is guarded so one unreachable guest cannot leave the rest of the
+  # workers orphaned.
+  if (!%{$self->{worker_pids}}) {
+    return 1;
+  }
+
+  for my $signal (qw(TERM KILL)) {
+    for my $actor_id (sort keys %{$self->{worker_pids}}) {
+      eval { $self->_guest_for($actor_id)->signal($self->{worker_pids}{$actor_id}, $signal); 1 }
+        or next;
+    }
+    $self->_reap_until(time + $KILL_GRACE_SECONDS);
+    if (!%{$self->{worker_pids}}) {
+      last;
+    }
   }
 
   return 1;
