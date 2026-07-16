@@ -397,6 +397,54 @@ subtest 'a managed profile may pin its engine and image' => sub {
   is $profile->{environment}{image},  'burner:pinned', 'a valid image is accepted';
 };
 
+subtest 'a fractional workload range is drawn continuously, not collapsed to its floor' => sub {
+  # workload ranges validate as numbers (numeric => 1), so a profile may declare
+  # a fractional publish rate. Drawing such a range through integer modulo would
+  # truncate the width to an integer and pin every draw to the range minimum,
+  # making the declared maximum unreachable. Sweep seeds and require the drawn
+  # rate to stay in bounds, vary, and actually rise above the floor.
+  my $profile = Overnet::Burner::Generator->load_profile_data(
+    {
+      duration => {min => 2, max => 2},
+      relays   => {min => 1, max => 1, endpoints => ['ws://127.0.0.1:7001']},
+      roles    => {publishers => {min => 1, max => 1}},
+      workload => {publish_rate_per_second => {min => 1.2, max => 1.8}},
+    }
+  );
+
+  my %seen;
+  my $above_floor = 0;
+  for my $seed (1 .. 60) {
+    my $scenario = Overnet::Burner::Generator->generate(seed => $seed, profile => $profile);
+    my $rate     = $scenario->{workload}{publish_rate_per_second};
+    ok $rate >= 1.2 && $rate <= 1.8, "seed $seed draws within the fractional range" if $seed <= 3;
+    $seen{$rate}++;
+    $above_floor++ if $rate > 1.2;
+  }
+
+  ok keys %seen > 1, 'the fractional range explores more than a single value';
+  ok $above_floor > 0, 'some seed draws above the range floor, so the declared maximum is reachable';
+
+  my @out_of_bounds = grep { $_ < 1.2 || $_ > 1.8 } keys %seen;
+  is \@out_of_bounds, [], 'every drawn rate stays within the declared bounds';
+
+  # A degenerate fractional range (min == max) has no width to draw across and
+  # must return that exact value for every seed.
+  my $pinned = Overnet::Burner::Generator->load_profile_data(
+    {
+      duration => {min => 2, max => 2},
+      relays   => {min => 1, max => 1, endpoints => ['ws://127.0.0.1:7001']},
+      roles    => {publishers => {min => 1, max => 1}},
+      workload => {publish_rate_per_second => {min => 1.5, max => 1.5}},
+    }
+  );
+  my %pinned_seen;
+  $pinned_seen{Overnet::Burner::Generator->generate(seed => $_, profile => $pinned)->{workload}{publish_rate_per_second}}
+    ++
+    for 1 .. 5;
+  is [sort keys %pinned_seen], [1.5], 'a degenerate fractional range returns its single value';
+};
+
 subtest 'load_profile reads YAML and tolerates an empty document' => sub {
   my $dir = tempdir(CLEANUP => 1);
 

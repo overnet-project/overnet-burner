@@ -649,7 +649,23 @@ sub _generate_chaos {
 sub _draw {
   my ($seed, $label, $range) = @_;
 
-  return _draw_int($seed, $label, $range->{min}, $range->{max});
+  my ($min, $max) = ($range->{min}, $range->{max});
+
+  # Integer bounds keep the discrete modulo draw so existing scenarios stay
+  # byte-identical. A fractional bound (only workload ranges permit one) would
+  # truncate the modulus to an integer and pin every draw to the range floor, so
+  # draw it continuously instead and the declared maximum stays reachable.
+  if (_is_integer($min) && _is_integer($max)) {
+    return _draw_int($seed, $label, $min, $max);
+  }
+
+  return _draw_number($seed, $label, $min, $max);
+}
+
+sub _is_integer {
+  my ($value) = @_;
+
+  return defined $value && !ref $value && "$value" =~ /\A-?\d+\z/mxs;
 }
 
 sub _draw_int {
@@ -658,11 +674,30 @@ sub _draw_int {
   if ($high <= $low) {
     return $low;
   }
-  my $separator = chr 0;
-  my $hex       = sha256_hex(join $separator, 'overnet-burner:generate', $seed, $label);
-  my $draw      = hex substr($hex, 0, 8);
+  my $draw = _draw_fraction_source($seed, $label);
 
   return $low + ($draw % ($high - $low + 1));
+}
+
+sub _draw_number {
+  my ($seed, $label, $low, $high) = @_;
+
+  if ($high <= $low) {
+    return 0 + $low;
+  }
+  my $fraction = _draw_fraction_source($seed, $label) / 0xffffffff;
+  my $value    = $low + (($high - $low) * $fraction);
+
+  return 0 + sprintf '%.3f', $value;
+}
+
+sub _draw_fraction_source {
+  my ($seed, $label) = @_;
+
+  my $separator = chr 0;
+  my $hex       = sha256_hex(join $separator, 'overnet-burner:generate', $seed, $label);
+
+  return hex substr($hex, 0, 8);
 }
 
 sub scenario_yaml {
