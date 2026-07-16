@@ -6,8 +6,9 @@ use FindBin;
 use lib "$FindBin::Bin/../lib", "$FindBin::Bin/../../relay-perl/lib", "$FindBin::Bin/../../core-perl/lib";
 
 use IO::Socket::INET;
-use JSON  ();
-use POSIX qw(WNOHANG);
+use JSON   ();
+use POSIX  qw(WNOHANG);
+use Socket qw(SOL_SOCKET SO_LINGER);
 
 use Overnet::Burner::Adversary::Server;
 
@@ -291,7 +292,80 @@ subtest 'an arena missing the interface is rejected' => sub {
     'an arena that does not implement the interface is 400';
 };
 
+subtest 'the socket loop survives hostile clients' => sub {
+  local $ENV{OVERNET_BURNER_ADVERSARY_READ_TIMEOUT} = 1;
+  local $ENV{OVERNET_BURNER_ADVERSARY_MAX_BODY}     = 1024;
+  my $port = _free_port();
+  my $pid  = _spawn_server($port);
+
+  # A client that sends a request then abortively resets the connection makes
+  # the server's response write hit a broken pipe. Without SIGPIPE handling and
+  # per-connection error isolation this kills the whole single-process server.
+  {
+    my $rude = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port, Proto => 'tcp', Timeout => 5)
+      or die "connect: $!";
+    $rude->setsockopt(SOL_SOCKET, SO_LINGER, pack 'II', 1, 0);
+    print {$rude} "GET /health HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n" or die "print: $!";
+    close $rude or die "close: $!";
+  }
+
+  # An oversized Content-Length must be rejected with 413, not read into memory
+  # or left to block the loop. Bounded by a deadline so a regression cannot hang
+  # the suite.
+  my ($big_ok, $big_err, $big_status) = _with_deadline(
+    10,
+    'oversized body',
+    sub {
+      return _http_raw($port, "POST /sessions HTTP/1.1\r\nHost: x\r\nContent-Length: 100000000\r\n\r\n");
+    });
+  ok $big_ok, 'an oversized-body request completes without hanging the server' or diag $big_err;
+  is $big_status, 413, 'an oversized request body is rejected with 413';
+
+  # A slowloris client that connects and never finishes its request must not
+  # wedge the serial server.
+  my $slow = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port, Proto => 'tcp', Timeout => 5)
+    or die "connect: $!";
+  print {$slow} "GET /health HTTP/1.1\r\n" or die "print: $!";
+
+  # After every hostile client above, a well-behaved client is still served.
+  my ($ok, $err, $status, $health) = _with_deadline(15, 'survival', sub { return _http($port, 'GET', '/health') });
+  ok $ok, 'the server still serves a normal request after hostile clients' or diag $err;
+  is $status, 200, 'the survivor request succeeds';
+  is($health->{status}, 'ok', 'the health body is intact') if $ok;
+
+  close $slow or die "close: $!";
+  is waitpid($pid, WNOHANG), 0, 'the server process is still running';
+  kill 'TERM', $pid;
+  waitpid $pid, 0;
+};
+
 done_testing;
+
+sub _with_deadline {
+  my ($seconds, $label, $code) = @_;
+  my @result;
+  my $ok = eval {
+    local $SIG{ALRM} = sub { die "deadline exceeded ($label)\n" };
+    alarm $seconds;
+    @result = $code->();
+    alarm 0;
+    1;
+  };
+  my $error = $@;
+  alarm 0;
+  return ($ok, $error, @result);
+}
+
+sub _http_raw {
+  my ($port, $raw) = @_;
+  my $socket = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port, Proto => 'tcp', Timeout => 5)
+    or die "connect: $!";
+  print {$socket} $raw or die "print: $!";
+  my $response = do { local $/; <$socket> };
+  close $socket or die "close: $!";
+  my ($status) = ($response // q{}) =~ m{\AHTTP/\S+\ (\d+)}mxs;
+  return $status;
+}
 
 sub _free_port {
   my $probe = IO::Socket::INET->new(LocalAddr => '127.0.0.1', LocalPort => 0, Proto => 'tcp', Listen => 1)

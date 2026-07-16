@@ -5,6 +5,7 @@ use FindBin;
 use lib "$FindBin::Bin/../lib";
 
 use Getopt::Long     qw(GetOptionsFromArray);
+use IO::Select       ();
 use IO::Socket::INET ();
 use JSON             ();
 
@@ -12,7 +13,13 @@ use Overnet::Burner::Adversary::Server;
 
 our $VERSION = '0.001';
 
-my $JSON = JSON->new->utf8->canonical;
+my $JSON           = JSON->new->utf8->canonical;
+my $MAX_LINE_BYTES = 8_192;
+
+# Read timeout (seconds) and maximum request-body size (bytes). Overridable via
+# the environment so tests can drive the hostile-client paths quickly.
+sub _read_timeout { return $ENV{OVERNET_BURNER_ADVERSARY_READ_TIMEOUT} || 30 }
+sub _max_body     { return $ENV{OVERNET_BURNER_ADVERSARY_MAX_BODY}     || 1_048_576 }
 
 if (!caller) {
   exit run(@ARGV);
@@ -36,9 +43,16 @@ sub run {
   print {*STDERR} "adversary server listening on $opt{host}:$opt{port}\n"
     or die "print: $!\n";
 
+  # A hostile or vanished client must never take the loop down: a dropped
+  # connection surfaces as SIGPIPE or a write failure, so ignore the signal and
+  # keep each connection's handling inside its own eval.
+  local $SIG{PIPE} = 'IGNORE';
+
   while (my $connection = $listener->accept) {
-    _serve_connection($server, $connection);
-    close $connection or die "close: $!\n";
+    if (!eval { _serve_connection($server, $connection); 1 }) {
+      warn "adversary server: dropping connection: $@";
+    }
+    close $connection or warn "adversary server: close: $!\n";
   }
 
   return 0;
@@ -50,6 +64,9 @@ sub _serve_connection {
   my $request = _read_request($connection);
   if (!$request) {
     return _write_response($connection, {status => 400, body => {error => 'malformed request'}});
+  }
+  if ($request->{too_large}) {
+    return _write_response($connection, {status => 413, body => {error => 'request body too large'}});
   }
 
   my $body;
@@ -71,7 +88,9 @@ sub _serve_connection {
 
 sub _read_request {
   my ($connection) = @_;
-  my $request_line = readline $connection;
+  my $select = IO::Select->new($connection);
+
+  my $request_line = _read_limited_line($connection, $select);
   if (!(defined $request_line && $request_line =~ /\A(\S+)\ (\S+)\ HTTP/mxs)) {
     return;
   }
@@ -79,7 +98,7 @@ sub _read_request {
   $target =~ s/[?].*\z//mxs;
 
   my $length = 0;
-  while (my $header = readline $connection) {
+  while (defined(my $header = _read_limited_line($connection, $select))) {
     $header =~ s/\r?\n\z//mxs;
     if (!length $header) {
       last;
@@ -89,10 +108,19 @@ sub _read_request {
     }
   }
 
+  # Reject an over-large body before allocating for it, but keep enough of the
+  # request parsed to answer with a well-formed 413 rather than a bare drop.
+  if ($length > _max_body()) {
+    return {method => $method, path => $target, body => q{}, too_large => 1};
+  }
+
   my $body = q{};
   while ($length > length $body) {
+    if (!$select->can_read(_read_timeout())) {
+      last;
+    }
     my $chunk;
-    my $read = read $connection, $chunk, $length - length $body;
+    my $read = sysread $connection, $chunk, $length - length $body;
     if (!$read) {
       last;
     }
@@ -100,6 +128,30 @@ sub _read_request {
   }
 
   return {method => $method, path => $target, body => $body};
+}
+
+# Read a single CRLF-terminated line one byte at a time, bounding both the time
+# we wait for data (so a slowloris client cannot pin the serial loop) and the
+# length (so a client cannot exhaust memory with an unterminated line). Returns
+# undef on timeout or a closed connection.
+sub _read_limited_line {
+  my ($connection, $select) = @_;
+  my $line = q{};
+  while (length $line < $MAX_LINE_BYTES) {
+    if (!$select->can_read(_read_timeout())) {
+      return;
+    }
+    my $char;
+    my $read = sysread $connection, $char, 1;
+    if (!$read) {
+      return length $line ? $line : undef;
+    }
+    $line .= $char;
+    if ($char eq "\n") {
+      return $line;
+    }
+  }
+  return $line;
 }
 
 sub _write_response {
@@ -121,6 +173,7 @@ my %REASON = (
   400 => 'Bad Request',
   404 => 'Not Found',
   409 => 'Conflict',
+  413 => 'Payload Too Large',
   429 => 'Too Many Requests',
 );
 
