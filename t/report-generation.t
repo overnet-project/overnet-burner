@@ -368,6 +368,13 @@ YAML
   );
   my $pass = _regenerated_report($pass_dir);
 
+  # An abuse operation summary carries the defended_* fields (docs/abuse.md), so
+  # the report must still satisfy its own v1 schema -- report.json is the stable
+  # automation contract even for resilience runs.
+  _assert_schema_valid($pass, 'report-abuse-pass-001');
+  is $pass->{metrics}{operations}{flood_publish}{defended_ratio}, 1,
+    'the abuse operation summary reports a defended ratio';
+
   my %pass_thresholds = map { $_->{id} => $_ } @{$pass->{thresholds}};
   is $pass_thresholds{'flood_publish.defended_ratio'}{comparator}, '>=',
     'defended ratio thresholds are judged as a floor, not a ceiling';

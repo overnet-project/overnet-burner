@@ -720,6 +720,18 @@
         },
         "latency_ms": {
           "$ref": "#/$defs/latency_summary"
+        },
+        "defended_count": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "defended_ratio": {
+          "$ref": "#/$defs/non_negative_number"
+        },
+        "defended_correct_count": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
+        "defended_correct_ratio": {
+          "$ref": "#/$defs/non_negative_number"
         }
       }
     },
