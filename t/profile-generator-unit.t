@@ -87,6 +87,24 @@ subtest 'the minimum-width widening handles both boundary directions' => sub {
   ok keys %seen_max, 'the widening produced ranges';
 };
 
+subtest 'a widened range never escapes its spec bounds' => sub {
+  # A min_width near the full span forces widening; when neither endpoint can be
+  # extended to reach the width without crossing a bound, the range must fall
+  # back to the whole span, never below spec.min or above spec.max. Sweep seeds
+  # so the widen-up, widen-down, and full-span adjustments are all exercised.
+  my $spec = {min => 5, max => 30, min_width => 20};
+  my @violations;
+  for my $seed (0 .. 60) {
+    my $range = Overnet::Burner::ProfileGenerator::_expand_value("$seed", 'profile', {random_range => $spec});
+    push @violations, "seed $seed => [$range->{min}, $range->{max}]"
+      if $range->{min} < $spec->{min}
+      || $range->{max} > $spec->{max}
+      || $range->{max} - $range->{min} < $spec->{min_width};
+  }
+  is \@violations, [],
+    'every seed stays within [min, max] and keeps the minimum width';
+};
+
 subtest 'generate requires an integer seed and produces a valid profile' => sub {
   like dies { $PG->generate(seed => 'later', template => _template({})) }, qr/seed\ must\ be\ an\ integer/mx,
     'a non-integer seed is rejected';

@@ -222,8 +222,15 @@ sub _draw_range {
   if (($max - $min) < $width) {
     if ($min + $width <= $spec->{max}) {
       $max = $min + $width;
-    } else {
+    } elsif ($max - $width >= $spec->{min}) {
       $min = $max - $width;
+    } else {
+
+      # The minimum width does not fit around either drawn endpoint without
+      # crossing a bound, so widen to the whole span -- which validation
+      # guarantees is at least min_width wide -- rather than run past spec.min.
+      $min = $spec->{min};
+      $max = $spec->{max};
     }
   }
 
