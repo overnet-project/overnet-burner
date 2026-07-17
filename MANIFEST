@@ -13,6 +13,7 @@ docs/abuse.md
 docs/adversary-harness.md
 docs/adversary-server.md
 docs/chaos.md
+docs/compare.md
 docs/distributed.md
 docs/environments.md
 docs/generate.md
@@ -40,6 +41,7 @@ lib/Overnet/Burner/Adversary/Oracle.pm
 lib/Overnet/Burner/Adversary/Runner.pm
 lib/Overnet/Burner/Adversary/Server.pm
 lib/Overnet/Burner/Adversary/Session.pm
+lib/Overnet/Burner/Compare.pm
 lib/Overnet/Burner/Config.pm
 lib/Overnet/Burner/ContainerEngine.pm
 lib/Overnet/Burner/Generator.pm
@@ -113,6 +115,7 @@ t/adversary-server.t
 t/adversary-session.t
 t/abuse-classify.t
 t/cli.t
+t/compare-unit.t
 t/config.t
 t/config-managed-environment.t
 t/container-engine.t

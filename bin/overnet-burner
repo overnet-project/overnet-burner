@@ -9,6 +9,7 @@ use FindBin;
 use Getopt::Long qw(GetOptionsFromArray);
 use lib "$FindBin::Bin/../lib";
 
+use Overnet::Burner::Compare;
 use Overnet::Burner::Config;
 use Overnet::Burner::Generator;
 use Overnet::Burner::Plan;
@@ -17,7 +18,7 @@ use Overnet::Burner::Report;
 use Overnet::Burner::RexBundle;
 use Overnet::Burner::RunLedger;
 use Overnet::Burner::Runner;
-use Overnet::Burner::Util qw(checked_print read_file write_file);
+use Overnet::Burner::Util qw(checked_print json_text read_file read_json_file write_file);
 use Overnet::Burner::WorkerCommand;
 
 our $VERSION = '0.001';
@@ -54,6 +55,9 @@ sub main {
     }
     if ($command eq 'report') {
       return _report(@args);
+    }
+    if ($command eq 'compare') {
+      return _compare(@args);
     }
     if ($command eq 'worker') {
       return _worker(@args);
@@ -482,6 +486,75 @@ sub _report {
   return 0;
 }
 
+sub _compare {
+  my @args = @_;
+  my $baseline_path;
+  my $candidate_path;
+  my $as_json;
+  my $allow_regression;
+
+  GetOptionsFromArray(
+    \@args,
+    'baseline=s'       => \$baseline_path,
+    'candidate=s'      => \$candidate_path,
+    'json'             => \$as_json,
+    'allow-regression' => \$allow_regression,
+  ) or return _usage();
+
+  if (!defined $baseline_path && @args) {
+    $baseline_path = shift @args;
+  }
+  if (!defined $candidate_path && @args) {
+    $candidate_path = shift @args;
+  }
+  if (!(defined $baseline_path && defined $candidate_path)) {
+    die "compare requires a baseline and a candidate report\n";
+  }
+  if (@args) {
+    die "unexpected arguments: @args\n";
+  }
+
+  my $diff = Overnet::Burner::Compare->compare(
+    baseline  => read_json_file($baseline_path),
+    candidate => read_json_file($candidate_path),
+  );
+
+  if ($as_json) {
+    checked_print(\*STDOUT, json_text($diff) . "\n");
+  } else {
+    checked_print(\*STDOUT, _compare_summary($diff));
+  }
+
+  # Exit nonzero on a regression so the command can gate CI, unless explicitly
+  # told to tolerate it.
+  if ($diff->{summary}{regressed} && !$allow_regression) {
+    return 1;
+  }
+
+  return 0;
+}
+
+sub _compare_summary {
+  my ($diff) = @_;
+  my $summary = $diff->{summary};
+
+  my @lines = sprintf "comparing %s -> %s\n", ($diff->{baseline}{id} // q{?}), ($diff->{candidate}{id} // q{?});
+  if ($diff->{verdict}{changed}) {
+    push @lines, sprintf "verdict: %s -> %s\n", ($diff->{verdict}{baseline} // 'none'), ($diff->{verdict}{candidate} // 'none');
+  }
+  push @lines, sprintf "thresholds: %d regressed, %d improved\n", $summary->{thresholds_regressed}, $summary->{thresholds_improved};
+  push @lines, sprintf "metrics: %d regressed, %d improved\n", $summary->{metrics_regressed}, $summary->{metrics_improved};
+
+  for my $threshold (grep { $_->{change} eq 'regressed' } @{$diff->{thresholds}}) {
+    push @lines, sprintf "  regressed threshold %s: %s -> %s\n", $threshold->{id},
+      ($threshold->{baseline_status} // q{?}), ($threshold->{candidate_status} // q{?});
+  }
+
+  push @lines, $summary->{regressed} ? "result: REGRESSED\n" : "result: no regression\n";
+
+  return join q{}, @lines;
+}
+
 sub _write_run_report {
   my ($run_dir) = @_;
 
@@ -627,6 +700,7 @@ usage:
   overnet-burner run --random-scenario --scenario-seed N [--profile profiles/local-smoke.yml] [--runs-dir runs] [--run-id ID] [--runner ...] [--verbose]
   overnet-burner run --random-profile --profile-seed N --profile-template profile-templates/local-containers.yml --random-scenario --scenario-seed N [--runs-dir runs] [--run-id ID] [--runner ...] [--verbose]
   overnet-burner report --run-dir runs/RUN_ID
+  overnet-burner compare BASELINE_REPORT CANDIDATE_REPORT [--json] [--allow-regression]
   overnet-burner worker
 USAGE
   return 2;

@@ -140,6 +140,35 @@ is [map { $_->{phase} } grep { $_->{status} eq 'started' } @run_events],
   [qw(prepare start observe stop collect)],
   'run command records all lifecycle phases';
 
+# compare command: diff two run reports for regressions.
+my ($same_exit, $same_out) = _capture_command($^X, $bin, 'compare', $run_report_path, $run_report_path);
+is $same_exit, 0, 'comparing a report against itself exits zero';
+like $same_out, qr/comparing\ /mx,   'the comparison names the runs';
+like $same_out, qr/no\ regression/mx, 'an identical comparison reports no regression';
+
+my $candidate_report = File::Spec->catfile($run_tmp, 'candidate.json');
+open my $candidate_fh, '>', $candidate_report or die "open $candidate_report: $!";
+print {$candidate_fh}
+  '{"run":{"id":"cand","verdict":"performance_failed","result_class":"performance"},"thresholds":[],"metrics":{"operations":{}}}'
+  or die "print: $!";
+close $candidate_fh or die "close: $!";
+
+my ($regress_exit, $regress_out) = _capture_command($^X, $bin, 'compare', $run_report_path, $candidate_report);
+is $regress_exit, 1, 'a regression makes the compare command exit nonzero';
+like $regress_out, qr/verdict:\ smoke_passed\ ->\ performance_failed/mx, 'the verdict change is shown';
+like $regress_out, qr/result:\ REGRESSED/mx, 'the regression is reported';
+
+my ($allow_exit) = _capture_command($^X, $bin, 'compare', '--allow-regression', $run_report_path, $candidate_report);
+is $allow_exit, 0, '--allow-regression tolerates a regression';
+
+my ($json_exit, $json_out) = _capture_command($^X, $bin, 'compare', '--json', $run_report_path, $run_report_path);
+is $json_exit, 0, 'a json comparison of identical reports exits zero';
+is JSON::decode_json($json_out)->{compare_version}, 1, 'the json comparison is versioned';
+
+my ($compare_bad_exit, undef, $compare_bad_err) = _capture_command($^X, $bin, 'compare', $run_report_path);
+isnt $compare_bad_exit, 0, 'compare requires both a baseline and a candidate';
+like $compare_bad_err, qr/requires\ a\ baseline\ and\ a\ candidate/mx, 'the missing-operand error explains itself';
+
 my $verbose_tmp = tempdir(CLEANUP => 1);
 my $verbose_id  = 'cli-run-verbose';
 my ($verbose_exit, $verbose_stdout, $verbose_stderr) = _capture_command(

@@ -46,6 +46,7 @@ overnet-burner run        --scenario scenarios/local-containers-smoke.yml --runn
 overnet-burner run        --random-scenario --scenario-seed 42 --profile profiles/local-smoke.yml --runner rex-local-workers [--verbose]
 overnet-burner run        --random-profile --profile-seed 1001 --profile-template profile-templates/local-containers.yml --random-scenario --scenario-seed 42 --runner rex-local-workers [--verbose]
 overnet-burner report     --run-dir runs/RUN_ID  # regenerate report.json
+overnet-burner compare    runs/BASELINE/report.json runs/CANDIDATE/report.json [--json] [--allow-regression]
 ```
 
 Scenarios are human-authored YAML; see
