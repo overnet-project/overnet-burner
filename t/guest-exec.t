@@ -54,6 +54,20 @@ subtest 'run_command runs a one-shot command to completion' => sub {
   is $signaled->{exit_code}, undef, 'a signal-killed command reports an undefined exit code';
 };
 
+subtest 'run_command enforces a timeout on a hung command' => sub {
+  my $start   = time;
+  my $hung    = $guest->run_command(command => 'sleep 30', timeout => 1);
+  my $elapsed = time - $start;
+
+  ok $hung->{timed_out}, 'an overrunning command is reported as timed out';
+  is $hung->{exit_code}, undef, 'a timed-out command has no exit code';
+  ok $elapsed < 15, "the command is killed near its timeout rather than left to run (took ${elapsed}s)";
+
+  my $quick = $guest->run_command(command => 'exit 0', timeout => 30);
+  is $quick->{exit_code}, 0, 'a command that finishes within its timeout returns its real exit code';
+  ok !$quick->{timed_out}, 'a command within its timeout is not marked timed out';
+};
+
 subtest 'process lifecycle' => sub {
   my $stdout = File::Spec->catfile($tmp, 'proc.stdout');
   my $stderr = File::Spec->catfile($tmp, 'proc.stderr');

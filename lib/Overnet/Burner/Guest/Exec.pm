@@ -9,10 +9,16 @@ use Carp       qw(croak);
 use English    qw(-no_match_vars);
 use File::Path ();
 use File::Spec;
-use File::Temp ();
-use POSIX      qw(WNOHANG);
+use File::Temp  ();
+use POSIX       qw(WNOHANG);
+use Time::HiRes ();
 
 use Overnet::Burner::Util qw(checked_print);
+
+# How long a timed-out command is given to exit on TERM before it is escalated
+# to KILL.
+my $KILL_GRACE_SECONDS = 2;
+my $REAP_POLL_SECONDS  = 0.05;
 
 our $VERSION = '0.001';
 
@@ -63,6 +69,7 @@ sub run_command {
   my $command = $args{command} || croak "command is required\n";
   my $cwd     = $args{cwd};
   my $env     = ref $args{env} eq 'HASH' ? $args{env} : {};
+  my $timeout = $args{timeout};
 
   my $out = File::Temp->new(UNLINK => 1);
   my $err = File::Temp->new(UNLINK => 1);
@@ -86,16 +93,65 @@ sub run_command {
     }
   }
 
-  if (waitpid($pid, 0) != $pid) {    # uncoverable branch true reason: waitpid on our own child returns it
-    croak "wait guest command: $OS_ERROR\n";
-  }
-  my $status = $CHILD_ERROR;
+  my $timed_out = $self->_await_command($pid, $timeout);
+  my $status    = $CHILD_ERROR;
 
-  return {
+  my $result = {
     exit_code => ($status & 127) ? undef : ($status >> 8),
     stdout    => $self->read_file($out->filename) // q{},
     stderr    => $self->read_file($err->filename) // q{},
   };
+  if ($timed_out) {
+
+    # A killed command's exit code is meaningless; mark the timeout explicitly so
+    # callers report it as a timeout rather than an ordinary failure.
+    $result->{exit_code} = undef;
+    $result->{timed_out} = 1;
+  }
+
+  return $result;
+}
+
+# Wait for a command child to exit. Without a timeout this blocks, preserving
+# the original behavior. With a positive timeout it polls until the deadline and,
+# if the command overruns, escalates TERM then KILL and reaps it so a hung
+# command can never wedge the run. Returns true when the timeout was enforced.
+sub _await_command {
+  my ($self, $pid, $timeout) = @_;
+
+  if (!$timeout) {
+    if (waitpid($pid, 0) != $pid) {    # uncoverable branch true reason: waitpid on our own child returns it
+      croak "wait guest command: $OS_ERROR\n";
+    }
+    return 0;
+  }
+
+  if ($self->_reap_before(Time::HiRes::time() + $timeout, $pid)) {
+    return 0;
+  }
+
+  for my $signal (qw(TERM KILL)) {
+    kill $signal, $pid;
+    if ($self->_reap_before(Time::HiRes::time() + $KILL_GRACE_SECONDS, $pid)) {
+      last;
+    }
+  }
+  waitpid $pid, 0;
+
+  return 1;
+}
+
+sub _reap_before {
+  my ($self, $deadline, $pid) = @_;
+
+  while (Time::HiRes::time() < $deadline) {
+    if (waitpid($pid, WNOHANG) == $pid) {
+      return 1;
+    }
+    Time::HiRes::sleep($REAP_POLL_SECONDS);
+  }
+
+  return 0;
 }
 
 sub launch {

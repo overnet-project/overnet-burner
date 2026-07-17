@@ -16,6 +16,11 @@ use Overnet::Burner::Util qw(read_json_file write_file);
 
 our $VERSION = '0.001';
 
+# A relay lifecycle command (start, health, stop) that never returns would
+# otherwise hang the whole run. Bound it generously by default so legitimately
+# slow starts are unaffected, and let an operator retune it via the environment.
+my $DEFAULT_LIFECYCLE_TIMEOUT_SECONDS = 300;
+
 no Moo;
 
 sub prepare {
@@ -230,9 +235,9 @@ sub _run_topology_provider_command {
   }
 
   my $detail =
-    defined $exit_code
-    ? "exited with status $exit_code"
-    : 'ended by a signal or transport failure';
+      $outcome->{timed_out} ? "timed out after ${\ $self->_lifecycle_command_timeout }s"
+    : defined $exit_code    ? "exited with status $exit_code"
+    :                         'ended by a signal or transport failure';
   croak "provider command failed: $actor_id $kind $detail\n";
 }
 
@@ -254,7 +259,19 @@ sub _provider_command_outcome {
   return $guest->run_command(
     command => $args{command},
     cwd     => File::Spec->rel2abs($self->{run_dir}),
+    timeout => $self->_lifecycle_command_timeout,
   );
+}
+
+sub _lifecycle_command_timeout {
+  my ($self) = @_;
+
+  my $configured = $ENV{OVERNET_BURNER_LIFECYCLE_TIMEOUT};
+  if (defined $configured && $configured =~ /\A\d+\z/mxs && $configured > 0) {
+    return 0 + $configured;
+  }
+
+  return $DEFAULT_LIFECYCLE_TIMEOUT_SECONDS;
 }
 
 # A label naming what executed the provider command, recorded on each command

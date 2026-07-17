@@ -468,6 +468,23 @@ subtest 'direct provider command edges' => sub {
 
   ok !exists $runner->{topology_provider_commands}[-1]{exit_code},
     'a signal-ended provider command records no exit code';
+
+  {
+    # A lifecycle command that never returns must not hang the run: the bounded
+    # wait kills it and the command is reported as a timeout.
+    local $ENV{OVERNET_BURNER_LIFECYCLE_TIMEOUT} = 1;
+    my $start = time;
+    my $hung  = eval {
+      $runner->_run_topology_provider_command(actor_id => 'relay-001', kind => 'start', command => 'sleep 30');
+      1;
+    };
+    my $timeout_error = $@;
+    my $elapsed       = time - $start;
+    ok !$hung, 'a hung provider command fails instead of hanging the run';
+    like $timeout_error, qr/relay-001\ start\ timed\ out\ after\ 1s/mx,
+      'a timed-out provider command is reported as a timeout';
+    ok $elapsed < 15, "the hung command is killed near its timeout (took ${elapsed}s)";
+  }
 };
 
 done_testing;
