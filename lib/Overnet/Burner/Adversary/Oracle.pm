@@ -66,8 +66,14 @@ sub evaluate {
     };
   }
 
+  # A violation is defined by an invariant reporting a 'violated' status, not by
+  # whether findings happened to be emitted: a custom invariant may declare a
+  # violation without itemizing it, and an inconclusive invariant may surface
+  # informational findings that must not fail the verdict.
+  my $violated_count = grep { $_->{status} eq 'violated' } values %invariant_results;
+
   return {
-    violated   => (scalar @findings ? 1 : 0),
+    violated   => ($violated_count ? 1 : 0),
     invariants => \%invariant_results,
     findings   => \@findings,
   };

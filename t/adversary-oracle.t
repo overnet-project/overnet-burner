@@ -137,6 +137,27 @@ subtest 'custom invariants are evaluated and their findings surface' => sub {
   is $verdict->{findings}[0]{invariant}, 'availability', 'custom finding is tagged with its invariant';
 };
 
+subtest 'the verdict follows invariant status, not the finding count' => sub {
+  # A violation is defined by an invariant reporting status 'violated', not by
+  # whether it happened to emit findings. An invariant may declare a violation
+  # without an itemized finding, and an inconclusive invariant may surface
+  # informational findings; the verdict must track status in both directions.
+  my $status_only = Overnet::Burner::Adversary::Oracle->new;
+  $status_only->add_invariant(
+    availability => sub { return {status => 'violated', findings => []} },
+  );
+  my $verdict = $status_only->evaluate(session => _session(), ground_truth => $GROUND_TRUTH);
+  ok $verdict->{violated}, 'a violated invariant fails the verdict even with no itemized findings';
+
+  my $informational = Overnet::Burner::Adversary::Oracle->new;
+  $informational->add_invariant(
+    availability => sub { return {status => 'inconclusive', findings => [{summary => 'sampled, not judged'}]} },
+  );
+  my $noted = $informational->evaluate(session => _session(), ground_truth => $GROUND_TRUTH);
+  ok !$noted->{violated}, 'findings under an inconclusive invariant do not fail the verdict';
+  is $noted->{findings}[0]{invariant}, 'availability', 'the informational finding still surfaces, tagged';
+};
+
 subtest 'admission: an observed decision matching the authoritative one is upheld' => sub {
   my $session = _session();
   $session->append_observation(
