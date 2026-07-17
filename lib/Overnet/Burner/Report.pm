@@ -853,6 +853,13 @@ sub _duration_ms {
     return $missing;
   }
 
+  # A clock that steps backward mid-phase (an NTP correction) would make the
+  # elapsed time negative, which the schema's non-negative duration_ms forbids.
+  # Report no duration rather than an impossible one.
+  if ($finished < $started) {
+    return $missing;
+  }
+
   return int(($finished - $started) * 1000);
 }
 

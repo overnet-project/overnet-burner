@@ -221,6 +221,30 @@ subtest 'provider commands, rex tasks, and odd timestamps become phases' => sub 
   ok !defined $warp->{duration_ms}, 'an unparseable timestamp yields no duration';
 };
 
+subtest 'a backward clock step yields no negative phase duration' => sub {
+  # duration_ms is a nullable non-negative integer in the schema. If the clock
+  # steps backward between a phase's start and finish (an NTP correction), the
+  # naive finished-minus-started arithmetic would be negative and violate the
+  # schema. Such a phase must report no duration instead.
+  my $run_dir = _ledgered_run(
+    run_id    => 'backward-clock',
+    status    => 'completed',
+    customize => sub {
+      my ($ledger) = @_;
+      $ledger->append_runner_event(
+        {runner => 'noop', phase => 'observe', status => 'started', timestamp => '2026-07-13T12:00:05Z'});
+      $ledger->append_runner_event(
+        {runner => 'noop', phase => 'observe', status => 'completed', timestamp => '2026-07-13T12:00:01Z'});
+    },
+  );
+  my $report = _build_report($run_dir);
+
+  my ($observe) = grep { $_->{name} eq 'observe' } @{$report->{execution}{phases}};
+  ok $observe, 'the phase is recorded';
+  ok !defined $observe->{duration_ms},
+    'a finished-before-started phase reports no duration rather than a negative one';
+};
+
 subtest 'a phase still in flight is reported as running, not the raw started event' => sub {
   # The report-v1 schema's phase status vocabulary is
   # planned/skipped/running/completed/failed/not_evaluated -- there is no
