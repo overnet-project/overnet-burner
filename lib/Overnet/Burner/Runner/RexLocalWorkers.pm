@@ -492,17 +492,10 @@ sub _virtual_guests {
     );
     my $port     = _free_port();
     my $pid_file = File::Spec->catfile($guest_dir, 'qemu.pid');
-    _launch_vm(
-      vm_name     => $vm_name,
-      image       => $image,
-      memory_mb   => $memory_mb,
-      cpus        => $cpus,
-      accel       => $accel,
-      seed        => $seed,
-      port        => $port,
-      pid_file    => $pid_file,
-      console_log => File::Spec->catfile($guest_dir, 'console.log'),
-    );
+
+    # Registered before the launch: qemu can partially start (writing its pid
+    # file) and still fail, and only a registered guest is destroyed by failure
+    # cleanup. Mirrors the container path.
     push @{$self->{worker_guests}},
       Overnet::Burner::Guest::Virtual->new(
       name      => $guest_name,
@@ -517,6 +510,17 @@ sub _virtual_guests {
       cpus      => $cpus,
       accel     => $accel,
       );
+    _launch_vm(
+      vm_name     => $vm_name,
+      image       => $image,
+      memory_mb   => $memory_mb,
+      cpus        => $cpus,
+      accel       => $accel,
+      seed        => $seed,
+      port        => $port,
+      pid_file    => $pid_file,
+      console_log => File::Spec->catfile($guest_dir, 'console.log'),
+    );
   }
 
   $self->_await_guests_reachable;

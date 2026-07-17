@@ -687,6 +687,14 @@ YAML
     my $ok      = eval { $failing->prepare; 1 };
     ok !$ok, "a failing $label fails provisioning";
     like $@, $pattern, "the $label failure is reported";
+
+    if ($label eq 'qemu') {
+      # The launch can leave a partially-started qemu behind, so the guest must
+      # already be registered when the launch fails or failure cleanup cannot
+      # destroy it.
+      ok scalar @{$failing->{worker_guests}} >= 1,
+        'a virtual guest is registered before its launch, so a failed launch is still reapable';
+    }
   }
 
   my $raw_image = File::Spec->catfile($tmp, 'guest-image.img');
