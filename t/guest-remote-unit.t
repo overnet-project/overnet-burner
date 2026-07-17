@@ -143,6 +143,24 @@ subtest 'signal and reachable use the transport' => sub {
   is _guest(sub { return (q{}, 1) })->reachable, 0, 'an unresponsive guest is not reachable';
 };
 
+subtest 'unsafe environment names and signals are rejected before reaching the shell' => sub {
+  # Values are shell-quoted, but variable names are interpolated into export
+  # statements unquoted and the signal into a kill command, so both must be
+  # constrained. The transport closure dies if reached, proving the guards
+  # short-circuit before any command is issued.
+  my $tripwire = _guest(sub { die "transport must not be reached\n" });
+
+  like dies { $tripwire->run_command(command => 'x', env => {'BAD; rm -rf /' => 'v'}) },
+    qr/unsafe\ environment\ variable\ name/mx, 'run_command rejects an unsafe env name';
+  like dies { $tripwire->launch(command => 'x', stdout => '/o', stderr => '/e', env => {'A B' => 'v'}) },
+    qr/unsafe\ environment\ variable\ name/mx, 'launch rejects an unsafe env name';
+  like dies { $tripwire->signal({pid_file => '/o.pid'}, 'TERM; reboot') },
+    qr/unsafe\ signal/mx, 'signal rejects a signal carrying shell metacharacters';
+
+  my $legit = _guest(sub { return (q{}, 0) });
+  is $legit->signal({pid_file => '/o.pid'}, '9'), 1, 'a numeric signal is still accepted';
+};
+
 subtest 'ready_actors parses the probe or reports nothing on failure' => sub {
   is _guest(sub { return ("publisher-001\nsubscriber-001\n*\n", 0) })->ready_actors('/workers'),
     ['publisher-001', 'subscriber-001'], 'ready actors are parsed and the glob sentinel dropped';

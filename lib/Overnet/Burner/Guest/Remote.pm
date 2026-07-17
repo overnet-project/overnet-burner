@@ -72,6 +72,7 @@ sub run_command {
 
   my $command = $args{command} || croak "command is required\n";
   my $env     = ref $args{env} eq 'HASH' ? $args{env} : {};
+  $self->_validate_env_names($env);
 
   my ($dir, $mkstatus) = $self->_capture('mktemp -d');
   if ($mkstatus != 0 || !defined $dir) {
@@ -116,6 +117,7 @@ sub launch {
   my $stdout  = $args{stdout}  || croak "stdout is required\n";
   my $stderr  = $args{stderr}  || croak "stderr is required\n";
   my $env     = ref $args{env} eq 'HASH' ? $args{env} : {};
+  $self->_validate_env_names($env);
 
   my $supervisor  = "$stdout.supervisor.sh";
   my $pid_file    = "$stdout.pid";
@@ -197,7 +199,29 @@ sub _read_exit_status {
 sub signal {
   my ($self, $handle, $signal) = @_;
 
+  # The signal is interpolated straight into the kill command, so constrain it
+  # to a bare name or number (TERM, KILL, 9) rather than trusting the caller not
+  # to smuggle shell metacharacters through it.
+  if (!(defined $signal && $signal =~ /\A[A-Za-z0-9]+\z/mxs)) {
+    croak 'guest ' . $self->name . ': unsafe signal: ' . (defined $signal ? $signal : '(undef)') . "\n";
+  }
+
   $self->_capture("kill -$signal \"\$(cat " . $self->shell_quote($handle->{pid_file}) . " 2>/dev/null)\" 2>/dev/null");
+
+  return 1;
+}
+
+# Environment variable names are interpolated into shell export statements
+# unquoted (a var name cannot be quoted), so reject any name that is not a bare
+# shell identifier. Values are shell-quoted separately and may be arbitrary.
+sub _validate_env_names {
+  my ($self, $env) = @_;
+
+  for my $key (sort keys %{$env}) {
+    if ($key !~ /\A[A-Za-z_][A-Za-z0-9_]*\z/mxs) {
+      croak 'guest ' . $self->name . ": unsafe environment variable name: $key\n";
+    }
+  }
 
   return 1;
 }
