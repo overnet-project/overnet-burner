@@ -790,7 +790,7 @@ sub _require_string {
 sub _require_integer {
   my ($config, $path) = @_;
   my $value = _required_value($config, $path);
-  if (ref $value || !defined $value || "$value" !~ /^-?\d+\z/mxs) {
+  if (ref $value || !defined $value || "$value" !~ /\A-?\d+\z/mxs) {
     croak "invalid field: $path must be an integer\n";
   }
   return $value;
@@ -828,7 +828,7 @@ sub _require_nonnegative_number {
   my $value = _required_value($config, $path);
   if ( ref $value
     || !defined $value
-    || "$value" !~ /^-?(?:\d+(?:\.\d*)?|\.\d+)\z/mxs
+    || "$value" !~ /\A-?(?:\d+(?:\.\d*)?|\.\d+)\z/mxs
     || $value < 0) {
     croak "invalid field: $path must be a non-negative number\n";
   }

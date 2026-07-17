@@ -1441,6 +1441,23 @@ YAML
   }
 };
 
+subtest 'numeric validation anchors the whole value, not just a trailing line' => sub {
+  # With ^...\z under /m, ^ matches at every line start, so a multi-line string
+  # whose final line looks numeric ("junk\n123") would pass integer or number
+  # validation with only that last line inspected. The anchors must pin the
+  # entire value from absolute start to absolute end.
+  my $base = Overnet::Burner::Config->load_file($scenario_path);
+
+  my $seed_evil = {%{$base}, run => {%{$base->{run}}, seed => "9\n12345"}};
+  like dies { Overnet::Burner::Config->validate($seed_evil) }, qr/run\.seed\ must\ be\ an\ integer/mx,
+    'a multi-line seed whose last line is numeric is rejected';
+
+  my $rate_evil = {%{$base}, workload => {%{$base->{workload}}, publish_rate_per_second => "junk\n1.5"}};
+  like dies { Overnet::Burner::Config->validate($rate_evil) },
+    qr/workload\.publish_rate_per_second\ must\ be\ a\ non-negative\ number/mx,
+    'a multi-line number whose last line is numeric is rejected';
+};
+
 done_testing;
 
 sub _write_yaml {
