@@ -45,6 +45,8 @@ subtest 'operator validation rejects malformed operator specs' => sub {
     qr/min\ must\ be\ an\ integer/mx, 'a non-integer bound is rejected';
   like dies { $PG->load_template_data(_template({x => {random_number => {min => 'x', max => 5}}})) },
     qr/min\ must\ be\ an\ number/mx, 'a non-numeric random_number bound is rejected';
+  like dies { $PG->load_template_data(_template({x => {random_number => {min => 0, max => 1, precision => -1}}})) },
+    qr/precision\ must\ not\ be\ negative/mx, 'a negative precision is rejected before it corrupts sprintf';
 };
 
 subtest 'a valid template validates and preserves nested structure' => sub {

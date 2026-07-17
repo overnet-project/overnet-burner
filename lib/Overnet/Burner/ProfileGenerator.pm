@@ -148,7 +148,13 @@ sub _validate_operator {
       croak "$operator at $path min ($min) must not exceed max ($max)\n";
     }
     if (exists $spec->{precision}) {
-      _validate_number($spec->{precision}, "$operator at $path precision");
+      my $precision = _validate_number($spec->{precision}, "$operator at $path precision");
+      if ($precision < 0) {
+
+        # A negative precision makes sprintf('%.${p}f') emit a literal, malformed
+        # format string that numifies to 0, silently collapsing every draw.
+        croak "$operator at $path precision must not be negative\n";
+      }
     }
     return 1;
   }
