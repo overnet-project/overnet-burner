@@ -221,6 +221,30 @@ subtest 'provider commands, rex tasks, and odd timestamps become phases' => sub 
   ok !defined $warp->{duration_ms}, 'an unparseable timestamp yields no duration';
 };
 
+subtest 'a phase still in flight is reported as running, not the raw started event' => sub {
+  # The report-v1 schema's phase status vocabulary is
+  # planned/skipped/running/completed/failed/not_evaluated -- there is no
+  # "started". A phase whose ledger carries a started event but no terminal one
+  # (an interrupted or still-running run) must be reported as running so the
+  # report stays schema-valid.
+  my $run_dir = _ledgered_run(
+    run_id    => 'phase-in-flight',
+    status    => 'running',
+    customize => sub {
+      my ($ledger) = @_;
+      $ledger->append_runner_event({runner => 'noop', phase => 'observe', status => 'started'});
+    },
+  );
+  my $report = _build_report($run_dir);
+
+  my ($observe) = grep { $_->{name} eq 'observe' } @{$report->{execution}{phases}};
+  ok $observe, 'the unfinished phase appears in the report';
+  is $observe->{status}, 'running', 'a started-but-unfinished phase is reported as running';
+
+  my %status = map { $_->{status} => 1 } @{$report->{execution}{phases}};
+  ok !$status{started}, 'no phase is left with the non-schema started status';
+};
+
 subtest 'collected metrics judge thresholds and the verdict' => sub {
   my $failing = _build_report(
     _ledgered_run(

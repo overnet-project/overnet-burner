@@ -337,7 +337,13 @@ sub _phases {
     }
 
     my $phase_record = $phase{$key};
-    $phase_record->{status} = $event->{status};
+
+    # Ledger events use a "started" status, but the report schema's phase
+    # vocabulary is planned/skipped/running/completed/failed/not_evaluated. Map
+    # the in-flight event onto "running" so a phase that never finished (an
+    # interrupted run) stays schema-valid instead of carrying "started".
+    my $event_status = $event->{status};
+    $phase_record->{status} = (defined $event_status && $event_status eq 'started') ? 'running' : $event_status;
     if (exists $event->{actor_id}) {
       $phase_record->{actor_id} = $event->{actor_id};
     }
