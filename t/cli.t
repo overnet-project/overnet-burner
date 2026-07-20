@@ -169,6 +169,52 @@ my ($compare_bad_exit, undef, $compare_bad_err) = _capture_command($^X, $bin, 'c
 isnt $compare_bad_exit, 0, 'compare requires both a baseline and a candidate';
 like $compare_bad_err, qr/requires\ a\ baseline\ and\ a\ candidate/mx, 'the missing-operand error explains itself';
 
+# A failed run must present a clean, operator-facing error: the useful message
+# without the Carp "at bin/overnet-burner line N" developer noise, and that
+# noise must not leak into the persisted report either.
+my $fail_tmp      = tempdir(CLEANUP => 1);
+my $fail_scenario = File::Spec->catfile($fail_tmp, 'fail-health.yml');
+open my $fail_fh, '>', $fail_scenario or die "open $fail_scenario: $!";
+print {$fail_fh} <<'YAML' or die "print: $!";
+run:
+  name: fail-health
+  duration: 2
+  seed: 1
+topology:
+  relays:
+    count: 1
+    provider: external-command
+    command:
+      start: "true"
+      health: "exit 1"
+      stop: "true"
+    endpoints:
+      - ws://127.0.0.1:59999
+  publishers:
+    count: 1
+workload:
+  publish_rate_per_second: 1
+provision:
+  workers:
+    how: local
+YAML
+close $fail_fh or die "close: $!";
+
+my ($fail_exit, undef, $fail_err) = _capture_command(
+  $^X, $bin, 'run',
+  '--scenario', $fail_scenario,
+  '--runs-dir', File::Spec->catdir($fail_tmp, 'runs'),
+  '--run-id',   'fail-run',
+  '--runner',   'rex-local-workers',
+);
+isnt $fail_exit, 0, 'a run whose relay never becomes healthy fails';
+like $fail_err, qr/provider\ command\ failed:\ relay-001\ health/mx, 'the failure names the failing provider command';
+unlike $fail_err, qr/at\ \S*bin\S*overnet-burner\ line\ \d+/mx, 'the operator error omits Carp source-line noise';
+
+my $fail_report = _read_json(File::Spec->catfile($fail_tmp, 'runs', 'fail-run', 'report.json'));
+unlike $fail_report->{human_summary}{important_notes}[0], qr/\ line\ \d+/mx,
+  'the persisted report summary is free of source-line noise';
+
 my $verbose_tmp = tempdir(CLEANUP => 1);
 my $verbose_id  = 'cli-run-verbose';
 my ($verbose_exit, $verbose_stdout, $verbose_stderr) = _capture_command(

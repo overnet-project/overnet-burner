@@ -37,6 +37,9 @@ The design is documented in [docs/PROPOSAL.md](docs/PROPOSAL.md).
 
 ## Usage
 
+For a step-by-step first real run against a live relay, see
+[docs/quickstart.md](docs/quickstart.md).
+
 ```text
 overnet-burner validate   --scenario scenarios/single-relay-baseline.yml
 overnet-burner generate   --scenario-seed 42 [--profile profiles/local-smoke.yml] [--out scenario.yml]

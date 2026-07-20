@@ -67,13 +67,41 @@ sub main {
   };
 
   if ($EVAL_ERROR) {
-    my $error = $EVAL_ERROR || 'command failed';
+    my $error = _clean_error($EVAL_ERROR || 'command failed');
     chomp $error;
     checked_print(\*STDERR, "$error\n");
     return 2;
   }
 
   return $status;
+}
+
+# Strip Carp/die source-line annotations from an error before it reaches the
+# operator or a persisted report. Carp appends " at FILE line N" (and confess
+# stack frames) on every re-throw, which is developer diagnostics, not something
+# a burner user should see or store in a report summary.
+sub _clean_error {
+  my ($message) = @_;
+
+  if (!defined $message) {
+    return q{};
+  }
+
+  my @keep;
+  for my $line (split /\n/, $message) {
+    if ($line =~ /\A\s*at\s+\S+\s+line\s+\d+[.]?\s*\z/mxs) {
+      next;
+    }
+    if ($line =~ /\A\s+\S.*\bcalled\ at\s+\S+\s+line\s+\d+\s*\z/mxs) {
+      next;
+    }
+    push @keep, $line;
+  }
+
+  my $cleaned = join "\n", @keep;
+  $cleaned =~ s/\s+\z//mxs;
+
+  return $cleaned;
 }
 
 sub _validate {
@@ -429,7 +457,7 @@ sub _run {
     $runner->run_lifecycle;
   };
   if ($EVAL_ERROR) {
-    my $error = $EVAL_ERROR || 'run failed';
+    my $error = _clean_error($EVAL_ERROR || 'run failed');
     chomp $error;
     $ledger->finish(
       status => 'failed',
