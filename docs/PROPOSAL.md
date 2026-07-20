@@ -420,12 +420,15 @@ Purpose:
 
 ### `sync-pair`
 
-Two relays exchange state through negentropy sync.
+Two relays receive asymmetric writes (one publisher per relay) and a
+`sync_bridge` worker reconciles them to the union of their event sets through
+negentropy fetch-and-push. Implemented; see the `sync_bridge` worker in
+[workers.md](workers.md) and `scenarios/sync-pair.yml`.
 
 Purpose:
 
-- measure sync rounds
-- measure missing/fetched/stored event counts
+- measure sync rounds (`sync_converge` `rounds`)
+- measure missing/fetched/stored event counts (`fetched_count`, `pushed_count`)
 - verify convergence after asymmetric writes
 
 ### `sync-mesh`

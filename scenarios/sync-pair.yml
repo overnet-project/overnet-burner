@@ -1,0 +1,28 @@
+run:
+  name: sync-pair
+  duration: 60
+  seed: 12345
+
+topology:
+  relays:
+    count: 2
+    provider: generic-relay
+    endpoints:
+      - ws://127.0.0.1:7777
+      - ws://127.0.0.1:7778
+  publishers:
+    count: 2
+  sync_bridges:
+    count: 1
+
+workload:
+  publish_rate_per_second: 10
+  sync_bridge:
+    interval_seconds: 1
+    timeout_seconds: 10
+    filters:
+      - kinds: [7800]
+
+thresholds:
+  publish_p99_ms: 250
+  error_rate_max: 0.01

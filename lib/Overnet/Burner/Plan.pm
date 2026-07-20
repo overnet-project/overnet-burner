@@ -71,6 +71,12 @@ sub build {
     role     => 'syncer',
     prefix   => 'syncer',
   );
+  my @sync_bridges = _actors(
+    scenario => $scenario,
+    field    => 'sync_bridges',
+    role     => 'sync_bridge',
+    prefix   => 'sync-bridge',
+  );
   my @flooders = _actors(
     scenario => $scenario,
     field    => 'flooders',
@@ -115,9 +121,9 @@ sub build {
   );
 
   my @actors = (
-    @relays,    @publishers,        @subscribers,          @query_readers, @object_readers,
-    @observers, @syncers,           @malformed_publishers, @replayers,     @subscription_abusers,
-    @sybils,    @connection_floods, @flooders,             @provenance_forgers,
+    @relays,               @publishers, @subscribers,       @query_readers,        @object_readers,
+    @observers,            @syncers,    @sync_bridges,      @malformed_publishers, @replayers,
+    @subscription_abusers, @sybils,     @connection_floods, @flooders,             @provenance_forgers,
   );
   my @phases = _phases($scenario, \@actors);
   my $total  = 0;
@@ -144,6 +150,7 @@ sub build {
     object_readers       => \@object_readers,
     observers            => \@observers,
     syncers              => \@syncers,
+    sync_bridges         => \@sync_bridges,
     flooders             => \@flooders,
     malformed_publishers => \@malformed_publishers,
     replayers            => \@replayers,
@@ -230,9 +237,10 @@ sub _phases {
       subscription_filters    => _clone($scenario->{workload}{subscription_filters}),
       query_filters           => _clone($scenario->{workload}{query_filters}),
       object_reads            => $object_reads,
-      observer                => _clone($scenario->{workload}{observer} || {}),
-      syncer                  => _clone($scenario->{workload}{syncer}   || {}),
-      abuse                   => _clone($scenario->{workload}{abuse}    || {}),
+      observer                => _clone($scenario->{workload}{observer}    || {}),
+      syncer                  => _clone($scenario->{workload}{syncer}      || {}),
+      sync_bridge             => _clone($scenario->{workload}{sync_bridge} || {}),
+      abuse                   => _clone($scenario->{workload}{abuse}       || {}),
       actor_seeds             => \%actor_seeds,
       };
     $start += $duration;

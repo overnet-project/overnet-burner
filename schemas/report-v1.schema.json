@@ -562,6 +562,9 @@
         "syncers": {
           "$ref": "#/$defs/non_negative_integer"
         },
+        "sync_bridges": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
         "total": {
           "$ref": "#/$defs/non_negative_integer"
         }

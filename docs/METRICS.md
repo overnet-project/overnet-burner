@@ -96,6 +96,11 @@ these well-known names:
   relay; `duration_ms` is the session time, and it carries `relay_url`,
   `rounds` (protocol message exchanges), `have_count`, and `need_count` (the
   events the reconciling side would need to fetch); see [workers.md](workers.md)
+- `sync_converge` — one convergence session that reconciles two relays and
+  brings them to the union of their event sets; `duration_ms` is the session
+  time, and it carries `left_url`, `right_url`, `rounds` (negentropy passes),
+  `fetched_count` (events pulled from the relays), and `pushed_count` (events
+  uploaded to converge them); see [workers.md](workers.md)
 - `relay_ping` — relay liveness round trip measured from opening a fresh
   connection to the stored-result boundary of an empty subscription; one
   event per probed relay endpoint, carrying `relay_url`

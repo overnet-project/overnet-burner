@@ -134,7 +134,7 @@ sub _managed_worker_guest_count {
 
   my $count = 0;
   for my $role (
-    qw(publishers subscribers query_readers object_readers observers syncers
+    qw(publishers subscribers query_readers object_readers observers syncers sync_bridges
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods
     provenance_forgers)
   ) {
@@ -167,7 +167,7 @@ sub _normalize_topology {
 
   $copy->{topology} ||= {};
   for my $role (
-    qw(publishers subscribers query_readers object_readers observers syncers
+    qw(publishers subscribers query_readers object_readers observers syncers sync_bridges
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods
     provenance_forgers)
   ) {
@@ -202,6 +202,10 @@ sub _normalize_workload {
   if (!exists $copy->{workload}{syncer}{interval_seconds}) {
     $copy->{workload}{syncer}{interval_seconds} = 1;
   }
+  $copy->{workload}{sync_bridge} ||= {};
+  if (!exists $copy->{workload}{sync_bridge}{interval_seconds}) {
+    $copy->{workload}{sync_bridge}{interval_seconds} = 1;
+  }
   $copy->{workload}{abuse} ||= {};
 
   return 1;
@@ -229,6 +233,7 @@ sub validate {
     topology.object_readers.count
     topology.observers.count
     topology.syncers.count
+    topology.sync_bridges.count
     topology.flooders.count
     topology.malformed_publishers.count
     topology.replayers.count
@@ -244,6 +249,11 @@ sub validate {
   _require_positive_number($config, 'workload.observer.probe_interval_seconds');
   _require_hash($config, 'workload.syncer');
   _require_positive_number($config, 'workload.syncer.interval_seconds');
+  _require_hash($config, 'workload.sync_bridge');
+  _require_positive_number($config, 'workload.sync_bridge.interval_seconds');
+  if (($config->{topology}{sync_bridges}{count} || 0) > 0 && ($config->{topology}{relays}{count} || 0) < 2) {
+    croak "topology.sync_bridges require topology.relays.count to be at least 2\n";
+  }
   _validate_abuse_workload($config);
 
   _require_array($config, 'workload.subscription_filters');

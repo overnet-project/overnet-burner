@@ -15,6 +15,7 @@ my %ROLE_CLASS = (
   object_reader       => 'Overnet::Burner::Worker::ObjectReader',
   observer            => 'Overnet::Burner::Worker::Observer',
   syncer              => 'Overnet::Burner::Worker::Syncer',
+  sync_bridge         => 'Overnet::Burner::Worker::SyncBridge',
   flooder             => 'Overnet::Burner::Worker::Flooder',
   malformed_publisher => 'Overnet::Burner::Worker::MalformedPublisher',
   replayer            => 'Overnet::Burner::Worker::Replayer',

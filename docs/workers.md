@@ -283,6 +283,7 @@ trip on a single clock:
 | `object_reader` | `overnet-burner worker` with `Overnet::Burner::Worker::ObjectReader` |
 | `observer` | `overnet-burner worker` with `Overnet::Burner::Worker::Observer` |
 | `syncer` | `overnet-burner worker` with `Overnet::Burner::Worker::Syncer` |
+| `sync_bridge` | `overnet-burner worker` with `Overnet::Burner::Worker::SyncBridge` |
 
 The reference publisher derives a stable Nostr identity from
 `seed`/`worker_id`, publishes valid native Overnet events (kind 7800 with the
@@ -332,3 +333,21 @@ an error metric, never a syncer failure — like the observer it is an
 evidence producer, so it declares readiness immediately and reconciles
 through every phase. It measures download-side reconciliation only; it does
 not upload events to the relay.
+
+The reference sync bridge converges two relays through negentropy reconciliation
+(`topology.sync_bridges.count`). It connects to its first two assigned relay
+endpoints — `endpoints.relays[0]` (primary) and `endpoints.relays[1]` (peer),
+which the runner's relay rotation makes distinct for distinct bridge ordinals —
+and every `workload.sync_bridge.interval_seconds` (default `1`) it runs one
+convergence session: starting from an empty local set it reconciles against the
+primary and fetches what it lacks, reconciles against the peer to fetch the
+peer's extra events and push the primary's extra events, then pushes the
+now-complete union back to the primary. After a session both relays hold the
+union of their `workload.sync_bridge.filters` (default all) event sets. It emits
+one `sync_converge` metric per session with `rounds` (negentropy passes),
+`fetched_count`, `pushed_count`, `left_url`, and `right_url`. Unlike the
+download-only syncer, the bridge is an active participant: it uploads events to
+converge the pair. A run whose topology gives the bridge fewer than two relays,
+a relay it cannot reach, or a session that does not converge within
+`workload.sync_bridge.timeout_seconds` (default `10`) is an error metric, never
+a worker failure.

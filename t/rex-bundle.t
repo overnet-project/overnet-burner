@@ -85,6 +85,7 @@ is $hosts,
     query_readers  => ['host-001'],
     relays         => ['host-001'],
     subscribers    => ['host-001'],
+    sync_bridges   => [],
     syncers        => [],
   },
   hosts => [
