@@ -11,7 +11,7 @@ use Overnet::Burner::Util qw(clone_json json_text write_file);
 
 our $VERSION = '0.001';
 
-my @ROLE_FIELDS      = qw(relays publishers subscribers query_readers object_readers observers);
+my @ROLE_FIELDS      = qw(relays publishers subscribers query_readers object_readers observers syncers);
 my @LIFECYCLE_PHASES = qw(bootstrap deploy start warmup run chaos collect cleanup);
 
 sub render {
@@ -419,6 +419,7 @@ sub _field_role {
     query_readers  => 'query_reader',
     object_readers => 'object_reader',
     observers      => 'observer',
+    syncers        => 'syncer',
   );
 
   return $role{$field};

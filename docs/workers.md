@@ -282,6 +282,7 @@ trip on a single clock:
 | `query_reader` | `overnet-burner worker` with `Overnet::Burner::Worker::QueryReader` |
 | `object_reader` | `overnet-burner worker` with `Overnet::Burner::Worker::ObjectReader` |
 | `observer` | `overnet-burner worker` with `Overnet::Burner::Worker::Observer` |
+| `syncer` | `overnet-burner worker` with `Overnet::Burner::Worker::Syncer` |
 
 The reference publisher derives a stable Nostr identity from
 `seed`/`worker_id`, publishes valid native Overnet events (kind 7800 with the
@@ -317,3 +318,17 @@ event per endpoint per tick. An unreachable relay is an error metric, never
 an observer failure: watching relays die is the observer's job, so it
 declares readiness immediately and probes through every phase, tagging each
 event with the phase it ran in.
+
+The reference syncer measures NIP-77 negentropy reconciliation cost against
+the first relay endpoint (`topology.syncers.count`): every
+`workload.syncer.interval_seconds` (default `1`) it opens a fresh
+reconciliation session, and because it holds no local events the session
+discovers how much of the relay's visible set (`workload.syncer.filters`,
+default all) it would need to fetch and how many protocol rounds that takes.
+It emits one `sync_round` metric event per session with `rounds`,
+`have_count`, `need_count`, and `relay_url`. A session that cannot connect or
+does not converge within `workload.syncer.timeout_seconds` (default `10`) is
+an error metric, never a syncer failure — like the observer it is an
+evidence producer, so it declares readiness immediately and reconciles
+through every phase. It measures download-side reconciliation only; it does
+not upload events to the relay.

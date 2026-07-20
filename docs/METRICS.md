@@ -92,7 +92,10 @@ these well-known names:
   convention in [workers.md](workers.md)
 - `object_read` — derived object read; `duration_ms` follows the object
   read convention in [workers.md](workers.md)
-- `sync_round` — one negentropy reconciliation round
+- `sync_round` — one NIP-77 negentropy reconciliation session against a
+  relay; `duration_ms` is the session time, and it carries `relay_url`,
+  `rounds` (protocol message exchanges), `have_count`, and `need_count` (the
+  events the reconciling side would need to fetch); see [workers.md](workers.md)
 - `relay_ping` — relay liveness round trip measured from opening a fresh
   connection to the stored-result boundary of an empty subscription; one
   event per probed relay endpoint, carrying `relay_url`

@@ -559,6 +559,9 @@
         "observers": {
           "$ref": "#/$defs/non_negative_integer"
         },
+        "syncers": {
+          "$ref": "#/$defs/non_negative_integer"
+        },
         "total": {
           "$ref": "#/$defs/non_negative_integer"
         }

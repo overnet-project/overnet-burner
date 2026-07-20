@@ -1,0 +1,25 @@
+run:
+  name: sync-single-relay
+  duration: 60
+  seed: 12345
+
+topology:
+  relays:
+    count: 1
+    provider: generic-relay
+  publishers:
+    count: 1
+  syncers:
+    count: 1
+
+workload:
+  publish_rate_per_second: 10
+  syncer:
+    interval_seconds: 1
+    timeout_seconds: 10
+    filters:
+      - kinds: [7800]
+
+thresholds:
+  publish_p99_ms: 250
+  error_rate_max: 0.01

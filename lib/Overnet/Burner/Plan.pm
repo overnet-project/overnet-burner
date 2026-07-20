@@ -65,6 +65,12 @@ sub build {
     role     => 'observer',
     prefix   => 'observer',
   );
+  my @syncers = _actors(
+    scenario => $scenario,
+    field    => 'syncers',
+    role     => 'syncer',
+    prefix   => 'syncer',
+  );
   my @flooders = _actors(
     scenario => $scenario,
     field    => 'flooders',
@@ -109,9 +115,9 @@ sub build {
   );
 
   my @actors = (
-    @relays,            @publishers,           @subscribers, @query_readers,        @object_readers,
-    @observers,         @malformed_publishers, @replayers,   @subscription_abusers, @sybils,
-    @connection_floods, @flooders,             @provenance_forgers,
+    @relays,    @publishers,        @subscribers,          @query_readers, @object_readers,
+    @observers, @syncers,           @malformed_publishers, @replayers,     @subscription_abusers,
+    @sybils,    @connection_floods, @flooders,             @provenance_forgers,
   );
   my @phases = _phases($scenario, \@actors);
   my $total  = 0;
@@ -137,6 +143,7 @@ sub build {
     query_readers        => \@query_readers,
     object_readers       => \@object_readers,
     observers            => \@observers,
+    syncers              => \@syncers,
     flooders             => \@flooders,
     malformed_publishers => \@malformed_publishers,
     replayers            => \@replayers,
@@ -224,6 +231,7 @@ sub _phases {
       query_filters           => _clone($scenario->{workload}{query_filters}),
       object_reads            => $object_reads,
       observer                => _clone($scenario->{workload}{observer} || {}),
+      syncer                  => _clone($scenario->{workload}{syncer}   || {}),
       abuse                   => _clone($scenario->{workload}{abuse}    || {}),
       actor_seeds             => \%actor_seeds,
       };

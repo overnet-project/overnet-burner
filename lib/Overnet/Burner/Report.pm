@@ -277,7 +277,7 @@ sub _hosts {
 
 sub _actor_counts {
   my ($plan) = @_;
-  my @roles  = qw(relays publishers subscribers query_readers object_readers observers);
+  my @roles  = qw(relays publishers subscribers query_readers object_readers observers syncers);
   my %counts = map { $_ => scalar @{$plan->{$_} || []} } @roles;
   $counts{total} = 0;
   for my $role (@roles) {

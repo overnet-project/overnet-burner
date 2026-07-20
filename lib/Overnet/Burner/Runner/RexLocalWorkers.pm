@@ -36,6 +36,7 @@ my %WORKER_ROLES = (
   query_reader        => 1,
   object_reader       => 1,
   observer            => 1,
+  syncer              => 1,
   flooder             => 1,
   malformed_publisher => 1,
   replayer            => 1,
@@ -45,7 +46,7 @@ my %WORKER_ROLES = (
   provenance_forger   => 1,
 );
 my @LAUNCH_WAVES = (
-  [qw(subscriber query_reader object_reader observer)],
+  [qw(subscriber query_reader object_reader observer syncer)],
   [qw(publisher flooder malformed_publisher replayer subscription_abuser sybil connection_flood provenance_forger)],
 );
 my %NETEM_ACTIONS = ('net-delay' => 1, 'net-loss' => 1);
@@ -891,7 +892,7 @@ sub _worker_actors {
   my ($self) = @_;
 
   my $plan = $self->{plan};
-  return map { @{$plan->{$_} || []} } qw(subscribers query_readers object_readers observers publishers
+  return map { @{$plan->{$_} || []} } qw(subscribers query_readers object_readers observers syncers publishers
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods provenance_forgers);
 }
 

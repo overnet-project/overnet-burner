@@ -134,7 +134,7 @@ sub _managed_worker_guest_count {
 
   my $count = 0;
   for my $role (
-    qw(publishers subscribers query_readers object_readers observers
+    qw(publishers subscribers query_readers object_readers observers syncers
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods
     provenance_forgers)
   ) {
@@ -167,7 +167,7 @@ sub _normalize_topology {
 
   $copy->{topology} ||= {};
   for my $role (
-    qw(publishers subscribers query_readers object_readers observers
+    qw(publishers subscribers query_readers object_readers observers syncers
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods
     provenance_forgers)
   ) {
@@ -198,6 +198,10 @@ sub _normalize_workload {
   if (!exists $copy->{workload}{observer}{probe_interval_seconds}) {
     $copy->{workload}{observer}{probe_interval_seconds} = 1;
   }
+  $copy->{workload}{syncer} ||= {};
+  if (!exists $copy->{workload}{syncer}{interval_seconds}) {
+    $copy->{workload}{syncer}{interval_seconds} = 1;
+  }
   $copy->{workload}{abuse} ||= {};
 
   return 1;
@@ -224,6 +228,7 @@ sub validate {
     topology.query_readers.count
     topology.object_readers.count
     topology.observers.count
+    topology.syncers.count
     topology.flooders.count
     topology.malformed_publishers.count
     topology.replayers.count
@@ -237,6 +242,8 @@ sub validate {
   }
   _require_hash($config, 'workload.observer');
   _require_positive_number($config, 'workload.observer.probe_interval_seconds');
+  _require_hash($config, 'workload.syncer');
+  _require_positive_number($config, 'workload.syncer.interval_seconds');
   _validate_abuse_workload($config);
 
   _require_array($config, 'workload.subscription_filters');

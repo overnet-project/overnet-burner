@@ -11,7 +11,7 @@ use Overnet::Burner::Util qw(clone_json read_file);
 
 our $VERSION = '0.001';
 
-my @HONEST_ROLES   = qw(publishers subscribers query_readers object_readers observers);
+my @HONEST_ROLES   = qw(publishers subscribers query_readers object_readers observers syncers);
 my %ABUSE_SINGULAR = (
   flooders             => 'flooder',
   malformed_publishers => 'malformed_publisher',
@@ -48,6 +48,7 @@ sub default_profile {
       query_readers  => {min => 0, max => 2},
       object_readers => {min => 0, max => 2},
       observers      => {min => 0, max => 1},
+      syncers        => {min => 0, max => 1},
     },
     workload => {
       publish_rate_per_second       => {min => 1, max => 50},
