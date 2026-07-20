@@ -154,6 +154,16 @@ timing convention in [workers.md](workers.md) anticipates.
   `connect` method subsumes this document's original host inventory.
 - Cross-host clock discipline is implemented (see
   [Clock Discipline](#clock-discipline)).
+- The distributed path is verified end to end by
+  `t/real-distributed-run.t`: real workers are placed across more than one
+  guest over the ssh transport, run a real Overnet workload against a real
+  relay, and their metric streams are pulled back from each guest and
+  aggregated into one report -- with the aggregated latency percentiles
+  checked against an independent recompute from the per-guest streams. The
+  test substitutes local tools for `ssh`/`scp` that relocate every
+  guest-side path under a per-guest shadow root, so each guest has its own
+  filesystem exactly as a remote host would; the raw ssh shell-out itself
+  is covered by `t/guest-ssh.t`.
 
 ## Open Questions
 
