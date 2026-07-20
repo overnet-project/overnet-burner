@@ -453,12 +453,24 @@ Purpose:
 ### `partition-and-recover`
 
 Connectivity between parts of the topology is interrupted and later restored.
+Implemented as a composition of managed container provisioning, the network
+chaos hooks ([chaos.md](chaos.md)), and the `sync_bridge` worker: a `partition`
+hook cuts a worker guest off the per-run bridge network mid-run and a later
+`heal` reconnects it, while a `sync_bridge` runs throughout as the convergence
+verifier. Writes on the cut-off guest fail for the outage; after the heal the
+relays reconverge, which the bridge's `sync_converge` metrics confirm. Network
+chaos requires container-provisioned workers on a bridge network, so this runs
+under the managed local-containers path; see `scenarios/partition-and-recover.yml`.
 
 Purpose:
 
-- measure behavior during partition
-- measure post-partition sync convergence
+- measure behavior during partition (failed operations on the cut-off guest)
+- measure post-partition sync convergence (the bridge's `fetched_count` /
+  `pushed_count` catching the lagging relay up after the heal)
 - detect stale or missing visible state
+
+Relay-to-relay partition (cutting selected relay pairs rather than a whole
+guest) remains future work, as noted in [chaos.md](chaos.md).
 
 ## Implementation Plan
 

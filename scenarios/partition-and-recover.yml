@@ -1,0 +1,43 @@
+# Partition-and-recover: a worker guest is cut off the per-run bridge network
+# mid-run and reconnected later, while a sync_bridge runs throughout as the
+# convergence verifier. Writes on the partitioned guest fail during the outage;
+# after the heal the relays must reconverge, which the sync_bridge's
+# sync_converge metrics confirm. Network chaos requires container-provisioned
+# workers on a bridge network, which the local-containers environment supplies,
+# so this scenario runs under the managed local-containers path (needs Docker).
+run:
+  name: partition-and-recover
+  duration: 60
+  seed: 12345
+
+environment:
+  kind: local-containers
+
+topology:
+  relays:
+    count: 2
+  publishers:
+    count: 2
+  sync_bridges:
+    count: 1
+
+workload:
+  publish_rate_per_second: 10
+  sync_bridge:
+    interval_seconds: 2
+    timeout_seconds: 10
+    filters:
+      - kinds: [7800]
+
+chaos:
+  - at: 20
+    action: partition
+    target: worker-guest:1
+  - at: 40
+    action: heal
+    target: worker-guest:1
+
+thresholds:
+  # A partition makes the cut-off guest's publishes fail for its duration, so a
+  # partition-and-recover run is judged on recovery, not a pristine error rate.
+  error_rate_max: 0.5
