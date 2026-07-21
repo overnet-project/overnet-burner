@@ -2,11 +2,11 @@ use strictures 2;
 
 use File::Path qw(make_path);
 use File::Spec;
-use File::Temp  qw(tempdir);
+use File::Temp qw(tempdir);
 use AnyEvent;
 use FindBin;
 use IO::Socket::INET;
-use JSON ();
+use JSON  ();
 use POSIX qw(WNOHANG);
 use Test2::V0;
 use Time::HiRes qw(sleep time);
@@ -39,8 +39,8 @@ subtest 'role, interval, timeout, and filter derivation' => sub {
   is(Overnet::Burner::Worker::SyncBridge->expected_role, 'sync_bridge', 'declares the sync_bridge role');
 
   my $default = Overnet::Burner::Worker::SyncBridge->new(input => _input(_layout('sb-def'), 'sb-def'));
-  is $default->_sync_interval, 1,  'a missing interval defaults to one second';
-  is $default->_sync_timeout,  10, 'a missing timeout defaults to ten seconds';
+  is $default->_sync_interval,   1,  'a missing interval defaults to one second';
+  is $default->_sync_timeout,    10, 'a missing timeout defaults to ten seconds';
   is $default->_sync_filter, {}, 'a missing filter reconciles all visible events';
 
   my $configured = Overnet::Burner::Worker::SyncBridge->new(
@@ -68,8 +68,7 @@ subtest 'a full run converges two relays that were written asymmetrically' => su
 
   my $run_dir = _layout('sb-run');
   my $bridge  = Overnet::Burner::Worker::SyncBridge->new(
-    input => _input($run_dir, 'sb-run', [$a, $b], {sync_bridge => {interval_seconds => 0.25}}, 0.8),
-  );
+    input => _input($run_dir, 'sb-run', [$a, $b], {sync_bridge => {interval_seconds => 0.25}}, 0.8),);
   $bridge->run;
 
   my $final_a = _dump_relay($a);
@@ -79,19 +78,19 @@ subtest 'a full run converges two relays that were written asymmetrically' => su
   waitpid $pid_a, 0;
   waitpid $pid_b, 0;
 
-  is [sort keys %{$final_a}], [sort keys %{$final_b}], 'both relays hold the same event set after the bridge';
-  is scalar(keys %{$final_a}), 5, 'the shared set is the union of the two asymmetric writes';
+  is [sort keys %{$final_a}],  [sort keys %{$final_b}], 'both relays hold the same event set after the bridge';
+  is scalar(keys %{$final_a}), 5,                       'the shared set is the union of the two asymmetric writes';
 
   my $events = _metric_events($run_dir, 'sb-run');
   ok scalar(@{$events}) >= 1, 'the bridge emitted at least one sync_converge metric';
   my ($first) = @{$events};
-  is $first->{operation}, 'sync_converge', 'the metric is a sync_converge';
-  is $first->{status},    'success',       'a converging session succeeds';
-  is $first->{rounds},        3, 'convergence takes three negentropy passes';
-  is $first->{fetched_count}, 5, 'the bridge fetches the whole union';
-  is $first->{pushed_count},  4, 'the bridge pushes each relay the events it lacked';
-  is $first->{left_url},  $a, 'the metric records the primary relay';
-  is $first->{right_url}, $b, 'the metric records the peer relay';
+  is $first->{operation},     'sync_converge', 'the metric is a sync_converge';
+  is $first->{status},        'success',       'a converging session succeeds';
+  is $first->{rounds},        3,               'convergence takes three negentropy passes';
+  is $first->{fetched_count}, 5,               'the bridge fetches the whole union';
+  is $first->{pushed_count},  4,               'the bridge pushes each relay the events it lacked';
+  is $first->{left_url},      $a,              'the metric records the primary relay';
+  is $first->{right_url},     $b,              'the metric records the peer relay';
 };
 
 subtest 'a topology without a peer relay is an error metric, not a failure' => sub {
@@ -101,8 +100,7 @@ subtest 'a topology without a peer relay is an error metric, not a failure' => s
 
   my $run_dir = _layout('sb-solo');
   my $bridge  = Overnet::Burner::Worker::SyncBridge->new(
-    input => _input($run_dir, 'sb-solo', [$a], {sync_bridge => {interval_seconds => 0.25}}, 0.4),
-  );
+    input => _input($run_dir, 'sb-solo', [$a], {sync_bridge => {interval_seconds => 0.25}}, 0.4),);
   ok lives { $bridge->run }, 'a lone relay does not crash the bridge';
 
   kill 'TERM', $pid;
@@ -122,7 +120,8 @@ subtest 'an unreachable relay becomes an error metric, not a failure' => sub {
   my $run_dir = _layout('sb-down');
   my $bridge  = Overnet::Burner::Worker::SyncBridge->new(
     input => _input(
-      $run_dir, 'sb-down', [$a, 'ws://127.0.0.1:1'],
+      $run_dir, 'sb-down',
+      [$a, 'ws://127.0.0.1:1'],
       {sync_bridge => {interval_seconds => 0.25, timeout_seconds => 0.5}}, 0.4,
     ),
   );
@@ -153,9 +152,9 @@ subtest 'a reconciliation step continues while the protocol has more to send' =>
     need       => [],
   };
   $bridge->_reconcile_step($more, 'msg-in');
-  is \@sent, [['sub-1', 'cafe']], 'the next protocol message is relayed back';
-  is $more->{need}, ['need-1'], 'discovered needs accumulate';
-  is $more->{have}, ['have-1'], 'discovered haves accumulate';
+  is \@sent,        [['sub-1', 'cafe']], 'the next protocol message is relayed back';
+  is $more->{need}, ['need-1'],          'discovered needs accumulate';
+  is $more->{have}, ['have-1'],          'discovered haves accumulate';
   ok !$more->{done}->ready, 'the session stays open for the next round';
 
   my $last = {
@@ -178,7 +177,8 @@ subtest 'a relay that never answers reconciliation times out into an error metri
   my $run_dir = _layout('sb-silent');
   my $bridge  = Overnet::Burner::Worker::SyncBridge->new(
     input => _input(
-      $run_dir, 'sb-silent', ["ws://127.0.0.1:$port", 'ws://127.0.0.1:2'],
+      $run_dir, 'sb-silent',
+      ["ws://127.0.0.1:$port", 'ws://127.0.0.1:2'],
       {sync_bridge => {interval_seconds => 0.25, timeout_seconds => 0.3}}, 0.4,
     ),
   );
@@ -200,7 +200,8 @@ subtest 'a relay that answers NEG-OPEN with NEG-ERR is an error metric' => sub {
   my $run_dir = _layout('sb-err');
   my $bridge  = Overnet::Burner::Worker::SyncBridge->new(
     input => _input(
-      $run_dir, 'sb-err', ["ws://127.0.0.1:$port", 'ws://127.0.0.1:2'],
+      $run_dir, 'sb-err',
+      ["ws://127.0.0.1:$port", 'ws://127.0.0.1:2'],
       {sync_bridge => {interval_seconds => 0.25}}, 0.4,
     ),
   );
@@ -223,7 +224,8 @@ subtest 'a TERM signal stops the bridge' => sub {
   my $run_dir = _layout('sb-term');
   my $bridge  = Overnet::Burner::Worker::SyncBridge->new(
     input => _input(
-      $run_dir, 'sb-term', ["ws://127.0.0.1:$port_a", "ws://127.0.0.1:$port_b"],
+      $run_dir, 'sb-term',
+      ["ws://127.0.0.1:$port_a", "ws://127.0.0.1:$port_b"],
       {sync_bridge => {interval_seconds => 0.25}}, 10,
     ),
   );
@@ -296,7 +298,21 @@ sub _seed_events {
   $client->on(ok => sub { my ($id, $accepted) = @_; $ok{$id} = $accepted; $cv->send if keys %ok == @specs; });
   $client->connect($url);
   for my $spec (@specs) {
-    $client->publish($key->create_event(kind => 7800, content => "e-$spec", tags => [['d', "obj-$spec"]]));
+
+    # Pin created_at deterministically per spec so a baseline object shared by
+    # both relays carries the same event id regardless of when it is seeded.
+    # Defaulting to the wall clock makes a shared object's id depend on whether
+    # the two seed calls land in the same unix second, which inflates the
+    # convergence union past the expected count when instrumentation slows
+    # seeding across a second boundary.
+    $client->publish(
+      $key->create_event(
+        kind       => 7800,
+        created_at => 1_700_000_000 + $spec,
+        content    => "e-$spec",
+        tags       => [['d', "obj-$spec"]],
+      )
+    );
   }
   my $timeout = AnyEvent->timer(after => 8, cb => sub { $cv->send });
   $cv->recv;
@@ -310,7 +326,7 @@ sub _dump_relay {
   my %events;
   my $cv = AnyEvent->condvar;
   $client->on(event => sub { my ($sid, $ev) = @_; $events{$ev->id} = 1; });
-  $client->on(eose => sub { $cv->send });
+  $client->on(eose  => sub { $cv->send });
   $client->connect($url);
   $client->subscribe('dump', Net::Nostr::Filter->new(kinds => [7800]));
   my $timeout = AnyEvent->timer(after => 5, cb => sub { $cv->send });
@@ -332,14 +348,13 @@ sub _spawn_relay {
   my $pid = fork;
   die "fork: $!" if !defined $pid;
   if (!$pid) {
-    exec $^X, '-MNet::Nostr::Relay', '-e',
-      'Net::Nostr::Relay->new->run($ARGV[0], $ARGV[1])', '127.0.0.1', $port
+    exec $^X, '-MNet::Nostr::Relay', '-e', 'Net::Nostr::Relay->new->run($ARGV[0], $ARGV[1])', '127.0.0.1', $port
       or die "exec: $!";
   }
   my $deadline = time + 10;
   while (time < $deadline) {
     my $probe = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port, Timeout => 1);
-    if ($probe) { close $probe or die "close: $!"; return $pid }
+    if ($probe)                      { close $probe or die "close: $!"; return $pid }
     if (waitpid($pid, WNOHANG) != 0) { die "relay exited before listening\n" }
     sleep 0.1;
   }
@@ -388,7 +403,7 @@ sub _spawn_relay_script {
   my $script = File::Spec->catfile(tempdir(CLEANUP => 1), $name);
   open my $fh, '>', $script or die "open $script: $!";
   print {$fh} $source or die "print: $!";
-  close $fh or die "close: $!";
+  close $fh           or die "close: $!";
 
   my $pid = fork;
   die "fork: $!" if !defined $pid;
@@ -396,7 +411,7 @@ sub _spawn_relay_script {
   my $deadline = time + 10;
   while (time < $deadline) {
     my $probe = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port, Timeout => 1);
-    if ($probe) { close $probe or die "close: $!"; return $pid }
+    if ($probe)                      { close $probe or die "close: $!"; return $pid }
     if (waitpid($pid, WNOHANG) != 0) { die "$name exited before listening\n" }
     sleep 0.1;
   }
