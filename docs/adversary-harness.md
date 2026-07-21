@@ -168,6 +168,30 @@ spec-conformant SUT *must* hold, and evaluates a set of machine-checkable
 Each invariant evaluates to `upheld`, `violated`, or `inconclusive`. A
 violated invariant is a **finding**.
 
+## Application Profiles
+
+The five abstractions above are **application-neutral**: the runner, oracle,
+session, and server carry no knowledge of any particular Overnet authority.
+Everything specific to one authority application — the live arena that drives
+it, the seed-attack catalog written in its vocabulary, and that vocabulary —
+lives behind a single seam, an **application profile**
+(`Overnet::Burner::Adversary::Profile`). A profile is a class providing `name`,
+`build_arena`, `attack_catalog`, and `vocabulary`; the registry resolves one by
+name, and a live session names the profile it wants (default:
+`irc-hosted-channel`).
+
+The reference profile is the **IRC hosted-channel** authority, which drives the
+real hosted-channel relay. A second profile, **`document-vault`**, exists purely
+as the neutrality proof: a deliberately non-IRC authority (a document scope has
+one owner, and only the owner may delegate write access) whose arena embeds a
+small faithful authority instead of an external dist. Driving `document-vault`
+through the *same unmodified* runner, oracle, session, and server — and having
+the built-in `authorization` invariant both clear a correct authority and catch
+a genuinely over-broad grant in the vault's own vocabulary — is what
+demonstrates the subsystem is application-neutral rather than an IRC harness in
+disguise. A new authority application plugs in by registering its own profile;
+it writes only its arena and catalog, never touching the engine.
+
 ## Finding and Regression Corpus
 
 A session yields a **verdict** (the invariant results) and, for each

@@ -15,11 +15,14 @@ use Overnet::Burner::Adversary::Profile::IrcHostedChannel;
 my $PROFILE = 'Overnet::Burner::Adversary::Profile';
 my $IRC     = 'Overnet::Burner::Adversary::Profile::IrcHostedChannel';
 
+my $VAULT = 'Overnet::Burner::Adversary::Profile::DocumentVault';
+
 subtest 'the registry resolves and defaults to the reference profile' => sub {
-  is $PROFILE->names, ['irc-hosted-channel'], 'the registry lists its profiles';
+  is $PROFILE->names, ['document-vault', 'irc-hosted-channel'], 'the registry lists its profiles';
   is $PROFILE->default_name, 'irc-hosted-channel', 'the default profile is the IRC hosted-channel authority';
   is $PROFILE->default_profile, $IRC, 'the default resolves to the reference profile class';
-  is $PROFILE->resolve('irc-hosted-channel'), $IRC, 'a known name resolves to its class';
+  is $PROFILE->resolve('irc-hosted-channel'), $IRC,   'a known name resolves to its class';
+  is $PROFILE->resolve('document-vault'),     $VAULT, 'the non-IRC profile resolves to its class';
   is $PROFILE->resolve(undef), $IRC, 'an undefined name resolves the default';
   is $PROFILE->resolve(q{}),   $IRC, 'an empty name resolves the default';
   like dies { $PROFILE->resolve('no-such-app') }, qr/unknown\ adversary\ profile/mx,

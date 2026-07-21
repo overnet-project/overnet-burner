@@ -13,7 +13,10 @@ our $VERSION = '0.001';
 # The generic engine (runner, oracle, session, drivers, recorded arena, fuzzer)
 # stays application-neutral and takes a profile as input. The IRC hosted-channel
 # authority is the reference profile and the default.
-my %REGISTRY        = ('irc-hosted-channel' => 'Overnet::Burner::Adversary::Profile::IrcHostedChannel',);
+my %REGISTRY = (
+  'irc-hosted-channel' => 'Overnet::Burner::Adversary::Profile::IrcHostedChannel',
+  'document-vault'     => 'Overnet::Burner::Adversary::Profile::DocumentVault',
+);
 my $DEFAULT_PROFILE = 'irc-hosted-channel';
 
 sub names {
@@ -71,7 +74,9 @@ generic engine judges any profile's sessions the same way.
 
 A profile is a class providing C<name>, C<build_arena>, C<attack_catalog>, and
 C<vocabulary>. The reference profile is C<irc-hosted-channel>, which is also the
-default; new applications register their own profile class.
+default; C<document-vault> is a second, deliberately non-IRC profile that proves
+the subsystem is application-neutral. New applications register their own profile
+class.
 
 =head1 SUBROUTINES/METHODS
 
