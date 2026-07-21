@@ -4,122 +4,18 @@ use strictures 2;
 
 use Carp qw(croak);
 
+use Overnet::Burner::Adversary::Profile;
 use Overnet::Burner::Adversary::Session;
 
 our $VERSION = '0.001';
 
-my $LEGIT_OPERATOR = {subject => 'operator-pk', capability => 'irc.operator', scope => 'channel:#ops'};
-
-# The seed-attack catalog: driver-neutral adversary scenarios, each pinned to
-# the oracle invariant it exercises. Every entry carries the harness's
-# independent ground truth, the action sequence a driver would submit, and two
-# illustrative system-under-test transcripts - the observations a defended
-# (spec-conformant) system exposes versus those a vulnerable one exposes. The
-# transcripts make each attack a self-contained regression scenario until an
-# arena replays the actions against a live system under test.
+# The seed-attack catalog is supplied by the active adversary application
+# profile (default: the IRC hosted-channel authority). This module holds only
+# the driver-neutral operations over a catalog -- naming, lookup, and building
+# sessions and interactions -- so a different application swaps its own catalog
+# in behind the same interface. See L<Overnet::Burner::Adversary::Profile>.
 sub _catalog {
-  return {
-    forged_grant_escalation => {
-      description      => 'A nobody forges a session delegation and grants itself operator (core C1).',
-      target_invariant => 'authorization',
-      ground_truth     => {authorized_capabilities => [_copy($LEGIT_OPERATOR)]},
-      actions          => [
-        {type => 'new_identity', payload => {identity => 'attacker-pk'}},
-        {
-          type    => 'forge_delegation',
-          payload => {actor => 'attacker-pk', delegate => 'attacker-session', authority => 'forged-grant'},
-        },
-        {
-          type    => 'publish_control',
-          payload => {kind => 9000, signer => 'attacker-session', actor => 'attacker-pk', role => 'irc.operator'},
-        },
-      ],
-      defended => [
-        {type => 'relay_outcome',       payload => {accepted => 0, reason => 'unauthorized'}},
-        {type => 'observed_capability', payload => _copy($LEGIT_OPERATOR)},
-      ],
-      exploited => [
-        {type => 'relay_outcome', payload => {accepted => 1}},
-        {
-          type    => 'observed_capability',
-          payload => {subject => 'attacker-pk', capability => 'irc.operator', scope => 'channel:#ops'},
-        },
-      ],
-    },
-
-    forged_snapshot_self_grant => {
-      description      => 'A non-authoritative signer publishes a role snapshot naming itself operator (core C2).',
-      target_invariant => 'authorization',
-      ground_truth     => {authorized_capabilities => [_copy($LEGIT_OPERATOR)]},
-      actions          => [
-        {type => 'new_identity', payload => {identity => 'attacker-pk'}},
-        {
-          type    => 'publish_snapshot',
-          payload =>
-            {kind => 39_001, signer => 'attacker-pk', grants => [{subject => 'attacker-pk', role => 'irc.operator'}]},
-        },
-      ],
-      defended => [
-        {type => 'relay_outcome',       payload => {accepted => 0, reason => 'unauthorized'}},
-        {type => 'observed_capability', payload => _copy($LEGIT_OPERATOR)},
-      ],
-      exploited => [
-        {type => 'relay_outcome', payload => {accepted => 1}},
-        {
-          type    => 'observed_capability',
-          payload => {subject => 'attacker-pk', capability => 'irc.operator', scope => 'channel:#ops'},
-        },
-      ],
-    },
-
-    ban_mask_evasion => {
-      description      => 'A banned subject joins while omitting or spoofing the mask the ban matches.',
-      target_invariant => 'admission',
-      ground_truth     => {expected_admissions => [{subject => 'banned-pk', scope => 'channel:#ops', admitted => 0}]},
-      actions          => [
-        {type => 'new_identity', payload => {identity => 'banned-pk'}},
-        {type => 'join',         payload => {subject  => 'banned-pk', scope => 'channel:#ops', mask => undef}},
-      ],
-      defended =>
-        [{type => 'observed_admission', payload => {subject => 'banned-pk', scope => 'channel:#ops', admitted => 0}}],
-      exploited =>
-        [{type => 'observed_admission', payload => {subject => 'banned-pk', scope => 'channel:#ops', admitted => 1}}],
-    },
-
-    ordering_divergence => {
-      description      => 'Same-second control events drive two instances to different authority state.',
-      target_invariant => 'convergence',
-      ground_truth     => {},
-      actions          => [
-        {
-          type    => 'publish_control',
-          payload => {kind => 9000, created_at => 1000, subject => 'mallory-pk', role => 'irc.operator'}
-        },
-        {type => 'publish_control', payload => {kind => 9001, created_at => 1000, subject => 'mallory-pk'}},
-      ],
-      defended => [
-        {
-          type    => 'observed_state',
-          payload => {instance => 'instance-a', scope => 'channel:#ops', state => {operators => ['operator-pk']}}
-        },
-        {
-          type    => 'observed_state',
-          payload => {instance => 'instance-b', scope => 'channel:#ops', state => {operators => ['operator-pk']}}
-        },
-      ],
-      exploited => [
-        {
-          type    => 'observed_state',
-          payload => {instance => 'instance-a', scope => 'channel:#ops', state => {operators => ['operator-pk']}}
-        },
-        {
-          type    => 'observed_state',
-          payload =>
-            {instance => 'instance-b', scope => 'channel:#ops', state => {operators => ['operator-pk', 'mallory-pk']}}
-        },
-      ],
-    },
-  };
+  return Overnet::Burner::Adversary::Profile->default_profile->attack_catalog;
 }
 
 sub names {
@@ -212,12 +108,14 @@ Version 0.001.
 
 =head1 DESCRIPTION
 
-A curated, driver-neutral catalog of adversary scenarios, each pinned to the
+A driver-neutral accessor over the active adversary application profile's
+seed-attack catalog (default: the IRC hosted-channel authority; see
+L<Overnet::Burner::Adversary::Profile>). Each catalog entry is pinned to the
 oracle invariant it exercises and mapped onto a known class of authority
-defect. Each entry carries the harness's independent ground truth, the action
-sequence a driver submits, and two illustrative system-under-test transcripts:
-the observations a defended (spec-conformant) system exposes and those a
-vulnerable one exposes.
+defect, carrying the harness's independent ground truth, the action sequence a
+driver submits, and two illustrative system-under-test transcripts: the
+observations a defended (spec-conformant) system exposes and those a vulnerable
+one exposes.
 
 The transcripts make each attack a self-contained regression scenario that can
 be judged by L<Overnet::Burner::Adversary::Oracle> without a live system under
@@ -266,7 +164,8 @@ No module-specific environment configuration is required.
 
 =head1 DEPENDENCIES
 
-Requires L<Overnet::Burner::Adversary::Session>.
+Requires L<Overnet::Burner::Adversary::Profile> and
+L<Overnet::Burner::Adversary::Session>.
 
 =head1 INCOMPATIBILITIES
 
