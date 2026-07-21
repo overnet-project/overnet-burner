@@ -2,11 +2,11 @@ use strictures 2;
 
 use File::Path qw(make_path);
 use File::Spec;
-use File::Temp  qw(tempdir);
+use File::Temp qw(tempdir);
 use AnyEvent;
 use FindBin;
 use IO::Socket::INET;
-use JSON ();
+use JSON  ();
 use POSIX qw(WNOHANG);
 use Test2::V0;
 use Time::HiRes qw(sleep time);
@@ -34,10 +34,8 @@ subtest 'the scenario is a well-formed partition/heal + sync_bridge composition'
   ok lives { Overnet::Burner::Config->validate($config) },
     'the partition-and-recover scenario validates (container workers + network chaos)';
 
-  is $config->{provision}{workers}{how}, 'container',
-    'the managed environment provisions workers as containers';
-  is $config->{provision}{workers}{network}, 'bridge',
-    'workers run on a bridge network, which network chaos requires';
+  is $config->{provision}{workers}{how},     'container', 'the managed environment provisions workers as containers';
+  is $config->{provision}{workers}{network}, 'bridge', 'workers run on a bridge network, which network chaos requires';
 
   my $plan = Overnet::Burner::Plan->build($config);
 
@@ -46,10 +44,10 @@ subtest 'the scenario is a well-formed partition/heal + sync_bridge composition'
   is scalar @{$plan->{relays}}, 2, 'the run plans the two relays a bridge needs';
 
   my @hooks = @{$plan->{chaos_hooks}};
-  is scalar @hooks, 2, 'the run plans the partition and the heal';
+  is scalar @hooks,                 2,                     'the run plans the partition and the heal';
   is [map { $_->{action} } @hooks], ['partition', 'heal'], 'a partition is followed by a heal';
-  is $hooks[0]{at_seconds}, 20, 'the partition fires mid-run';
-  is $hooks[1]{at_seconds}, 40, 'the heal restores connectivity later in the run';
+  is $hooks[0]{at_seconds},         20,                    'the partition fires mid-run';
+  is $hooks[1]{at_seconds},         40,                    'the heal restores connectivity later in the run';
   is [map { $_->{target} } @hooks], ['worker-guest:1', 'worker-guest:1'],
     'the heal reconnects the guest the partition cut off';
 };
@@ -73,8 +71,7 @@ subtest 'a sync_bridge reconverges a pair that diverged while the sync path was 
 
   my $run_dir = _layout('par-run');
   my $bridge  = Overnet::Burner::Worker::SyncBridge->new(
-    input => _input($run_dir, 'par-run', [$a, $b], {sync_bridge => {interval_seconds => 0.25}}, 0.8),
-  );
+    input => _input($run_dir, 'par-run', [$a, $b], {sync_bridge => {interval_seconds => 0.25}}, 0.8),);
   $bridge->run;
 
   my $final_a = _dump_relay($a);
@@ -84,8 +81,8 @@ subtest 'a sync_bridge reconverges a pair that diverged while the sync path was 
   waitpid $pid_a, 0;
   waitpid $pid_b, 0;
 
-  is [sort keys %{$final_a}], [sort keys %{$final_b}], 'after recovery both relays hold the same set';
-  is scalar(keys %{$final_b}), 5, 'the lagging relay caught up to the full union';
+  is [sort keys %{$final_a}],  [sort keys %{$final_b}], 'after recovery both relays hold the same set';
+  is scalar(keys %{$final_b}), 5,                       'the lagging relay caught up to the full union';
 
   my ($first) = @{_metric_events($run_dir, 'par-run')};
   is $first->{status}, 'success', 'the recovery session converges';
@@ -143,7 +140,20 @@ sub _seed_events {
   $client->on(ok => sub { my ($id, $accepted) = @_; $ok{$id} = $accepted; $cv->send if keys %ok == @specs; });
   $client->connect($url);
   for my $spec (@specs) {
-    $client->publish($key->create_event(kind => 7800, content => "e-$spec", tags => [['d', "obj-$spec"]]));
+
+    # Pin created_at deterministically per spec so a baseline event carries the
+    # same id on both relays regardless of when it is seeded. Defaulting to the
+    # wall clock makes the shared baseline's id depend on whether the two seed
+    # calls land in the same unix second, which starves convergence to the
+    # intended union when instrumentation slows seeding across a second boundary.
+    $client->publish(
+      $key->create_event(
+        kind       => 7800,
+        created_at => 1_700_000_000 + $spec,
+        content    => "e-$spec",
+        tags       => [['d', "obj-$spec"]],
+      )
+    );
   }
   my $timeout = AnyEvent->timer(after => 8, cb => sub { $cv->send });
   $cv->recv;
@@ -157,7 +167,7 @@ sub _dump_relay {
   my %events;
   my $cv = AnyEvent->condvar;
   $client->on(event => sub { my ($sid, $ev) = @_; $events{$ev->id} = 1; });
-  $client->on(eose => sub { $cv->send });
+  $client->on(eose  => sub { $cv->send });
   $client->connect($url);
   $client->subscribe('dump', Net::Nostr::Filter->new(kinds => [7800]));
   my $timeout = AnyEvent->timer(after => 5, cb => sub { $cv->send });
@@ -179,14 +189,13 @@ sub _spawn_relay {
   my $pid = fork;
   die "fork: $!" if !defined $pid;
   if (!$pid) {
-    exec $^X, '-MNet::Nostr::Relay', '-e',
-      'Net::Nostr::Relay->new->run($ARGV[0], $ARGV[1])', '127.0.0.1', $port
+    exec $^X, '-MNet::Nostr::Relay', '-e', 'Net::Nostr::Relay->new->run($ARGV[0], $ARGV[1])', '127.0.0.1', $port
       or die "exec: $!";
   }
   my $deadline = time + 10;
   while (time < $deadline) {
     my $probe = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port, Timeout => 1);
-    if ($probe) { close $probe or die "close: $!"; return $pid }
+    if ($probe)                      { close $probe or die "close: $!"; return $pid }
     if (waitpid($pid, WNOHANG) != 0) { die "relay exited before listening\n" }
     sleep 0.1;
   }
