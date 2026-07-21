@@ -163,7 +163,11 @@ timing convention in [workers.md](workers.md) anticipates.
   test substitutes local tools for `ssh`/`scp` that relocate every
   guest-side path under a per-guest shadow root, so each guest has its own
   filesystem exactly as a remote host would; the raw ssh shell-out itself
-  is covered by `t/guest-ssh.t`.
+  is covered by `t/guest-ssh.t`. `t/real-distributed-run-ssh.t` runs the
+  same orchestration over a **real** sshd (CI provisions localhost; the test
+  skips unless `OVERNET_BURNER_TEST_SSH_HOST` is set), so the full worker
+  placement, staging, launch, readiness, and collection path is exercised
+  over the actual `ssh`/`scp` transport, not only the substitute.
 
 ## Open Questions
 
