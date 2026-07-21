@@ -220,8 +220,9 @@ sub _default_arena {
     return Overnet::Burner::Adversary::Arena::Recorded->new(%params);
   }
   if ($type eq 'live') {
-    require Overnet::Burner::Adversary::Arena::Live;
-    return Overnet::Burner::Adversary::Arena::Live->new(%params);
+    require Overnet::Burner::Adversary::Profile;
+    my $profile = Overnet::Burner::Adversary::Profile->resolve(delete $params{profile});
+    return $profile->build_arena(%params);
   }
   croak "unknown arena type: $type\n";
 }
@@ -334,7 +335,10 @@ the same durable artifact as one built by the batch runner.
 
 =item * C<POST /sessions> - create a session. Body: C<session_id> (required),
 optional C<seed>, C<arena> (a spec C<< {type => 'recorded'|'live', ...params} >>,
-default recorded), and C<ground_truth>. Returns 201 with the C<baseline_ref>.
+default recorded), and C<ground_truth>. Returns 201 with the C<baseline_ref>. A
+C<live> spec may name an adversary application C<profile> (default
+C<irc-hosted-channel>); the profile builds the arena bound to its application's
+authority. See L<Overnet::Burner::Adversary::Profile>.
 
 =item * C<GET /sessions/{id}> - session summary (baseline, closed, step count).
 

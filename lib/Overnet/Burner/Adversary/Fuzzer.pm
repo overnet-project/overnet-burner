@@ -271,8 +271,9 @@ Version 0.001.
 
 =head1 SYNOPSIS
 
-  my $fuzzer = Overnet::Burner::Adversary::Fuzzer->new(
-    arena_factory => sub { Overnet::Burner::Adversary::Arena::Live->new(seed => '1') },
+  my $profile = Overnet::Burner::Adversary::Profile->default_profile;
+  my $fuzzer  = Overnet::Burner::Adversary::Fuzzer->new(
+    arena_factory => sub { $profile->build_arena(seed => '1') },
   );
   my $result = $fuzzer->explore(
     base         => \@attack_actions,

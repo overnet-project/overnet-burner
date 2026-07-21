@@ -156,6 +156,22 @@ subtest 'the step limit is enforced' => sub {
   is $over->{status}, 429, 'exceeding the per-session step limit is 429';
 };
 
+# The live arena is built through the adversary application-profile registry, so
+# a live spec may name a profile. Arena construction is lazy about the relay
+# dist, so this needs no relay checkout.
+subtest 'a live arena selects an adversary application profile' => sub {
+  my $default = Overnet::Burner::Adversary::Server::_default_arena({type => 'live', seed => '1'});
+  ok ref($default) && $default->can('apply') && $default->can('reset'),
+    'a live arena builds without naming a profile (the default)';
+
+  my $named =
+    Overnet::Burner::Adversary::Server::_default_arena({type => 'live', profile => 'irc-hosted-channel', seed => '1'});
+  is ref($named), ref($default), 'naming the default profile builds the same arena class';
+
+  like dies { Overnet::Burner::Adversary::Server::_default_arena({type => 'live', profile => 'no-such-app'}) },
+    qr/unknown\ adversary\ profile/mx, 'an unregistered profile is rejected';
+};
+
 # End-to-end over the API against the real relay: create a live session, drive
 # the C1 forged-grant escalation as an external driver would, and confirm the
 # hardened relay defends it.
