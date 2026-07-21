@@ -3,14 +3,12 @@ package Overnet::Burner::Adversary::Arena::Live;
 use strictures 2;
 use Moo;
 
-use Carp            qw(croak);
-use Digest::SHA     qw(sha256_hex);
-use Crypt::PK::ECC  ();
-use Net::Nostr::Key ();
+use Carp qw(croak);
+
+extends 'Overnet::Burner::Adversary::Arena::LiveBase';
 
 our $VERSION = '0.001';
 
-my $BASE_TIME     = 1_750_000_000;
 my $GRANT_TTL     = 10_000_000;
 my $OPERATOR_ROLE = 'irc.operator';
 my $JOIN_KIND     = 9_021;
@@ -21,28 +19,17 @@ has grant_kind       => (is => 'ro');
 has group_id         => (is => 'ro');
 has auth_scope       => (is => 'ro');
 has snapshot_signers => (is => 'ro');
-has seed             => (is => 'ro');
 has store_factory    => (is => 'ro');
-
-my %HANDLER = (
-  new_identity       => \&_do_new_identity,
-  publish_grant      => \&_do_publish_grant,
-  publish_control    => \&_do_publish_control,
-  publish_snapshot   => \&_do_publish_snapshot,
-  join               => \&_do_join,
-  observe_capability => \&_do_observe_capability,
-  observe_state      => \&_do_observe_state,
-);
 
 sub BUILDARGS {
   my ($class, @args) = @_;
   my %args = @args == 1 && ref($args[0]) eq 'HASH' ? %{$args[0]} : @args;
 
   my %built = (
-    relay_url  => _default_scalar($args{relay_url},  'ws://127.0.0.1:7448'),
-    group_id   => _default_scalar($args{group_id},   'localnet-overnet'),
-    auth_scope => _default_scalar($args{auth_scope}, 'irc://irc.example/localnet'),
-    seed       => _default_scalar($args{seed},       '1'),
+    relay_url  => $class->_default_scalar($args{relay_url},  'ws://127.0.0.1:7448'),
+    group_id   => $class->_default_scalar($args{group_id},   'localnet-overnet'),
+    auth_scope => $class->_default_scalar($args{auth_scope}, 'irc://irc.example/localnet'),
+    seed       => $class->_default_scalar($args{seed},       '1'),
   );
 
   my $grant_kind = defined $args{grant_kind} ? $args{grant_kind} : 14_142;
@@ -77,45 +64,19 @@ sub baseline_ref {
   return 'live:Overnet::Authority::HostedChannel::Relay';
 }
 
-sub reset {    ## no critic (ProhibitBuiltinHomonyms)
-  my ($self) = @_;
-  $self->{_keys}        = {};
-  $self->{_grants}      = {};
-  $self->{_clock}       = $BASE_TIME;
-  $self->{_session_seq} = 0;
-  $self->{_relay}       = $self->_build_relay;
-  return;
-}
-
-sub apply {
-  my ($self, $action) = @_;
-  if (!(ref($action) eq 'HASH' && defined $action->{type} && !ref($action->{type}) && length $action->{type})) {
-    croak "apply expects an action object with a type\n";
-  }
-  my $handler = $HANDLER{$action->{type}};
-  if (!$handler) {
-    croak "unknown live action: $action->{type}\n";
-  }
-  my $payload = defined $action->{payload} ? $action->{payload} : {};
-  if (ref($payload) ne 'HASH') {
-    croak "action payload must be an object\n";
-  }
-  return $self->$handler($payload);
-}
-
 sub _do_new_identity {
   my ($self, $payload) = @_;
-  $self->_key(_require_field($payload, 'name'));
+  $self->_key($self->_require_field($payload, 'name'));
   return [];
 }
 
 sub _do_publish_grant {
   my ($self, $payload) = @_;
-  my $actor_key    = $self->_key(_require_field($payload, 'actor'));
-  my $delegate_key = $self->_key(_require_field($payload, 'delegate'));
+  my $actor_key    = $self->_key($self->_require_field($payload, 'actor'));
+  my $delegate_key = $self->_key($self->_require_field($payload, 'delegate'));
 
   my $grant = $self->_grant_event($actor_key, $delegate_key->pubkey_hex);
-  my $relay = $self->_relay;
+  my $relay = $self->_sut;
   my ($accepted, $reason) = $relay->on_event->($grant);
   if ($accepted) {
     $relay->store->store($grant);
@@ -124,15 +85,15 @@ sub _do_publish_grant {
     $self->_grants->{$payload->{id}} = $grant->id;
   }
 
-  return [_relay_outcome($accepted, $reason)];
+  return [$self->_relay_outcome($accepted, $reason)];
 }
 
 sub _do_publish_control {
   my ($self, $payload) = @_;
-  my $signer_key   = $self->_key(_require_field($payload, 'signer'));
-  my $actor_pubkey = $self->_key(_require_field($payload, 'actor'))->pubkey_hex;
-  my $authority_id = $self->_resolve_authority(_require_field($payload, 'authority'));
-  my $kind         = _require_kind($payload);
+  my $signer_key   = $self->_key($self->_require_field($payload, 'signer'));
+  my $actor_pubkey = $self->_key($self->_require_field($payload, 'actor'))->pubkey_hex;
+  my $authority_id = $self->_resolve_authority($self->_require_field($payload, 'authority'));
+  my $kind         = $self->_require_kind($payload);
 
   my @tags = (
     ['h',                 $self->group_id],
@@ -154,8 +115,8 @@ sub _do_publish_control {
 
 sub _do_publish_snapshot {
   my ($self, $payload) = @_;
-  my $signer_key = $self->_key(_require_field($payload, 'signer'));
-  my $kind       = _require_kind($payload);
+  my $signer_key = $self->_key($self->_require_field($payload, 'signer'));
+  my $kind       = $self->_require_kind($payload);
 
   my @tags = (['d', $self->group_id]);
   push @tags, $self->_role_tags($payload->{grants});
@@ -176,8 +137,8 @@ sub _do_publish_snapshot {
 
 sub _do_join {
   my ($self, $payload) = @_;
-  my $actor = _require_field($payload, 'actor');
-  my $scope = _require_field($payload, 'scope');
+  my $actor = $self->_require_field($payload, 'actor');
+  my $scope = $self->_require_field($payload, 'scope');
 
   my ($grant_id, $session_key) = $self->_provision_grant($actor);
   my @tags = (
@@ -200,25 +161,28 @@ sub _do_join {
   my $outcome  = $self->_ingest($event);
   my $admitted = $outcome->{payload}{accepted};
 
-  return [$outcome, _observation('observed_admission', {subject => $actor, scope => $scope, admitted => $admitted}),];
+  return [$outcome,
+    $self->_observation('observed_admission', {subject => $actor, scope => $scope, admitted => $admitted}),
+  ];
 }
 
 sub _do_observe_capability {
   my ($self, $payload) = @_;
-  my $subject    = _require_field($payload, 'subject');
-  my $scope      = _require_field($payload, 'scope');
+  my $subject    = $self->_require_field($payload, 'subject');
+  my $scope      = $self->_require_field($payload, 'scope');
   my $capability = defined $payload->{capability} ? $payload->{capability} : $OPERATOR_ROLE;
 
   if (!$self->_probe_operator($subject)) {
     return [];
   }
-  return [_observation('observed_capability', {subject => $subject, capability => $capability, scope => $scope})];
+  return [$self->_observation('observed_capability', {subject => $subject, capability => $capability, scope => $scope})
+  ];
 }
 
 sub _do_observe_state {
   my ($self, $payload) = @_;
-  my $scope    = _require_field($payload, 'scope');
-  my $instance = _require_field($payload, 'instance');
+  my $scope    = $self->_require_field($payload, 'scope');
+  my $instance = $self->_require_field($payload, 'instance');
   my $subjects = $payload->{subjects};
   if (!(ref($subjects) eq 'ARRAY' && @{$subjects})) {
     croak "subjects must be a non-empty array reference of identity names\n";
@@ -238,17 +202,19 @@ sub _do_observe_state {
   # (via the probe), sorted into a canonical order so two instances that have
   # seen the same accepted events digest identically for the oracle.
   my @sorted = sort @operators;
-  return [_observation('observed_state', {scope => $scope, instance => $instance, state => {operators => \@sorted}}),];
+  return [
+    $self->_observation('observed_state', {scope => $scope, instance => $instance, state => {operators => \@sorted}}),
+  ];
 }
 
 sub _ingest {
   my ($self, $event, $force_store) = @_;
-  my $relay = $self->_relay;
+  my $relay = $self->_sut;
   my ($accepted, $reason) = $relay->on_event->($event);
   if ($accepted || $force_store) {
     $relay->store->store($event);
   }
-  return _relay_outcome($accepted, $reason);
+  return $self->_relay_outcome($accepted, $reason);
 }
 
 # A read-only probe of derived authority state: provision a valid grant and
@@ -274,17 +240,17 @@ sub _probe_operator {
     ],
   );
 
-  my ($accepted) = $self->_relay->on_event->($event);
+  my ($accepted) = $self->_sut->on_event->($event);
   return $accepted ? 1 : 0;
 }
 
 sub _provision_grant {
   my ($self, $actor) = @_;
   my $actor_key   = $self->_key($actor);
-  my $session_key = _derive_key($self->seed, "$actor/probe/" . $self->_next_session);
+  my $session_key = $self->_derive_key("$actor/probe/" . $self->_next_session);
 
   my $grant = $self->_grant_event($actor_key, $session_key->pubkey_hex);
-  my $relay = $self->_relay;
+  my $relay = $self->_sut;
   $relay->on_event->($grant);
   $relay->store->store($grant);
 
@@ -293,7 +259,7 @@ sub _provision_grant {
 
 sub _grant_event {
   my ($self, $actor_key, $delegate_pubkey) = @_;
-  my $expires_at = $BASE_TIME + $GRANT_TTL;
+  my $expires_at = $self->_base_time + $GRANT_TTL;
   return $actor_key->create_event(
     kind       => $self->grant_kind,
     created_at => $self->_next_time,
@@ -328,19 +294,14 @@ sub _role_tag {
   if (ref($role) ne 'HASH') {
     croak "each role must be an object\n";
   }
-  my $pubkey = $self->_key(_require_field($role, 'subject'))->pubkey_hex;
+  my $pubkey = $self->_key($self->_require_field($role, 'subject'))->pubkey_hex;
   if (defined $role->{role}) {
     return ['p', $pubkey, $role->{role}];
   }
   return ['p', $pubkey];
 }
 
-sub _relay {
-  my ($self) = @_;
-  return $self->{_relay} ||= $self->_build_relay;
-}
-
-sub _build_relay {
+sub _build_sut {
   my ($self) = @_;
   require Overnet::Authority::HostedChannel::Relay;
 
@@ -359,52 +320,6 @@ sub _build_relay {
   );
 }
 
-sub _key {
-  my ($self, $name) = @_;
-  if (!(defined $name && !ref($name) && length $name)) {
-    croak "identity name is required\n";
-  }
-  my $keys = $self->{_keys} ||= {};
-  return $keys->{$name} ||= _derive_key($self->seed, $name);
-}
-
-sub _derive_key {
-  my ($seed, $name) = @_;
-  my $secret_hex = sha256_hex("overnet-burner:adversary:$seed:$name");
-  my $pk         = Crypt::PK::ECC->new;
-  $pk->import_key_raw(pack('H*', $secret_hex), 'secp256k1');
-  my $der = $pk->export_key_der('private');
-  return Net::Nostr::Key->new(privkey => \$der);
-}
-
-sub _next_time {
-  my ($self) = @_;
-  my $now    = $self->{_clock} ||= $BASE_TIME;
-  $self->{_clock} = $now + 1;
-  return $now;
-}
-
-sub _next_session {
-  my ($self) = @_;
-  my $next = ($self->{_session_seq} ||= 0) + 1;
-  $self->{_session_seq} = $next;
-  return "session-$next";
-}
-
-sub _resolve_authority {
-  my ($self, $symbol) = @_;
-  my $id = $self->_grants->{$symbol};
-  if (!defined $id) {
-    croak "unknown authority reference: $symbol\n";
-  }
-  return $id;
-}
-
-sub _grants {
-  my ($self) = @_;
-  return $self->{_grants} ||= {};
-}
-
 sub _ban_tags {
   my ($bans) = @_;
   if (!defined $bans) {
@@ -418,45 +333,6 @@ sub _ban_tags {
     push @tags, ['ban', $mask];
   }
   return @tags;
-}
-
-sub _relay_outcome {
-  my ($accepted, $reason) = @_;
-  return _observation('relay_outcome', {accepted => ($accepted ? 1 : 0), reason => (defined $reason ? $reason : q{})});
-}
-
-sub _observation {
-  my ($type, $payload) = @_;
-  return {type => $type, payload => $payload};
-}
-
-sub _require_field {
-  my ($payload, $field) = @_;
-  my $value = $payload->{$field};
-  if (!(defined $value && !ref($value) && length $value)) {
-    croak "$field is required\n";
-  }
-  return $value;
-}
-
-sub _require_kind {
-  my ($payload) = @_;
-  my $kind = $payload->{kind};
-  if (!(defined $kind && !ref($kind) && $kind =~ /\A[1-9][0-9]*\z/mxs)) {
-    croak "kind must be a positive integer\n";
-  }
-  return $kind;
-}
-
-sub _default_scalar {
-  my ($value, $default) = @_;
-  if (!defined $value) {
-    return $default;
-  }
-  if (ref($value) || !length $value) {
-    croak "expected a non-empty scalar\n";
-  }
-  return $value;
 }
 
 1;
@@ -493,6 +369,14 @@ recorded transcript. It is the arena a
 L<Overnet::Burner::Adversary::Arena::Recorded> stands in for, and the substrate
 of the live regression corpus: driving a seed attack through it and finding no
 oracle violation proves the deployed relay still defends that attack.
+
+This class is the reference (IRC hosted-channel) concrete arena. It extends
+L<Overnet::Burner::Adversary::Arena::LiveBase>, which owns the
+application-neutral machinery - the reset/apply loop, deterministic identity
+derivation, the session clock, the authority symbol table, and the observation
+and validation helpers. This class adds only what is specific to the IRC
+hosted-channel authority: the relay it builds as its system under test and the
+C<_do_E<lt>actionE<gt>> handlers for that authority's vocabulary.
 
 The relay module is loaded lazily (via C<require>) the first time the arena
 builds a relay, so this module remains loadable - for style and coverage gates -
@@ -580,11 +464,13 @@ Returns the opaque baseline reference identifying the live system under test.
 
 Builds a fresh relay with an empty store and clears the identity and grant
 registries, so each episode starts from a clean authoritative baseline.
+Inherited from L<Overnet::Burner::Adversary::Arena::LiveBase>.
 
 =head2 apply
 
 Takes one action object, executes it against the live relay, and returns an
 array reference of observations derived from the relay's real behavior.
+Inherited from L<Overnet::Burner::Adversary::Arena::LiveBase>.
 
 =head1 DIAGNOSTICS
 
@@ -598,7 +484,7 @@ C<@INC> before C<reset> or C<apply> is called.
 
 =head1 DEPENDENCIES
 
-Requires L<Moo>, L<Net::Nostr::Key>, L<Crypt::PK::ECC>, and L<Digest::SHA>.
+Requires L<Moo> and L<Overnet::Burner::Adversary::Arena::LiveBase>.
 
 =head1 INCOMPATIBILITIES
 
