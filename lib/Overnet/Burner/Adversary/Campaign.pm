@@ -6,7 +6,7 @@ use Moo;
 use Carp qw(croak);
 use JSON ();
 
-use Overnet::Burner::Adversary::Arena::Live;
+use Overnet::Burner::Adversary::Corpus;
 use Overnet::Burner::Adversary::Driver::Scripted;
 use Overnet::Burner::Adversary::Fuzzer;
 use Overnet::Burner::Adversary::Oracle;
@@ -169,10 +169,10 @@ sub _baseline_digest {
 sub _default_arena_factory {
   my ($base) = @_;
 
-  return Overnet::Burner::Adversary::Arena::Live->new(
-    snapshot_signers => ($base->{snapshot_signers} || []),
-    seed             => (defined $base->{seed} ? $base->{seed} : '1'),
-  );
+  # Build the base's arena through its application profile, so a campaign sweeps
+  # each guarded attack against the authority it targets - the IRC hosted-channel
+  # relay by default, or any other registered profile the base names.
+  return Overnet::Burner::Adversary::Corpus->arena_for($base);
 }
 
 sub _validate_base {
@@ -242,8 +242,9 @@ in-process live relay by default and against a stub in unit tests.
 Creates a campaign. Requires C<corpus> (an
 L<Overnet::Burner::Adversary::Corpus>). Takes optional C<arena_factory> (a code
 reference C<< sub { my ($base) = @_; ... } >> returning a fresh arena for a base;
-default builds an L<Overnet::Burner::Adversary::Arena::Live> from the base's
-C<snapshot_signers> and C<seed>) and C<oracle> (default a new
+default builds the arena through the base's application C<profile> - the IRC
+hosted-channel relay unless the base names another - via
+L<< Overnet::Burner::Adversary::Corpus/arena_for >>) and C<oracle> (default a new
 L<Overnet::Burner::Adversary::Oracle>).
 
 =head2 hunt
@@ -271,17 +272,18 @@ or a base without a name or actions are reported with C<croak>.
 
 =head1 CONFIGURATION AND ENVIRONMENT
 
-Hunting and promoting against the default arena require
-C<Overnet::Authority::HostedChannel::Relay> (the relay dist) to be available.
+Hunting and promoting against a base whose profile is the IRC hosted-channel
+authority require C<Overnet::Authority::HostedChannel::Relay> (the relay dist);
+a self-contained profile such as C<document-vault> needs nothing beyond the core
+dependencies.
 
 =head1 DEPENDENCIES
 
 Requires L<Moo>, L<JSON>, L<Overnet::Burner::Adversary::Corpus>,
 L<Overnet::Burner::Adversary::Fuzzer>,
 L<Overnet::Burner::Adversary::Driver::Scripted>,
-L<Overnet::Burner::Adversary::Oracle>,
-L<Overnet::Burner::Adversary::Runner>, and
-L<Overnet::Burner::Adversary::Arena::Live>.
+L<Overnet::Burner::Adversary::Oracle>, and
+L<Overnet::Burner::Adversary::Runner>.
 
 =head1 INCOMPATIBILITIES
 

@@ -7,6 +7,7 @@ use lib "$FindBin::Bin/../lib";
 
 use Overnet::Burner::Adversary::Profile;
 use Overnet::Burner::Adversary::Driver::Scripted;
+use Overnet::Burner::Adversary::Fuzzer;
 use Overnet::Burner::Adversary::Oracle;
 use Overnet::Burner::Adversary::Runner;
 use Overnet::Burner::Adversary::Server;
@@ -116,6 +117,38 @@ subtest 'the non-IRC profile is reachable through the transport-neutral server' 
   my $verdict = $server->dispatch(method => 'GET', path => '/sessions/vault-http/verdict');
   is $verdict->{status}, 200, 'the server returns a verdict';
   ok $verdict->{body}{verdict}{violated}, 'the server-driven vault session is judged violated by the same oracle';
+};
+
+subtest 'the mutation fuzzer explores the non-IRC neighbourhood' => sub {
+  my $fuzzer = Overnet::Burner::Adversary::Fuzzer->new(arena_factory => sub { $PROFILE->build_arena(seed => '1') });
+
+  # A defended base: the forged writer grant is refused, so no structural
+  # mutation in the neighbourhood opens a hole - the vault authority withstands
+  # the whole search, which is itself the regression-value result.
+  my $defended = $fuzzer->explore(
+    base => [
+      {type => 'new_identity',       payload => {name    => 'attacker'}},
+      {type => 'publish_grant',      payload => {actor   => 'attacker', delegate => 'attacker'}},
+      {type => 'observe_capability', payload => {subject => 'attacker', scope    => $SCOPE}},
+    ],
+    ground_truth => {authorized_capabilities => []},
+    seed         => '1',
+  );
+  ok $defended->{explored} > 1, 'the fuzzer explored the vault attack neighbourhood';
+  is scalar(@{$defended->{findings}}), 0, 'the vault authority withstands the whole explored neighbourhood';
+
+  # A base whose derived state genuinely violates the ground truth: the owner
+  # really grants the rogue, so the fuzzer surfaces the violation - proving the
+  # search is not vacuous in the non-IRC vocabulary.
+  my $violating = $fuzzer->explore(
+    base => [
+      {type => 'publish_grant',      payload => {actor   => 'owner', delegate => 'rogue'}},
+      {type => 'observe_capability', payload => {subject => 'rogue', scope    => $SCOPE}},
+    ],
+    ground_truth => {authorized_capabilities => []},
+    seed         => '1',
+  );
+  ok scalar(@{$violating->{findings}}), 'the fuzzer surfaces a real vault authorization violation';
 };
 
 done_testing;

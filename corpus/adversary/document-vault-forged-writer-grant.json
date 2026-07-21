@@ -1,0 +1,53 @@
+{
+   "actions" : [
+      {
+         "payload" : {
+            "name" : "attacker"
+         },
+         "type" : "new_identity"
+      },
+      {
+         "payload" : {
+            "actor" : "owner",
+            "delegate" : "writer"
+         },
+         "type" : "publish_grant"
+      },
+      {
+         "payload" : {
+            "actor" : "attacker",
+            "delegate" : "attacker"
+         },
+         "type" : "publish_grant"
+      },
+      {
+         "payload" : {
+            "scope" : "vault:reports",
+            "subject" : "writer"
+         },
+         "type" : "observe_capability"
+      },
+      {
+         "payload" : {
+            "scope" : "vault:reports",
+            "subject" : "attacker"
+         },
+         "type" : "observe_capability"
+      }
+   ],
+   "description" : "A non-owner forges a writer delegation; the vault authority must reject it and never confer write access.",
+   "ground_truth" : {
+      "authorized_capabilities" : [
+         {
+            "capability" : "vault.writer",
+            "scope" : "vault:reports",
+            "subject" : "writer"
+         }
+      ]
+   },
+   "name" : "document-vault-forged-writer-grant",
+   "profile" : "document-vault",
+   "seed" : "1",
+   "snapshot_signers" : [],
+   "target_invariant" : "authorization"
+}

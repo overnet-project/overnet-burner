@@ -213,19 +213,25 @@ The corpus is implemented as a module backed by a directory of JSON entries
 (`corpus/adversary/*.json` by default). It is the concrete form of the ratchet
 above — the durable, self-growing memory of the harness.
 
-Each entry is a frozen attack: a `name`, the `target_invariant` it guards, an
-optional `seed` and `snapshot_signers` (the arena baseline), the `actions`
-(the typed adversary vocabulary of §3), and the harness's independent
-`ground_truth`. The entry format is exactly the `scripted`/`replay` driver
-contract — an entry replays with no AI in the loop.
+Each entry is a frozen attack: a `name`, the application `profile` whose
+authority it attacks (default: the IRC hosted-channel authority; see
+*Application Profiles* above), the `target_invariant` it guards, an optional
+`seed` and `snapshot_signers` (the arena baseline), the `actions` (the typed
+adversary vocabulary of §3), and the harness's independent `ground_truth`. The
+entry format is exactly the `scripted`/`replay` driver contract — an entry
+replays with no AI in the loop. One corpus guards attacks across every
+registered application: `replay` builds each entry's arena through its profile,
+so the shipped seed corpus already mixes IRC hosted-channel entries with a
+self-contained `document-vault` entry that needs no relay.
 
 The module exposes three operations:
 
 - **`entries`** loads and validates every entry from the corpus directory,
   ordered by name so a run is reproducible.
-- **`replay($entry)`** runs one entry against the live relay through the same
-  arena, runner, and oracle the rest of the harness uses, and returns the
-  oracle verdict. An entry *passes* when the verdict is **not** violated: the
+- **`replay($entry)`** runs one entry against its authority (built through the
+  entry's profile) via the same runner and oracle the rest of the harness uses,
+  and returns the oracle verdict. An entry *passes* when the verdict is **not**
+  violated: the
   attack it encodes is still defended. A regression that reopens the hole flips
   the verdict and fails the run.
 - **`add($entry)`** validates and persists a new entry as `<name>.json`, so a

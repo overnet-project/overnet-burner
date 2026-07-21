@@ -10,9 +10,9 @@ use File::Path     qw(make_path);
 use File::Spec;
 
 use Overnet::Burner::Util qw(json_text read_json_file write_file);
-use Overnet::Burner::Adversary::Arena::Live;
 use Overnet::Burner::Adversary::Driver::Scripted;
 use Overnet::Burner::Adversary::Oracle;
+use Overnet::Burner::Adversary::Profile;
 use Overnet::Burner::Adversary::Runner;
 
 our $VERSION = '0.001';
@@ -44,29 +44,42 @@ sub entries {
   return \@ordered;
 }
 
-# Replay one entry against the live relay and return the oracle's verdict. A
-# corpus entry passes when the verdict is not violated: the attack it encodes is
-# still defended. A regression that reopens the hole flips the verdict.
+# Replay one entry against its application's system under test and return the
+# oracle's verdict. A corpus entry passes when the verdict is not violated: the
+# attack it encodes is still defended. A regression that reopens the hole flips
+# the verdict.
 sub replay {
   my ($self, $entry) = @_;
 
   _validate_entry($entry, 'entry');
-  my $seed  = defined $entry->{seed} ? $entry->{seed} : '1';
-  my $arena = Overnet::Burner::Adversary::Arena::Live->new(
-    snapshot_signers => $entry->{snapshot_signers} || [],
-    seed             => $seed,
-  );
 
   my $result = Overnet::Burner::Adversary::Runner->new->run(
     driver       => Overnet::Burner::Adversary::Driver::Scripted->new(actions => $entry->{actions}),
-    arena        => $arena,
+    arena        => __PACKAGE__->arena_for($entry),
     oracle       => Overnet::Burner::Adversary::Oracle->new,
     ground_truth => (ref $entry->{ground_truth} eq 'HASH' ? $entry->{ground_truth} : {}),
     session_id   => "corpus-$entry->{name}",
-    seed         => $seed,
+    seed         => (defined $entry->{seed} ? $entry->{seed} : '1'),
   );
 
   return $result->{verdict};
+}
+
+# Build the arena for an entry through its application profile. The entry's
+# optional C<profile> selects the authority; an unset profile (and every legacy
+# IRC entry) resolves the default IRC hosted-channel arena, so an existing
+# corpus keeps replaying unchanged. C<snapshot_signers> is forwarded when the
+# profile's arena wants it.
+sub arena_for {
+  my ($class, $entry) = @_;
+
+  my $profile = Overnet::Burner::Adversary::Profile->resolve($entry->{profile});
+  my %params  = (seed => (defined $entry->{seed} ? $entry->{seed} : '1'));
+  if (ref $entry->{snapshot_signers} eq 'ARRAY' && @{$entry->{snapshot_signers}}) {
+    $params{snapshot_signers} = $entry->{snapshot_signers};
+  }
+
+  return $profile->build_arena(%params);
 }
 
 # Grow the corpus: persist a new entry so it is replayed on every future run.
@@ -90,6 +103,7 @@ sub _canonical_entry {
 
   my %persisted = (
     name             => $entry->{name},
+    profile          => _entry_profile($entry),
     description      => (defined $entry->{description}      ? $entry->{description}      : q{}),
     target_invariant => (defined $entry->{target_invariant} ? $entry->{target_invariant} : q{}),
     seed             => (defined $entry->{seed}             ? $entry->{seed}             : '1'),
@@ -98,6 +112,14 @@ sub _canonical_entry {
     ground_truth     => (ref $entry->{ground_truth} eq 'HASH' ? $entry->{ground_truth} : {}),
   );
   return \%persisted;
+}
+
+sub _entry_profile {
+  my ($entry) = @_;
+  if (defined $entry->{profile} && !ref($entry->{profile}) && length $entry->{profile}) {
+    return $entry->{profile};
+  }
+  return Overnet::Burner::Adversary::Profile->default_name;
 }
 
 sub _validate_entry {
@@ -157,16 +179,22 @@ Version 0.001.
 
 The corpus is the durable memory of the adversary harness. Each entry is an
 attack - a list of arena actions plus the harness's independent ground truth -
-that the system under test currently defends. Replaying every entry against the
-live relay on each run asserts those defenses hold: a corpus entry passes when
+that the system under test currently defends. Replaying every entry against its
+authority on each run asserts those defenses hold: a corpus entry passes when
 the oracle's verdict is B<not> violated, and a regression that reopens a hole
 flips the verdict and fails the run.
+
+An entry names the application C<profile> whose authority it attacks (see
+L<Overnet::Burner::Adversary::Profile>); the corpus builds the arena through
+that profile, so one corpus guards attacks across every registered application.
+An entry with no profile resolves the default (IRC hosted-channel) authority, so
+a corpus written before profiles keeps replaying unchanged.
 
 The corpus is I<self-growing>: when the fuzzer, the adaptive driver, or an
 operator finds a new attack worth guarding, L</add> persists it so it is
 replayed forever after. The seed corpus captures the core authority and
 admission defenses (forged delegation grants, forged authoritative snapshots,
-and ban-mask evasion).
+ban-mask evasion, and a forged document-vault writer grant).
 
 =head1 SUBROUTINES/METHODS
 
@@ -181,8 +209,14 @@ Returns an array reference of the corpus entries, validated and ordered by name.
 
 =head2 replay
 
-Replays one entry against the live relay through the runner, arena, and oracle,
-and returns the oracle verdict. Takes the entry.
+Replays one entry against its authority through the runner, arena, and oracle,
+and returns the oracle verdict. The arena is built from the entry's profile (see
+L</arena_for>). Takes the entry.
+
+=head2 arena_for
+
+Builds the arena for an entry through its application profile. Takes the entry
+and returns a fresh arena. An unset C<profile> resolves the default authority.
 
 =head2 add
 
@@ -197,15 +231,17 @@ reported with C<croak>.
 
 =head1 CONFIGURATION AND ENVIRONMENT
 
-Replaying entries requires C<Overnet::Authority::HostedChannel::Relay> (the
-relay dist) to be available.
+Replaying an entry requires the arena its profile builds to be usable; the
+default IRC hosted-channel profile needs C<Overnet::Authority::HostedChannel::Relay>
+(the relay dist), while a self-contained profile such as C<document-vault> needs
+nothing beyond the core dependencies.
 
 =head1 DEPENDENCIES
 
 Requires L<Moo>, L<Overnet::Burner::Adversary::Runner>,
 L<Overnet::Burner::Adversary::Driver::Scripted>,
 L<Overnet::Burner::Adversary::Oracle>, and
-L<Overnet::Burner::Adversary::Arena::Live>.
+L<Overnet::Burner::Adversary::Profile>.
 
 =head1 INCOMPATIBILITIES
 

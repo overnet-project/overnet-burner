@@ -136,9 +136,14 @@ subtest 'promote refuses a live violation' => sub {
 };
 
 subtest 'the constructor accepts a hash reference and an explicit oracle and validates the corpus' => sub {
-  my $corpus = Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1));
+  my $corpus   = Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1));
   my $campaign = Overnet::Burner::Adversary::Campaign->new(
-    {corpus => $corpus, arena_factory => sub { return DefendedArena->new }, oracle => Overnet::Burner::Adversary::Oracle->new});
+    {
+      corpus        => $corpus,
+      arena_factory => sub { return DefendedArena->new },
+      oracle        => Overnet::Burner::Adversary::Oracle->new
+    }
+  );
   ok $campaign, 'a hash-reference constructor with an explicit oracle builds a campaign';
   like dies { Overnet::Burner::Adversary::Campaign->new(corpus => 'not-a-corpus') }, qr/corpus\ is\ required/mx,
     'an object without the corpus interface is rejected';
@@ -149,7 +154,7 @@ subtest 'hunt validates its bases' => sub {
     corpus        => Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1)),
     arena_factory => sub { return DefendedArena->new },
   );
-  like dies { $campaign->hunt(bases => 'nope') }, qr/bases\ must\ be\ an\ array/mx, 'bases must be an array';
+  like dies { $campaign->hunt(bases => 'nope') },         qr/bases\ must\ be\ an\ array/mx, 'bases must be an array';
   like dies { $campaign->hunt(bases => ['not-a-hash']) }, qr/base\ must\ be\ an\ object/mx, 'a base must be an object';
   like dies { $campaign->hunt(bases => [{actions => [{type => 'x'}]}]) }, qr/base\ name\ is\ required/mx,
     'a base needs a name';
@@ -170,7 +175,7 @@ subtest 'hunt defaults max_variants, seed and ground_truth and honours the basel
     name             => 'snapshotted',
     snapshot_signers => ['authority'],
     actions          => [
-      {type => 'publish_snapshot',  payload => {signer  => 'authority'}},
+      {type => 'publish_snapshot',   payload => {signer  => 'authority'}},
       {type => 'observe_capability', payload => {subject => 'attacker', scope => $SCOPE}},
     ],
   };
@@ -197,6 +202,28 @@ subtest 'promote iterates existing entries and defaults the replay' => sub {
   my $added = $campaign->promote($novel);
   is $added->{added}, 1, 'a structurally distinct attack is promoted past the existing entry';
   is scalar(@{Overnet::Burner::Adversary::Corpus->new(dir => $dir)->entries}), 2, 'the corpus grew to two entries';
+};
+
+subtest 'the default arena factory is profile-aware' => sub {
+  my $corpus   = Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1));
+  my $campaign = Overnet::Burner::Adversary::Campaign->new(corpus => $corpus);
+
+  # A document-vault base swept with the default (profile-aware) arena factory:
+  # the base names a non-IRC profile, so the campaign builds the vault authority
+  # with no relay, and the correct authority reopens no hole under mutation.
+  my $base = {
+    name             => 'vault-forged-grant',
+    profile          => 'document-vault',
+    target_invariant => 'authorization',
+    actions          => [
+      {type => 'publish_grant',      payload => {actor   => 'attacker', delegate => 'attacker'}},
+      {type => 'observe_capability', payload => {subject => 'attacker', scope    => 'vault:reports'}},
+    ],
+    ground_truth => {authorized_capabilities => []},
+  };
+  my $result = $campaign->hunt(bases => [$base], max_variants => 8);
+  is $result->{swept},                  1, 'the vault base was swept through its profile arena';
+  is scalar(@{$result->{regressions}}), 0, 'the correct vault authority reopens no hole under mutation';
 };
 
 subtest 'the hardened live relay withstands the whole corpus neighbourhood' => sub {

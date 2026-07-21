@@ -80,10 +80,10 @@ subtest 'add fills in defaults for a minimal entry' => sub {
     }
   );
   my $entry = Overnet::Burner::Adversary::Corpus->new(dir => $dir)->entries->[0];
-  is $entry->{description},       q{}, 'a missing description defaults to empty';
+  is $entry->{description},      q{}, 'a missing description defaults to empty';
   is $entry->{target_invariant}, q{}, 'a missing target invariant defaults to empty';
   is $entry->{seed},             '1', 'a missing seed defaults to 1';
-  is $entry->{ground_truth},     {},  'a non-mapping ground truth becomes an empty object';
+  is $entry->{ground_truth}, {}, 'a non-mapping ground truth becomes an empty object';
 };
 
 subtest 'replay defaults an entry seed and ground truth' => sub {
@@ -91,10 +91,60 @@ subtest 'replay defaults an entry seed and ground truth' => sub {
   if (!$relay_available) {
     plan skip_all => 'relay-perl not available';
   }
-  my $corpus  = Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1));
-  my $verdict = $corpus->replay(
-    {name => 'defaulted', actions => [{type => 'new_identity', payload => {name => 'operator'}}]});
+  my $corpus = Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1));
+  my $verdict =
+    $corpus->replay({name => 'defaulted', actions => [{type => 'new_identity', payload => {name => 'operator'}}]});
   ok exists $verdict->{violated}, 'a minimal entry replays and yields a verdict';
+};
+
+subtest 'arena_for builds the arena named by the entry profile' => sub {
+  my $vault = Overnet::Burner::Adversary::Corpus->arena_for({profile => 'document-vault', seed => '7'});
+  isa_ok $vault, ['Overnet::Burner::Adversary::Arena::DocumentVault'], 'a document-vault entry builds the vault arena';
+  is $vault->seed, '7', 'the entry seed is forwarded to the arena';
+
+  my $default = Overnet::Burner::Adversary::Corpus->arena_for({});
+  isa_ok $default, ['Overnet::Burner::Adversary::Arena::Live'], 'an entry with no profile builds the default IRC arena';
+
+  my $signed = Overnet::Burner::Adversary::Corpus->arena_for({snapshot_signers => ['authority']});
+  isa_ok $signed, ['Overnet::Burner::Adversary::Arena::Live'], 'snapshot_signers are forwarded to the IRC arena';
+};
+
+subtest 'a non-IRC corpus entry replays and stays defended without a relay' => sub {
+  my $corpus = Overnet::Burner::Adversary::Corpus->new;
+  my ($vault) = grep { $_->{name} eq 'document-vault-forged-writer-grant' } @{$corpus->entries};
+  ok $vault, 'the shipped corpus carries the document-vault entry';
+  is $vault->{profile}, 'document-vault', 'the entry names the document-vault profile';
+
+  my $verdict = $corpus->replay($vault);
+  ok !$verdict->{violated}, 'the vault authority defends the forged writer grant';
+  is $verdict->{invariants}{authorization}{status}, 'upheld', 'the authorization invariant is upheld';
+};
+
+subtest 'add persists the entry profile' => sub {
+  my $dir    = tempdir(CLEANUP => 1);
+  my $corpus = Overnet::Burner::Adversary::Corpus->new(dir => $dir);
+  $corpus->add(
+    {
+      name         => 'vault-attack',
+      profile      => 'document-vault',
+      actions      => [{type => 'observe_capability', payload => {subject => 'nobody', scope => 'vault:reports'}}],
+      ground_truth => {authorized_capabilities => []},
+    }
+  );
+  $corpus->add(
+    {
+      name         => 'irc-attack',
+      actions      => [{type => 'new_identity', payload => {name => 'x'}}],
+      ground_truth => {authorized_capabilities => []},
+    }
+  );
+
+  my %by_name = map { $_->{name} => $_ } @{Overnet::Burner::Adversary::Corpus->new(dir => $dir)->entries};
+  is $by_name{'vault-attack'}{profile}, 'document-vault',     'an explicit profile is persisted';
+  is $by_name{'irc-attack'}{profile},   'irc-hosted-channel', 'a missing profile persists as the default';
+
+  my $verdict = Overnet::Burner::Adversary::Corpus->new(dir => $dir)->replay($by_name{'vault-attack'});
+  ok !$verdict->{violated}, 'the reloaded vault entry replays defended with no relay';
 };
 
 subtest 'add rejects malformed entries' => sub {
