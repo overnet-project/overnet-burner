@@ -312,6 +312,12 @@ exhaustive and deterministic (drop, duplicate, swap-adjacent, collide
 timestamps), but a caller may pass a smarter or model-guided generator in the
 same slot. This makes the fuzzer B<AI-drivable> without being B<AI-driven>.
 
+L<Overnet::Burner::Adversary::Operator::Guided> is one such generator: a
+I<semantic> operator that mutates an attack within an application's vocabulary
+and identity graph - substituting one identity, scope, capability, or grant kind
+for another - reaching holes the structural operators cannot express, and itself
+exposing a C<propose> seam a model can drive.
+
 =head2 Determinism and budget
 
 The built-in operators enumerate mutants deterministically, and variants are
