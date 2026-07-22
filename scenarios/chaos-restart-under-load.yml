@@ -1,0 +1,43 @@
+# Chaos-restart-under-load: steady publish/subscribe load runs against a single
+# relay, and a chaos hook restarts that relay mid-run. The outage makes in-flight
+# and mid-outage publishes fail; the reference publisher and subscriber reconnect
+# under the worker contract's Connection Loss rules, so the run recovers - error
+# metrics during the outage, then healthy traffic once the relay is back. A relay
+# lifecycle restart needs a topology provider with lifecycle commands, so this
+# scenario drives the reference overnet-relay.pl through the external-command
+# provider. Judged as a resilience experiment (docs/chaos.md): the system under
+# test must recover, not stay pristine, so the error-rate threshold is loose.
+run:
+  name: chaos-restart-under-load
+  duration: 60
+  seed: 24680
+
+topology:
+  relays:
+    count: 1
+    provider: external-command
+    command:
+      start: overnet-relay.pl --host 127.0.0.1 --port {port}
+      stop: pkill -f 'overnet-relay.pl --host 127.0.0.1 --port {port}'
+      health: perl -MIO::Socket::INET -e 'IO::Socket::INET->new(PeerAddr => "127.0.0.1:{port}", Timeout => 2) or exit 1'
+  publishers:
+    count: 2
+  subscribers:
+    count: 1
+
+workload:
+  publish_rate_per_second: 10
+  subscription_filters:
+    - kinds: [7800]
+
+chaos:
+  - at: 30
+    action: restart
+    target: relay:1
+
+thresholds:
+  # A relay restart makes publishes fail until the relay is back and the workers
+  # reconnect, so a restart-under-load run is judged on recovery, not a pristine
+  # error rate. The loose ceiling accommodates the outage while still failing a
+  # run that never recovers.
+  error_rate_max: 0.5

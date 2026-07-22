@@ -443,6 +443,15 @@ Purpose:
 ### `chaos-restart-under-load`
 
 A relay is killed and restarted while publishers and subscribers continue.
+Implemented as a composition of steady publish/subscribe load and a `restart`
+relay-lifecycle chaos hook ([chaos.md](chaos.md)): the hook stops and restarts
+the relay mid-run, the outage turns in-flight and mid-outage publishes into
+`error` metrics, and the reference publisher and subscriber reconnect under the
+worker contract's Connection Loss rules so the run recovers. A relay lifecycle
+restart needs a topology provider with lifecycle commands, so the relay runs
+through the `external-command` provider (the reference `overnet-relay.pl`); the
+run is judged as a resilience experiment with a recovery-tolerant error-rate
+ceiling. See `scenarios/chaos-restart-under-load.yml`.
 
 Purpose:
 
