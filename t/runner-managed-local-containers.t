@@ -97,6 +97,66 @@ YAML
     'the run removes every managed container';
 };
 
+subtest 'a container-provisioned sync_bridge is handed the whole relay mesh' => sub {
+
+  # sync-mesh converges more than two relays, so the multi-worker container
+  # execution path must hand a sync_bridge worker the full relay set, not just a
+  # pair. Run a three-relay + sync_bridge topology through the managed container
+  # path and confirm the bridge's staged worker input carries every relay.
+  my $scenario = File::Spec->catfile($tmp, 'mesh.yml');
+  _spew($scenario, <<'YAML');
+environment:
+  kind: local-containers
+  engine: docker
+run:
+  name: managed-sync-mesh
+  duration: 2
+  seed: 12345
+topology:
+  relays:
+    count: 3
+  publishers:
+    count: 2
+  sync_bridges:
+    count: 1
+workload:
+  publish_rate_per_second: 5
+  sync_bridge:
+    interval_seconds: 1
+    filters:
+      - kinds: [7800]
+YAML
+
+  my $run_id = 'managed-sync-mesh-001';
+  my $output =
+    `$^X $bin run --scenario $scenario --runs-dir $tmp/runs --run-id $run_id --runner rex-local-workers 2>&1`;
+  is $?, 0, 'the managed three-relay + sync_bridge run completes' or diag($output);
+
+  my $run_dir = File::Spec->catdir($tmp, 'runs', $run_id);
+  my $config  = _read_json(File::Spec->catfile($run_dir, 'config.normalized.json'));
+  is $config->{topology}{relays}{endpoints},
+    ['ws://relay-001:7447', 'ws://relay-002:7447', 'ws://relay-003:7447'],
+    'the run synthesizes an endpoint for every relay in the mesh';
+
+  my $argv = _slurp($engine_log);
+  is scalar(grep {/\Arun\x{0}-d\x{0}--name\x{0}burner-\Q$run_id\E-relay-guest-/mx} split /\n/, $argv), 3,
+    'one relay container per configured relay';
+  is scalar(grep {/\Arun\x{0}-d\x{0}--name\x{0}burner-\Q$run_id\E-worker-guest-/mx} split /\n/, $argv), 3,
+    'one worker container per worker actor (two publishers and the sync_bridge)';
+
+  # The staged worker input lands in the guest filesystem (the remap target),
+  # which is where the engine adapter copies it before launching the container.
+  my $input = _read_json(
+    File::Spec->catfile(
+      $ENV{OVERNET_BURNER_TEST_REMAP_TO}, $run_id, 'workers', 'sync-bridge-001', 'input.json',
+    ),
+  );
+  is $input->{role}, 'sync_bridge', 'the staged worker is the sync_bridge';
+  is $input->{endpoints}{relays},
+    ['ws://relay-001:7447', 'ws://relay-002:7447', 'ws://relay-003:7447'],
+    'the container-provisioned sync_bridge is handed the whole three-relay mesh';
+};
+
 subtest 'managed container runs stage guest files with absolute paths when runs-dir is relative' => sub {
   my $relative_log = File::Spec->catfile($tmp, 'relative-engine-argv.log');
   my $scenario     = File::Spec->catfile($tmp, 'managed-relative.yml');
