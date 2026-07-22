@@ -1,0 +1,35 @@
+# Sync-mesh: several relays receive staggered writes and a sync_bridge converges
+# the whole set over a configurable topology. Where sync-pair measures a single
+# primary/peer exchange, sync-mesh measures convergence across a larger relay
+# graph: the bridge folds over every relay in endpoints.relays, so the run
+# exposes how sync rounds and fetch/push traffic grow with the relay count. Like
+# sync-pair it uses the generic-relay provider, so it runs without containers.
+run:
+  name: sync-mesh
+  duration: 60
+  seed: 12345
+
+topology:
+  relays:
+    count: 3
+    provider: generic-relay
+    endpoints:
+      - ws://127.0.0.1:7777
+      - ws://127.0.0.1:7778
+      - ws://127.0.0.1:7779
+  publishers:
+    count: 3
+  sync_bridges:
+    count: 1
+
+workload:
+  publish_rate_per_second: 10
+  sync_bridge:
+    interval_seconds: 1
+    timeout_seconds: 10
+    filters:
+      - kinds: [7800]
+
+thresholds:
+  publish_p99_ms: 250
+  error_rate_max: 0.01

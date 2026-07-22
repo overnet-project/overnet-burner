@@ -26,8 +26,7 @@ sub run {
   my ($self) = @_;
 
   my $input    = $self->input;
-  my $primary  = $input->{endpoints}{relays}[0];
-  my $peer     = $input->{endpoints}{relays}[1];
+  my $relays   = $input->{endpoints}{relays} || [];
   my $interval = $self->_sync_interval;
 
   $self->open_metric_stream;
@@ -53,7 +52,7 @@ sub run {
       last;
     }
 
-    $self->_converge_once(left => $primary, right => $peer, phase => $self->phase_name_at(time - $started));
+    $self->_converge_once(relays => $relays, phase => $self->phase_name_at(time - $started));
     $tick++;
   }
 
@@ -62,23 +61,26 @@ sub run {
   return;
 }
 
-# One convergence session between the two relays. Starting from an empty local
-# set the bridge pulls the primary, then reconciles the peer (fetching the
-# peer's extra events and pushing the primary's), then pushes the completed
-# union back to the primary. After a session both relays hold the union of their
-# filtered event sets. Emits one sync_converge metric per session.
+# One convergence session across the relay set. Starting from an empty local
+# copy the bridge folds over the relays twice: the first pass reconciles each
+# relay in turn, fetching what it uniquely holds into the growing local copy and
+# pushing back what earlier relays contributed; by the last relay the local copy
+# is the full union. The second pass revisits every earlier relay to push it the
+# union members it still lacked. After a session all relays hold the union of
+# their filtered event sets. Emits one sync_converge metric per session. Reduces
+# to the classic three-round primary/peer exchange when given exactly two relays.
 sub _converge_once {
   my ($self, %args) = @_;
 
-  my ($primary, $peer) = @args{qw(left right)};
+  my $relays     = $args{relays} || [];
   my $started_at = time;
   my %session    = (rounds => 0, fetched => 0, pushed => 0, error => undef);
 
   my $ok = eval {
-    if (!(defined $peer && length $peer)) {
-      die "sync bridge requires a primary and a peer relay\n";
+    if (@{$relays} < 2) {
+      die "sync bridge requires at least two relays\n";
     }
-    $self->_converge($primary, $peer, \%session);
+    $self->_converge($relays, \%session);
     1;
   };
   if (!$ok) {
@@ -95,8 +97,9 @@ sub _converge_once {
     finished_at   => $self->iso_timestamp($finished_at),
     duration_ms   => ($finished_at - $started_at) * 1000,
     status        => $ok ? 'success' : 'error',
-    left_url      => $primary,
-    right_url     => $peer // q{},
+    left_url      => $relays->[0]  // q{},
+    right_url     => $relays->[-1] // q{},
+    relay_count   => scalar @{$relays},
     rounds        => $session{rounds},
     fetched_count => $session{fetched},
     pushed_count  => $session{pushed},
@@ -106,22 +109,29 @@ sub _converge_once {
   return;
 }
 
-# Drive the two relays to the union of their event sets, accumulating a local
-# copy and counting the fetch/push traffic into the session.
+# Drive the whole relay set to the union of their event sets, accumulating a
+# local copy and counting the fetch/push traffic into the session. The first
+# pass reconciles each relay against the growing local copy, fetching what it
+# uniquely holds and pushing back what the copy already carries; after it the
+# copy is the union and the last relay already holds it. The second pass pushes
+# that union to every earlier relay, filling the members each still lacked. For
+# two relays this is exactly the primary-pull, peer-reconcile, primary-push
+# exchange: three reconciliations, the union fetched, each relay pushed its gap.
 sub _converge {
-  my ($self, $primary, $peer, $session) = @_;
+  my ($self, $relays, $session) = @_;
 
   my %local;
 
-  my (undef, $primary_need) = $self->_reconcile($primary, \%local, $session);
-  $self->_absorb(\%local, $session, $self->_fetch($primary, $primary_need));
+  for my $relay (@{$relays}) {
+    my ($have, $need) = $self->_reconcile($relay, \%local, $session);
+    $self->_absorb(\%local, $session, $self->_fetch($relay, $need));
+    $session->{pushed} += $self->_push($relay, [map { $local{$_} } @{$have}]);
+  }
 
-  my ($peer_have, $peer_need) = $self->_reconcile($peer, \%local, $session);
-  $self->_absorb(\%local, $session, $self->_fetch($peer, $peer_need));
-  $session->{pushed} += $self->_push($peer, [map { $local{$_} } @{$peer_have}]);
-
-  my ($primary_have, undef) = $self->_reconcile($primary, \%local, $session);
-  $session->{pushed} += $self->_push($primary, [map { $local{$_} } @{$primary_have}]);
+  for my $relay (@{$relays}[0 .. $#{$relays} - 1]) {
+    my ($have, undef) = $self->_reconcile($relay, \%local, $session);
+    $session->{pushed} += $self->_push($relay, [map { $local{$_} } @{$have}]);
+  }
 
   return;
 }
@@ -317,7 +327,7 @@ sub _sync_filter {
 
 =head1 NAME
 
-Overnet::Burner::Worker::SyncBridge - negentropy convergence between two relays
+Overnet::Burner::Worker::SyncBridge - negentropy convergence across a relay set
 
 =head1 VERSION
 
@@ -330,11 +340,21 @@ Version 0.001.
 
 =head1 DESCRIPTION
 
-Converges two relays through NIP-77 negentropy reconciliation. Each session
-reconciles an accumulating local set against the primary relay
-(C<endpoints.relays[0]>) and the peer relay (C<endpoints.relays[1]>), fetches
-the events each relay is missing, and pushes them across so both relays end the
-session holding the union of their filtered event sets. See F<docs/workers.md>.
+Converges a set of relays through NIP-77 negentropy reconciliation. Each session
+reconciles an accumulating local set against every relay in C<endpoints.relays>
+in turn, fetches the events each relay is missing, and pushes them across so all
+relays end the session holding the union of their filtered event sets. Two
+relays are the pair case (a C<sync-pair> or C<partition-and-recover> bridge);
+three or more are a convergence mesh (the C<sync-mesh> scenario). See
+F<docs/workers.md>.
+
+The bridge folds over the relays twice. The first pass reconciles each relay
+against the growing local copy, fetching what that relay uniquely holds and
+pushing back what the copy already carries, so by the last relay the copy is the
+full union and that relay already holds it. The second pass revisits every
+earlier relay to push it the union members it still lacked. The total cost is
+C<2n-1> reconciliations for C<n> relays; for two relays that is exactly the
+classic three-round primary-pull, peer-reconcile, primary-push exchange.
 
 =head1 SUBROUTINES/METHODS
 
@@ -351,15 +371,18 @@ stops the loop.
 =head1 METRICS
 
 Each session emits one C<sync_converge> metric with C<duration_ms> (the session
-time), C<status>, C<rounds> (negentropy passes), C<fetched_count> (events pulled
-from the relays), C<pushed_count> (events uploaded to converge them), and the
-C<left_url>/C<right_url> of the reconciled pair.
+time), C<status>, C<rounds> (negentropy passes, C<2n-1> for C<n> relays),
+C<fetched_count> (events pulled from the relays), C<pushed_count> (events
+uploaded to converge them), C<relay_count> (how many relays were converged), and
+C<left_url>/C<right_url> - the first and last relay of the reconciled set (the
+same relay pair for the two-relay case).
 
 =head1 DIAGNOSTICS
 
 A topology that gives the bridge fewer than two relays, a relay it cannot
 reach, or a session that does not converge within the timeout is an C<error>
-metric, not a worker failure.
+metric, not a worker failure. A single unreachable relay in the set fails the
+whole session, since the union cannot be completed without it.
 
 =head1 CONFIGURATION AND ENVIRONMENT
 
@@ -379,9 +402,11 @@ None known.
 
 =head1 BUGS AND LIMITATIONS
 
-The bridge converges exactly two relays; larger relay graphs are the province
-of the planned C<sync-mesh> scenario. Each session reconciles from an empty
-local set, so it measures full convergence cost rather than incremental sync.
+Each session reconciles from an empty local set, so it measures full convergence
+cost rather than incremental sync. The relays converge through the bridge's
+local copy as a hub rather than reconciling with each other directly, so the
+session cost grows linearly with the relay count rather than modelling an
+arbitrary peer-to-peer sync topology.
 
 =head1 AUTHOR
 

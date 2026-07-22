@@ -434,6 +434,15 @@ Purpose:
 ### `sync-mesh`
 
 Multiple relays receive staggered writes and sync over a configurable topology.
+Implemented as a larger-relay-count composition of the same building blocks as
+`sync-pair`: the `sync_bridge` worker generalizes from a primary/peer pair to the
+whole `endpoints.relays` set, folding an accumulating local copy across every
+relay (`2n-1` negentropy reconciliations for `n` relays) so all relays end each
+session holding the global union. The `sync_converge` metric gains a
+`relay_count` and its `rounds`/`fetched_count`/`pushed_count` grow with the mesh
+size, exposing how convergence cost scales with the relay graph. Like `sync-pair`
+it runs on the `generic-relay` provider (no containers); see
+`scenarios/sync-mesh.yml`.
 
 Purpose:
 
