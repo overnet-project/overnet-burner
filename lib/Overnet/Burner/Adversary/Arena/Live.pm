@@ -192,6 +192,20 @@ sub _do_observe_capability {
   ];
 }
 
+sub _do_observe_availability {
+  my ($self, $payload) = @_;
+  my $subject = $self->_require_field($payload, 'subject');
+  my $scope   = $self->_require_field($payload, 'scope');
+
+  # An authority is available in a group when the subject can still exercise it:
+  # the operator probe authorizes (never stores) an operator action, which the
+  # relay refuses once the group is tombstoned or the subject's authority is
+  # gone. So a tombstone-squat or lockout shows up here as available => 0.
+  my $available = $self->_probe_operator($subject, $self->_group($payload->{group})) ? 1 : 0;
+  return [$self->_observation('observed_availability', {subject => $subject, scope => $scope, available => $available})
+  ];
+}
+
 sub _do_observe_state {
   my ($self, $payload) = @_;
   my $scope    = $self->_require_field($payload, 'scope');
@@ -478,6 +492,13 @@ live relay derives as operators, tagged with the given C<instance>. Two
 instances driven the same accepted events in different store orders emit
 matching C<observed_state>, which the oracle's convergence invariant judges; a
 divergence is a replay-ordering defect.
+
+=item * C<observe_availability> - C<subject>, C<scope>, optional C<group>: probe
+whether the subject can still exercise its authority in the named group and emit
+an C<observed_availability> whose C<available> flag is false once the group is
+tombstoned or the subject's authority is gone. The oracle's availability
+invariant judges it against the harness's C<expected_availability>, catching
+denial-of-service and channel-takeover attacks.
 
 =item * All group-addressed actions accept an optional C<group> (a symbolic
 group name). Omitted, the action targets the arena's default group; named, it

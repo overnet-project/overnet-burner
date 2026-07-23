@@ -140,4 +140,41 @@ subtest 'the arena expresses a snapshot smuggle (d authorizes, h targets another
   is ref($observations), 'ARRAY', 'a snapshot smuggle action is accepted by the arena vocabulary';
 };
 
+subtest 'observe_availability catches a channel that is tombstoned out from under its operator' => sub {
+  my $result = _run(
+    session_id => 'multigroup-availability',
+    actions    => [
+      @SEED_VICTIM_OPERATOR,
+
+      # While the channel is healthy the operator can act: available.
+      {type => 'observe_availability', payload => {subject => 'operator', scope => $SCOPE, group => 'victim'}},
+
+      # The channel is tombstoned (here by a delegated 39000 the operator itself
+      # signs; the same denial is what a cross-group tombstone attack inflicts).
+      {
+        type    => 'publish_snapshot',
+        payload => {
+          signer     => 'operator-session',
+          actor      => 'operator',
+          authority  => 'operator-grant',
+          kind       => 39_000,
+          group      => 'victim',
+          tombstoned => 1,
+        },
+      },
+
+      # Now the operator can no longer act: the authority has been denied.
+      {type => 'observe_availability', payload => {subject => 'operator', scope => $SCOPE, group => 'victim'}},
+    ],
+    ground_truth =>
+      {expected_availability => [{subject => 'operator', scope => $SCOPE, available => 1}]},
+  );
+
+  my @avail = map { $_->{payload}{available} }
+    grep { $_->{type} eq 'observed_availability' } @{$result->{session}->steps_of_kind('observation')};
+  is \@avail, [1, 0], 'the operator was available before the tombstone and denied after';
+  ok $result->{verdict}{violated}, 'the availability invariant catches the authority being destroyed';
+  is $result->{verdict}{invariants}{availability}{status}, 'violated', 'availability is the violated invariant';
+};
+
 done_testing;

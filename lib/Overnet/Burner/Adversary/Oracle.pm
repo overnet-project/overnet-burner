@@ -19,6 +19,7 @@ sub _build_invariants {
   return {
     authorization => \&_authorization_invariant,
     admission     => \&_admission_invariant,
+    availability  => \&_availability_invariant,
     convergence   => \&_convergence_invariant,
   };
 }
@@ -167,6 +168,52 @@ sub _admission_invariant {
   };
 }
 
+sub _availability_invariant {
+  my ($session, $ground_truth) = @_;
+
+  my %expected;
+  for my $entry (@{$ground_truth->{expected_availability} || []}) {
+    $expected{_admission_key($entry)} = _bool($entry->{available});
+  }
+
+  my @findings;
+  my $judged = 0;
+  for my $step (@{_observations_of_type($session, 'observed_availability')}) {
+    my $claim = $step->{payload};
+    my $key   = _admission_key($claim);
+    if (!exists $expected{$key}) {
+      next;
+    }
+    $judged++;
+    my $observed = _bool($claim->{available});
+    if ($observed != $expected{$key}) {
+      push @findings,
+        {
+        summary => sprintf(
+          'authority %s in scope %s is %s but must be %s',
+          _claim_field($claim, 'subject'),
+          _claim_field($claim, 'scope'),
+          ($observed       ? 'available' : 'denied'),
+          ($expected{$key} ? 'available' : 'denied'),
+        ),
+        subject            => _claim_field($claim, 'subject'),
+        scope              => _claim_field($claim, 'scope'),
+        expected_available => $expected{$key},
+        observed_available => $observed,
+        evidence_seq       => $step->{seq},
+        };
+    }
+  }
+
+  if (!$judged) {
+    return {status => 'inconclusive', findings => []};
+  }
+  return {
+    status   => (@findings ? 'violated' : 'upheld'),
+    findings => \@findings,
+  };
+}
+
 sub _convergence_invariant {
   my ($session, $ground_truth) = @_;
 
@@ -285,6 +332,14 @@ that subject and scope. Admitting a subject the harness knows should be refused,
 or refusing one it should admit, is a finding: the shape of ban evasion and
 unauthorized admission.
 
+=item * C<availability> - an authority the harness expects to remain usable must
+still be usable. An C<observed_availability> observation (a C<subject>, C<scope>,
+and C<available> flag) whose flag disagrees with the harness's
+C<expected_availability> for that subject and scope is a finding: the shape of a
+denial-of-service or resource takeover, such as an unauthorized party tombstoning
+a channel so its operator can no longer act. Where C<authorization> catches an
+authority nobody granted, C<availability> catches an authority someone destroyed.
+
 =item * C<convergence> - instances that have seen the same accepted events must
 expose the same authoritative state. Two C<observed_state> observations for the
 same C<scope> from different C<instance> values whose C<state> differs are a
@@ -292,9 +347,9 @@ finding: the shape of authority-state divergence.
 
 =back
 
-Further invariants (defense category, availability, and protocol-specific ones)
-register through L</add_invariant>; a protocol profile maps its
-implementation-specific observations onto the neutral shapes this oracle judges.
+Further invariants (defense category and protocol-specific ones) register
+through L</add_invariant>; a protocol profile maps its implementation-specific
+observations onto the neutral shapes this oracle judges.
 
 =head1 SUBROUTINES/METHODS
 

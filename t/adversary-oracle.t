@@ -210,6 +210,52 @@ subtest 'admission: an observation with no expectation is inconclusive' => sub {
   is $verdict->{invariants}{admission}{status}, 'inconclusive', 'no expectation means nothing judged';
 };
 
+subtest 'availability: an authority that stays usable is upheld' => sub {
+  my $session = _session();
+  $session->append_observation(
+    type    => 'observed_availability',
+    payload => {subject => 'operator-pk', scope => 'channel:#ops', available => 1},
+  );
+
+  my $verdict = Overnet::Burner::Adversary::Oracle->new->evaluate(
+    session      => $session,
+    ground_truth => {expected_availability => [{subject => 'operator-pk', scope => 'channel:#ops', available => 1}]},
+  );
+  is $verdict->{invariants}{availability}{status}, 'upheld', 'a usable authority upholds availability';
+  ok !$verdict->{violated}, 'a usable authority is not a violation';
+};
+
+subtest 'availability: an authority denied when it must stay usable is a violation' => sub {
+  my $session = _session();
+  $session->append_observation(
+    type    => 'observed_availability',
+    payload => {subject => 'operator-pk', scope => 'channel:#ops', available => 0},
+  );
+
+  my $verdict = Overnet::Burner::Adversary::Oracle->new->evaluate(
+    session      => $session,
+    ground_truth => {expected_availability => [{subject => 'operator-pk', scope => 'channel:#ops', available => 1}]},
+  );
+  is $verdict->{invariants}{availability}{status}, 'violated', 'a denied authority violates availability';
+  ok $verdict->{violated}, 'a denied authority fails the verdict';
+
+  my ($finding) = @{$verdict->{invariants}{availability}{findings}};
+  is $finding->{subject},            'operator-pk', 'the finding names the denied authority';
+  is $finding->{scope},              'channel:#ops', 'the finding names the scope';
+  is $finding->{observed_available}, 0,             'the finding records the observed denial';
+};
+
+subtest 'availability: an observation with no expectation is inconclusive' => sub {
+  my $session = _session();
+  $session->append_observation(
+    type    => 'observed_availability',
+    payload => {subject => 'stranger-pk', scope => 'channel:#ops', available => 0},
+  );
+
+  my $verdict = Overnet::Burner::Adversary::Oracle->new->evaluate(session => $session, ground_truth => {});
+  is $verdict->{invariants}{availability}{status}, 'inconclusive', 'no expectation means nothing judged';
+};
+
 subtest 'convergence: instances that agree on state are upheld' => sub {
   my $session = _session();
   for my $instance (qw(instance-a instance-b)) {
