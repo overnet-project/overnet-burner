@@ -113,6 +113,7 @@ my @COMMANDS = (
       ['--verbose',            'stream run progress to standard error'],
       ['--random-scenario',    'generate the scenario from --scenario-seed instead of --scenario'],
       ['--scenario-seed N',    'the seed for --random-scenario'],
+      ['--seed N',             'an alias for --scenario-seed; the two are mutually exclusive'],
       ['--profile FILE',       'a generator profile that shapes the generated scenario'],
       ['--random-profile',     'also generate the profile (requires --random-scenario)'],
       ['--profile-seed N',     'the seed for --random-profile'],
