@@ -27,6 +27,34 @@ my $worker_no_input = `$^X $bin worker 2>&1`;
 is $? >> 8, 2, 'worker command exits nonzero without input';
 like $worker_no_input, qr/OVERNET_BURNER_WORKER_INPUT/mx, 'worker command reports the missing input document';
 
+# Every command and subcommand answers --help with a synopsis and its flags.
+my @subcommands = qw(validate plan generate generate-profile init-run render-rex run report compare worker);
+
+my $top_help = `$^X $bin --help 2>&1`;
+is $? >> 8, 0, 'overnet-burner --help exits zero';
+like $top_help, qr/load,\ resilience,\ and\ adversarial\ test\ harness/mx,
+  'top-level help says what overnet-burner is, not just flags';
+for my $name (@subcommands) {
+  like $top_help, qr/^[ ]+\Q$name\E[ ]+\S/mx, "the overview lists the $name command";
+}
+
+for my $name (@subcommands) {
+  my $help = `$^X $bin $name --help 2>&1`;
+  is $? >> 8, 0, "$name --help exits zero";
+  like $help, qr/\Aovernet-burner[ ]\Q$name\E[ ]-[ ]\S/mx, "$name --help names the command with a synopsis";
+  like $help, qr/^usage:$/mx, "$name --help shows a usage line";
+}
+
+# `help COMMAND` is an alias for `COMMAND --help`, and documents flags accurately.
+my $help_run = `$^X $bin help run 2>&1`;
+is $? >> 8, 0, 'help run exits zero';
+like $help_run, qr/^[ ]+--runner[ ]NAME[ ]+.*rex-local-workers/mx, 'help run documents the --runner flag accurately';
+
+# An unknown help topic is reported like an unknown command, not a crash.
+my $help_bogus = `$^X $bin help bogus 2>&1`;
+is $? >> 8, 2, 'help for an unknown command exits nonzero';
+like $help_bogus, qr/unknown[ ]command:[ ]bogus/mx, 'help for an unknown command explains why';
+
 my $validate = `$^X $bin validate --scenario $scenario 2>&1`;
 is $?, 0, 'validate command exits successfully';
 like $validate, qr/\Avalid\ scenario:\ single-relay-baseline\n?\z/xm, 'validate command reports scenario name';

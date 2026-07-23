@@ -9,5 +9,18 @@ use Overnet::Burner::WorkerCommand;
 our $VERSION = '0.001';
 
 if (!caller) {
+  if (grep { $_ eq '--help' || $_ eq '-h' } @ARGV) {
+    print {*STDOUT} <<'HELP' or die "print: $!\n";
+overnet-burner-worker - run one burner worker from its input document.
+
+Reads the worker input JSON path from the OVERNET_BURNER_WORKER_INPUT environment
+variable and runs that single worker. The runner launches one worker per actor, so
+this is an internal entry point rather than a command run by hand.
+
+usage:
+  overnet-burner-worker    (driven by the OVERNET_BURNER_WORKER_INPUT environment variable)
+HELP
+    exit 0;
+  }
   exit Overnet::Burner::WorkerCommand->run_from_environment(@ARGV);
 }

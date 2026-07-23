@@ -23,6 +23,135 @@ use Overnet::Burner::WorkerCommand;
 
 our $VERSION = '0.001';
 
+# What overnet-burner is, in one breath - shown at the top of `--help`.
+my $TAGLINE = 'overnet-burner - a load, resilience, and adversarial test harness for Overnet relays.';
+
+# The command catalog drives both the top-level overview and each command's own
+# --help. Keep it in step with the dispatch in main() and each _<command> parser:
+# `summary` is the one-line overview entry, `synopsis` is what the command does,
+# `usage` is its invocation, and `options` documents exactly the flags it parses.
+my @COMMANDS = (
+  {
+    name     => 'validate',
+    summary  => 'Check a scenario file without running it.',
+    synopsis => 'Load a scenario file, normalize it, and check it against the schema and semantic rules. '
+      . 'Prints the run name on success and runs nothing; exits nonzero on the first problem.',
+    usage   => 'overnet-burner validate --scenario FILE',
+    options => [['--scenario FILE', 'the scenario YAML to validate (required)'],],
+  },
+  {
+    name     => 'plan',
+    summary  => 'Build and print a scenario execution plan as JSON.',
+    synopsis => 'Build the execution plan for a scenario - the concrete relays, workers, workload phases, and '
+      . 'topology provider it resolves to - and print it as canonical JSON. Runs nothing.',
+    usage   => 'overnet-burner plan --scenario FILE',
+    options => [['--scenario FILE', 'the scenario YAML to plan (required)'],],
+  },
+  {
+    name     => 'generate',
+    summary  => 'Deterministically generate a scenario from a seed.',
+    synopsis => 'Generate a scenario YAML deterministically from a seed, optionally shaped by a generator '
+      . 'profile. Prints the scenario or writes it to a file.',
+    usage   => 'overnet-burner generate --scenario-seed N [--profile FILE] [--out FILE]',
+    options => [
+      ['--scenario-seed N', 'the seed the scenario is generated from (required)'],
+      ['--seed N',          'an alias for --scenario-seed; the two are mutually exclusive'],
+      ['--profile FILE',    'a generator profile that shapes the generated scenario'],
+      ['--out FILE',        'write the scenario here instead of standard output'],
+    ],
+  },
+  {
+    name     => 'generate-profile',
+    summary  => 'Deterministically generate a generator profile from a seed and template.',
+    synopsis => 'Generate a generator profile YAML deterministically from a seed and a profile template. '
+      . 'Prints the profile or writes it to a file.',
+    usage   => 'overnet-burner generate-profile --profile-seed N --profile-template FILE [--out FILE]',
+    options => [
+      ['--profile-seed N',      'the seed the profile is generated from (required)'],
+      ['--profile-template FILE', 'the profile template to instantiate (required)'],
+      ['--out FILE',            'write the profile here instead of standard output'],
+    ],
+  },
+  {
+    name     => 'init-run',
+    summary  => 'Lay out a run directory from a scenario without executing it.',
+    synopsis => 'Create a run directory from a scenario: normalize the config, build the plan, and write the '
+      . 'run ledger - without executing anything. Useful for inspecting exactly what a run would do.',
+    usage   => 'overnet-burner init-run --scenario FILE [--runs-dir DIR] [--run-id ID]',
+    options => [
+      ['--scenario FILE', 'the scenario YAML to lay out (required)'],
+      ['--runs-dir DIR',  'the directory runs are created under (default: runs)'],
+      ['--run-id ID',     'a fixed run id (default: one is generated)'],
+    ],
+  },
+  {
+    name     => 'render-rex',
+    summary  => 'Lay out a run and render its Rex deployment bundle.',
+    synopsis => 'Create a run directory and render its Rex deployment bundle - the tasks that would provision '
+      . 'and drive the run - without executing it.',
+    usage   => 'overnet-burner render-rex --scenario FILE [--runs-dir DIR] [--run-id ID]',
+    options => [
+      ['--scenario FILE', 'the scenario YAML to render (required)'],
+      ['--runs-dir DIR',  'the directory runs are created under (default: runs)'],
+      ['--run-id ID',     'a fixed run id (default: one is generated)'],
+    ],
+  },
+  {
+    name     => 'run',
+    summary  => 'Execute a scenario end to end and write its report.',
+    synopsis => 'Execute a scenario end to end: create the run, drive it with the chosen runner (provision '
+      . 'relays and workers, apply chaos, collect metrics), and write report.json. The default noop runner '
+      . 'provisions nothing - a real run needs --runner rex-local-workers. Instead of --scenario, the '
+      . 'scenario (and optionally the profile) can be generated from seeds.',
+    usage => 'overnet-burner run (--scenario FILE | --random-scenario --scenario-seed N) '
+      . '[--runner NAME] [--runs-dir DIR] [--run-id ID] [--verbose]',
+    options => [
+      ['--scenario FILE',      'the scenario YAML to run (required unless generating)'],
+      ['--runner NAME',        'noop | rex-local | rex-local-provider | rex-local-workers (default: noop)'],
+      ['--runs-dir DIR',       'the directory runs are created under (default: runs)'],
+      ['--run-id ID',          'a fixed run id (default: one is generated)'],
+      ['--verbose',            'stream run progress to standard error'],
+      ['--random-scenario',    'generate the scenario from --scenario-seed instead of --scenario'],
+      ['--scenario-seed N',    'the seed for --random-scenario'],
+      ['--profile FILE',       'a generator profile that shapes the generated scenario'],
+      ['--random-profile',     'also generate the profile (requires --random-scenario)'],
+      ['--profile-seed N',     'the seed for --random-profile'],
+      ['--profile-template FILE', 'the profile template for --random-profile'],
+    ],
+  },
+  {
+    name     => 'report',
+    summary  => 'Regenerate report.json for a completed run.',
+    synopsis => 'Regenerate report.json for a completed run directory by aggregating its metric streams and '
+      . 'judging them against the scenario thresholds.',
+    usage   => 'overnet-burner report --run-dir DIR',
+    options => [['--run-dir DIR', 'the run directory to report on (required)'],],
+  },
+  {
+    name     => 'compare',
+    summary  => 'Compare two run reports and flag regressions.',
+    synopsis => 'Compare two run reports and summarize the threshold and metric regressions and improvements '
+      . 'between them. Exits nonzero when the candidate regressed, unless --allow-regression, so it can gate CI.',
+    usage   => 'overnet-burner compare BASELINE_REPORT CANDIDATE_REPORT [--json] [--allow-regression]',
+    options => [
+      ['BASELINE_REPORT',   'the baseline report (or --baseline FILE)'],
+      ['CANDIDATE_REPORT',  'the candidate report to compare against it (or --candidate FILE)'],
+      ['--json',            'print the full diff as JSON instead of a summary'],
+      ['--allow-regression', 'report regressions but still exit zero'],
+    ],
+  },
+  {
+    name     => 'worker',
+    summary  => 'Run a single worker from its input document (used internally).',
+    synopsis => 'Run one burner worker from its input document. The runner sets OVERNET_BURNER_WORKER_INPUT '
+      . 'and launches one worker per actor, so this is an internal entry point rather than a command run by hand.',
+    usage   => 'overnet-burner worker',
+    options => [],
+  },
+);
+
+my %COMMAND = map { $_->{name} => $_ } @COMMANDS;
+
 if (!caller) {
   exit main(@ARGV);
 }
@@ -32,6 +161,16 @@ sub main {
   my $command = shift @args || return _usage();
 
   my $status = eval {
+
+    # `overnet-burner --help`, `-h`, or `help [COMMAND]` prints help to stdout,
+    # as does a --help/-h anywhere in a command's arguments (so `run --help`
+    # works). An unknown help topic is reported like any unknown command.
+    if ($command eq '--help' || $command eq '-h' || $command eq 'help') {
+      return _help(shift @args);
+    }
+    if (grep { $_ eq '--help' || $_ eq '-h' } @args) {
+      return _command_help($command);
+    }
     if ($command eq 'validate') {
       return _validate(@args);
     }
@@ -713,6 +852,58 @@ sub _shell_quote {
   $quoted =~ s/'/'\\''/gmxs;
 
   return "'$quoted'";
+}
+
+# Top-level help: with no topic, the overview; with a command name, that
+# command's help. An unknown topic is reported like an unknown command.
+sub _help {
+  my ($topic) = @_;
+
+  if (defined $topic && length $topic) {
+    return _command_help($topic);
+  }
+
+  my @lines = ("$TAGLINE\n", "\n", "usage:\n", "  overnet-burner <command> [options]\n", "\n", "commands:\n",);
+  my $width = 0;
+  for my $command (@COMMANDS) {
+    my $length = length $command->{name};
+    $width = $length if $length > $width;
+  }
+  for my $command (@COMMANDS) {
+    push @lines, sprintf "  %-*s  %s\n", $width, $command->{name}, $command->{summary};
+  }
+  push @lines, "\n", "Run 'overnet-burner help <command>' or 'overnet-burner <command> --help' for details.\n";
+
+  checked_print(\*STDOUT, join q{}, @lines);
+  return 0;
+}
+
+# One command's help: what it does, how to invoke it, and each flag it accepts.
+sub _command_help {
+  my ($name) = @_;
+
+  my $command = $COMMAND{$name};
+  if (!$command) {
+    die "unknown command: $name\n";
+  }
+
+  my @lines = ("overnet-burner $command->{name} - $command->{summary}\n", "\n", "$command->{synopsis}\n", "\n",
+    "usage:\n", "  $command->{usage}\n",);
+
+  if (@{$command->{options}}) {
+    my $width = 0;
+    for my $option (@{$command->{options}}) {
+      my $length = length $option->[0];
+      $width = $length if $length > $width;
+    }
+    push @lines, "\n", "options:\n";
+    for my $option (@{$command->{options}}) {
+      push @lines, sprintf "  %-*s  %s\n", $width, $option->[0], $option->[1];
+    }
+  }
+
+  checked_print(\*STDOUT, join q{}, @lines);
+  return 0;
 }
 
 sub _usage {

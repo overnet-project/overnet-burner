@@ -25,8 +25,29 @@ if (!caller) {
   exit run(@ARGV);
 }
 
+sub _help_text {
+  return <<'HELP';
+overnet-burner-adversary-server - serve the adversary harness over TCP.
+
+Accepts TCP connections and, for each, reads one request, dispatches it to the
+adversary engine, and writes one response - so an out-of-process driver can run
+attack sessions against a system under test over the wire.
+
+usage:
+  overnet-burner-adversary-server [--host HOST] [--port PORT]
+
+options:
+  --host HOST  the address to listen on (default: 127.0.0.1)
+  --port PORT  the TCP port to listen on (default: 7480)
+HELP
+}
+
 sub run {
   my (@argv) = @_;
+  if (grep { $_ eq '--help' || $_ eq '-h' } @argv) {
+    print {*STDOUT} _help_text() or die "print: $!\n";
+    return 0;
+  }
   my %opt = (host => '127.0.0.1', port => 7480);
   GetOptionsFromArray(\@argv, 'host=s' => \$opt{host}, 'port=i' => \$opt{port})
     or die "usage: overnet-burner-adversary-server [--host HOST] [--port PORT]\n";
