@@ -146,22 +146,37 @@ sub _signature {
 }
 
 # The honest baseline of a scenario is the ordered set of authoritative
-# snapshots - publish_snapshot events signed by a declared snapshot signer. A
-# mutation that leaves this digest unchanged has not disturbed the state the
-# ground truth was computed against; forged snapshots (foreign signers) are not
-# baseline and remain fair game for mutation.
+# establishment events the ground truth was computed against: publish_snapshot
+# events signed by a declared snapshot signer, and - because an IRC operator is
+# established by a delegated control event, not a snapshot - the publish_grant
+# and publish_control events whose actor is a declared baseline actor. A mutation
+# that leaves this digest unchanged has not disturbed that state; forged
+# snapshots (foreign signers) and the attacker's own grants/controls are not
+# baseline and remain fair game for mutation. A mutation that drops or alters the
+# baseline changes the world the ground truth assumed, so its verdict is a
+# scenario-drift artifact rather than a reopened hole - the adversary does not
+# get to un-publish the honest authority's established state.
 sub _baseline_digest {
   my ($self, $base, $actions) = @_;
 
-  my %is_signer = map { $_ => 1 } @{$base->{snapshot_signers} || []};
-  my @baseline  = grep {
-         ref $_ eq 'HASH'
-      && defined $_->{type}
-      && $_->{type} eq 'publish_snapshot'
-      && ref $_->{payload} eq 'HASH'
-      && defined $_->{payload}{signer}
-      && $is_signer{$_->{payload}{signer}}
-  } @{$actions};
+  my %is_signer         = map { $_ => 1 } @{$base->{snapshot_signers} || []};
+  my %is_baseline_actor = map { $_ => 1 } @{$base->{baseline_actors}  || []};
+
+  my @baseline;
+  for my $action (@{$actions}) {
+    if (!(ref $action eq 'HASH' && defined $action->{type} && ref $action->{payload} eq 'HASH')) {
+      next;
+    }
+    my $type    = $action->{type};
+    my $payload = $action->{payload};
+    if ($type eq 'publish_snapshot' && defined $payload->{signer} && $is_signer{$payload->{signer}}) {
+      push @baseline, $action;
+    } elsif (($type eq 'publish_grant' || $type eq 'publish_control')
+      && defined $payload->{actor}
+      && $is_baseline_actor{$payload->{actor}}) {
+      push @baseline, $action;
+    }
+  }
 
   return $JSON->encode(\@baseline);
 }
@@ -256,6 +271,16 @@ fuzzer). Returns a hash reference with C<swept> (how many bases ran), C<explored
 (how many variants ran in total), C<regressions> (each C<< {base, label, actions,
 verdict} >> for a variant judged violated), and C<errors> (each C<< {base, label,
 message} >> for a variant whose run threw).
+
+A regression is reported only when the mutation preserved the base's honest
+baseline - the authoritative establishment events the ground truth was computed
+against. A base declares that baseline through C<snapshot_signers> (whose
+authoritative C<publish_snapshot> events are baseline) and C<baseline_actors>
+(whose C<publish_grant> and C<publish_control> events are baseline, for authority
+established by a delegated control event rather than a snapshot). A mutation that
+drops or alters a baseline event has changed the world the ground truth assumed,
+so its verdict is scenario drift and is filtered out rather than misreported as a
+reopened hole.
 
 =head2 promote
 

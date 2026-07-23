@@ -243,4 +243,66 @@ subtest 'the hardened live relay withstands the whole corpus neighbourhood' => s
     or diag join "\n", map {"$_->{base}/$_->{label}"} @{$result->{regressions}};
 };
 
+subtest 'the baseline guard covers control-event-established authority, not just snapshots' => sub {
+  my $relay_available = eval { require Overnet::Authority::HostedChannel::Relay; 1 };
+  if (!$relay_available) {
+    plan skip_all => 'relay-perl not available (Overnet::Authority::HostedChannel::Relay)';
+  }
+
+  my $campaign = Overnet::Burner::Adversary::Campaign->new(
+    corpus => Overnet::Burner::Adversary::Corpus->new(dir => tempdir(CLEANUP => 1)),
+  );
+
+  # The honest baseline is an operator established by a delegated 9000 (the
+  # natural IRC bootstrap). The attacker attempts the same self-bootstrap, which
+  # the relay rejects while the operator holds the group. But a structural
+  # mutation that drops the operator's establishing events empties the group, so
+  # the attacker's bootstrap then legitimately succeeds and leaks operator: a
+  # scenario-drift artifact, not a reopened hole. It must be filtered as drift,
+  # exactly as a dropped authoritative snapshot is.
+  my @setup = (
+    {type => 'new_identity',  payload => {name  => 'operator'}},
+    {type => 'publish_grant', payload => {actor => 'operator', delegate => 'operator-session', id => 'operator-grant'}},
+    {
+      type    => 'publish_control',
+      payload => {
+        signer    => 'operator-session',
+        actor     => 'operator',
+        authority => 'operator-grant',
+        kind      => 9_000,
+        roles     => [{subject => 'operator', role => 'irc.operator'}],
+      },
+    },
+    {type => 'new_identity',  payload => {name  => 'attacker'}},
+    {type => 'publish_grant', payload => {actor => 'attacker', delegate => 'attacker-session', id => 'attacker-grant'}},
+    {
+      type    => 'publish_control',
+      payload => {
+        signer    => 'attacker-session',
+        actor     => 'attacker',
+        authority => 'attacker-grant',
+        kind      => 9_000,
+        roles     => [{subject => 'attacker', role => 'irc.operator'}],
+      },
+    },
+    {type => 'observe_capability', payload => {subject => 'attacker', scope => $SCOPE}},
+  );
+  my %ground = (authorized_capabilities => [{subject => 'operator', capability => 'irc.operator', scope => $SCOPE}]);
+
+  my $unguarded = $campaign->hunt(
+    bases        => [{name => 'ctl-seed', actions => [@setup], ground_truth => {%ground}}],
+    max_variants => 64,
+  );
+  ok scalar(@{$unguarded->{regressions}}),
+    'without a declared baseline, dropping the operator seed is misreported as a regression';
+
+  my $guarded = $campaign->hunt(
+    bases        => [{name => 'ctl-seed', baseline_actors => ['operator'], actions => [@setup], ground_truth => {%ground}}],
+    max_variants => 64,
+  );
+  is scalar(@{$guarded->{regressions}}), 0,
+    'declaring the operator a baseline actor filters the scenario-drift regressions'
+    or diag join "\n", map {"$_->{base}/$_->{label}"} @{$guarded->{regressions}};
+};
+
 done_testing;
