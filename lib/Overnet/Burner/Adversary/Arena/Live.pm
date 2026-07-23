@@ -96,7 +96,8 @@ sub _do_publish_control {
   my $kind         = $self->_require_kind($payload);
 
   my @tags = (
-    ['h',                 $self->group_id],
+    ['h', $self->_group($payload->{group})],
+    (defined $payload->{smuggle_group} ? (['d', $self->_group($payload->{smuggle_group})]) : ()),
     ['overnet_actor',     $actor_pubkey],
     ['overnet_authority', $authority_id],
     ['overnet_sequence',  (defined $payload->{sequence} ? "$payload->{sequence}" : '1')],
@@ -118,11 +119,23 @@ sub _do_publish_snapshot {
   my $signer_key = $self->_key($self->_require_field($payload, 'signer'));
   my $kind       = $self->_require_kind($payload);
 
-  my @tags = (['d', $self->group_id]);
+  my @tags = (['d', $self->_group($payload->{group})]);
+  if (defined $payload->{smuggle_group}) {
+    push @tags, ['h', $self->_group($payload->{smuggle_group})];
+  }
+  if (defined $payload->{actor}) {
+    push @tags, ['overnet_actor', $self->_key($payload->{actor})->pubkey_hex];
+  }
+  if (defined $payload->{authority}) {
+    push @tags, ['overnet_authority', $self->_resolve_authority($payload->{authority})];
+  }
   push @tags, $self->_role_tags($payload->{grants});
   push @tags, _ban_tags($payload->{bans});
   if ($payload->{closed}) {
     push @tags, ['closed'];
+  }
+  if ($payload->{tombstoned}) {
+    push @tags, ['status', 'tombstoned'];
   }
 
   my $event = $signer_key->create_event(
@@ -142,7 +155,7 @@ sub _do_join {
 
   my ($grant_id, $session_key) = $self->_provision_grant($actor);
   my @tags = (
-    ['h',                 $self->group_id],
+    ['h',                 $self->_group($payload->{group})],
     ['overnet_actor',     $self->_key($actor)->pubkey_hex],
     ['overnet_authority', $grant_id],
     ['overnet_sequence',  '1'],
@@ -172,7 +185,7 @@ sub _do_observe_capability {
   my $scope      = $self->_require_field($payload, 'scope');
   my $capability = defined $payload->{capability} ? $payload->{capability} : $OPERATOR_ROLE;
 
-  if (!$self->_probe_operator($subject)) {
+  if (!$self->_probe_operator($subject, $self->_group($payload->{group}))) {
     return [];
   }
   return [$self->_observation('observed_capability', {subject => $subject, capability => $capability, scope => $scope})
@@ -193,7 +206,7 @@ sub _do_observe_state {
     if (!(defined $subject && !ref($subject) && length $subject)) {
       croak "each subject must be a non-empty identity name\n";
     }
-    if ($self->_probe_operator($subject)) {
+    if ($self->_probe_operator($subject, $self->_group($payload->{group}))) {
       push @operators, $subject;
     }
   }
@@ -223,7 +236,7 @@ sub _ingest {
 # operator in derived state, so acceptance is an independent, live-relay answer
 # to "does this subject hold operator" - it never trusts the attacker's claim.
 sub _probe_operator {
-  my ($self,     $subject)     = @_;
+  my ($self, $subject, $group) = @_;
   my ($grant_id, $session_key) = $self->_provision_grant($subject);
   my $subject_pubkey = $self->_key($subject)->pubkey_hex;
 
@@ -232,7 +245,7 @@ sub _probe_operator {
     created_at => $self->_next_time,
     content    => q{},
     tags       => [
-      ['h',                 $self->group_id],
+      ['h',                 (defined $group ? $group : $self->group_id)],
       ['overnet_actor',     $subject_pubkey],
       ['overnet_authority', $grant_id],
       ['overnet_sequence',  '1'],
@@ -255,6 +268,22 @@ sub _provision_grant {
   $relay->store->store($grant);
 
   return ($grant->id, $session_key);
+}
+
+# Resolve a symbolic group name to a stable, distinct relay group id. An action
+# with no group targets the arena's default group (backward compatible); a named
+# group gets its own id, so a scenario can drive more than one group at once and
+# express cross-group attacks that bind an event's `h` and `d` tags to different
+# groups.
+sub _group {
+  my ($self, $name) = @_;
+  if (!defined $name) {
+    return $self->group_id;
+  }
+  if (ref($name) || !length $name) {
+    croak "group name must be a non-empty string\n";
+  }
+  return $self->group_id . ":$name";
 }
 
 sub _grant_event {
@@ -389,9 +418,11 @@ available.
 Actions name identities and grants symbolically (C<operator>, C<attacker>,
 C<operator-grant>). The arena maps each identity name to a deterministic
 secp256k1 keypair derived from the arena seed, so a run is reproducible and the
-same name always resolves to the same key. All scopes map onto a single relay
-group; the symbolic C<scope> in an action is echoed verbatim into the
-observations so it lines up with the oracle's ground truth.
+same name always resolves to the same key. An action's symbolic C<group>
+resolves to a distinct relay group id (the default group when omitted), so a
+scenario can drive more than one group and express cross-group attacks; the
+symbolic C<scope> in an action is echoed verbatim into the observations so it
+lines up with the oracle's ground truth.
 
 =head2 Deriving observations independently
 
@@ -417,27 +448,41 @@ delegation grant signed by C<actor> delegating to C<delegate>; C<id> records a
 symbolic handle a later control event can reference as its authority.
 
 =item * C<publish_control> - C<signer>, C<actor>, C<authority>, C<kind>,
-optional C<roles> (list of C<< {subject, role} >>), C<sequence>, C<created_at>:
-publish a NIP-29 control event and return the relay's decision.
+optional C<roles> (list of C<< {subject, role} >>), C<sequence>, C<created_at>,
+C<group>, C<smuggle_group>: publish a NIP-29 control event and return the
+relay's decision. C<group> selects the group the event is authorized against
+(its C<h> tag); C<smuggle_group> additionally binds the event's C<d> tag to a
+second group, expressing a cross-group attack that authorizes against one group
+while trying to fold into another.
 
 =item * C<publish_snapshot> - C<signer>, C<kind>, optional C<grants>, C<bans>,
-C<closed>, C<force_store>: publish a group snapshot. C<force_store> stores the
-event even when the relay refuses it, to mirror a forged snapshot that is
-present in the store but must be ignored in derived state.
+C<closed>, C<tombstoned>, C<force_store>, C<group>, C<smuggle_group>, C<actor>,
+C<authority>: publish a group snapshot. C<group> selects the group the snapshot
+addresses (its C<d> tag) and C<smuggle_group> binds its C<h> tag to a second
+group. C<actor>/C<authority> add the delegation tags of a delegated C<39000>
+metadata write, and C<tombstoned> marks the group tombstoned. C<force_store>
+stores the event even when the relay refuses it, to mirror a forged snapshot
+present in the store but ignored in derived state.
 
-=item * C<join> - C<actor>, C<scope>, optional C<mask>: submit a join request
-and return the relay's decision plus an C<observed_admission>.
+=item * C<join> - C<actor>, C<scope>, optional C<mask>, C<group>: submit a join
+request and return the relay's decision plus an C<observed_admission>.
 
-=item * C<observe_capability> - C<subject>, C<scope>, optional C<capability>:
-probe whether the subject holds the capability and emit an
-C<observed_capability> only if the live relay grants it.
+=item * C<observe_capability> - C<subject>, C<scope>, optional C<capability>,
+C<group>: probe whether the subject holds the capability in the named group and
+emit an C<observed_capability> only if the live relay grants it.
 
 =item * C<observe_state> - C<scope>, C<instance>, C<subjects> (list of identity
-names): probe each subject and emit one C<observed_state> whose C<state> is the
-canonical sorted set of subjects the live relay derives as operators, tagged
-with the given C<instance>. Two instances driven the same accepted events in
-different store orders emit matching C<observed_state>, which the oracle's
-convergence invariant judges; a divergence is a replay-ordering defect.
+names), optional C<group>: probe each subject in the named group and emit one
+C<observed_state> whose C<state> is the canonical sorted set of subjects the
+live relay derives as operators, tagged with the given C<instance>. Two
+instances driven the same accepted events in different store orders emit
+matching C<observed_state>, which the oracle's convergence invariant judges; a
+divergence is a replay-ordering defect.
+
+=item * All group-addressed actions accept an optional C<group> (a symbolic
+group name). Omitted, the action targets the arena's default group; named, it
+targets a distinct group, so a scenario can drive several groups at once. See
+L</Identities and scope>.
 
 =back
 
