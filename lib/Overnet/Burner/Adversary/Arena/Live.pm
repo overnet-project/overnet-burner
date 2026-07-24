@@ -76,11 +76,7 @@ sub _do_publish_grant {
   my $delegate_key = $self->_key($self->_require_field($payload, 'delegate'));
 
   my $grant = $self->_grant_event($actor_key, $delegate_key->pubkey_hex);
-  my $relay = $self->_sut;
-  my ($accepted, $reason) = $relay->on_event->($grant);
-  if ($accepted) {
-    $relay->store->store($grant);
-  }
+  my ($accepted, $reason) = $self->_submit_persisting($grant);
   if (defined $payload->{id}) {
     $self->_grants->{$payload->{id}} = $grant->id;
   }
@@ -236,12 +232,43 @@ sub _do_observe_state {
 
 sub _ingest {
   my ($self, $event, $force_store) = @_;
+  my ($accepted, $reason) = $self->_submit_persisting($event, $force_store);
+  return $self->_relay_outcome($accepted, $reason);
+}
+
+# The submission seam. These three methods are the only places the arena hands
+# an event to its system under test, so a subclass that drives the relay over a
+# different transport (for example a real WebSocket) overrides just these.
+#
+# _submit_persisting authorizes an event and persists it on acceptance (or when
+# forced), returning the relay's (accepted, reason) decision.
+sub _submit_persisting {
+  my ($self, $event, $force_store) = @_;
   my $relay = $self->_sut;
   my ($accepted, $reason) = $relay->on_event->($event);
   if ($accepted || $force_store) {
     $relay->store->store($event);
   }
-  return $self->_relay_outcome($accepted, $reason);
+  return ($accepted, $reason);
+}
+
+# _submit_probe authorizes an event WITHOUT persisting it -- a read-only probe of
+# derived authority. This has no faithful over-the-wire equivalent (a real relay
+# stores every accepted event), so wire-backed subclasses do not support it.
+sub _submit_probe {
+  my ($self, $event) = @_;
+  my ($accepted) = $self->_sut->on_event->($event);
+  return $accepted ? 1 : 0;
+}
+
+# _persist_grant unconditionally records a provisioning grant (used to set up a
+# valid delegation before a probe or join).
+sub _persist_grant {
+  my ($self, $grant) = @_;
+  my $relay = $self->_sut;
+  $relay->on_event->($grant);
+  $relay->store->store($grant);
+  return 1;
 }
 
 # A read-only probe of derived authority state: provision a valid grant and
@@ -267,8 +294,7 @@ sub _probe_operator {
     ],
   );
 
-  my ($accepted) = $self->_sut->on_event->($event);
-  return $accepted ? 1 : 0;
+  return $self->_submit_probe($event);
 }
 
 sub _provision_grant {
@@ -277,9 +303,7 @@ sub _provision_grant {
   my $session_key = $self->_derive_key("$actor/probe/" . $self->_next_session);
 
   my $grant = $self->_grant_event($actor_key, $session_key->pubkey_hex);
-  my $relay = $self->_sut;
-  $relay->on_event->($grant);
-  $relay->store->store($grant);
+  $self->_persist_grant($grant);
 
   return ($grant->id, $session_key);
 }
