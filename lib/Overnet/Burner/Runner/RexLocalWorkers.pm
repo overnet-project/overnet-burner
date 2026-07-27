@@ -32,6 +32,7 @@ no Moo;
 
 my %WORKER_ROLES = (
   publisher           => 1,
+  control_publisher   => 1,
   subscriber          => 1,
   query_reader        => 1,
   object_reader       => 1,
@@ -48,7 +49,9 @@ my %WORKER_ROLES = (
 );
 my @LAUNCH_WAVES = (
   [qw(subscriber query_reader object_reader observer syncer sync_bridge)],
-  [qw(publisher flooder malformed_publisher replayer subscription_abuser sybil connection_flood provenance_forger)],
+  [
+    qw(publisher control_publisher flooder malformed_publisher replayer subscription_abuser sybil connection_flood provenance_forger)
+  ],
 );
 my %NETEM_ACTIONS = ('net-delay' => 1, 'net-loss' => 1);
 my %NET_ACTIONS   = (%NETEM_ACTIONS, partition => 1, heal => 1);
@@ -895,7 +898,7 @@ sub _worker_actors {
   my $plan = $self->{plan};
   return
     map { @{$plan->{$_} || []} }
-    qw(subscribers query_readers object_readers observers syncers sync_bridges publishers
+    qw(subscribers query_readers object_readers observers syncers sync_bridges publishers control_publishers
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods provenance_forgers);
 }
 

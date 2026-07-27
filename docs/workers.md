@@ -278,6 +278,7 @@ trip on a single clock:
 | Role | Implementation |
 |---|---|
 | `publisher` | `overnet-burner worker` with `Overnet::Burner::Worker::Publisher` |
+| `control_publisher` | `overnet-burner worker` with `Overnet::Burner::Worker::ControlPublisher` |
 | `subscriber` | `overnet-burner worker` with `Overnet::Burner::Worker::Subscriber` |
 | `query_reader` | `overnet-burner worker` with `Overnet::Burner::Worker::QueryReader` |
 | `object_reader` | `overnet-burner worker` with `Overnet::Burner::Worker::ObjectReader` |
@@ -291,6 +292,29 @@ required core tags, body stamped with `sent_at`) at
 `workload.publish_rate_per_second`, waits for each relay acknowledgment, and
 emits one `publish` metric event per attempt — `success` on acceptance,
 `error` with the relay's reason on rejection or timeout.
+
+The reference control publisher (`topology.control_publishers.count`) generates
+the load an Overnet **authority** relay actually gates. An authority relay
+accepts ordinary content (the publisher's kind-7800 events) from anyone; only
+delegated NIP-29 group-control traffic goes through its delegation-authorization
+path. The control publisher establishes its own authority peer-to-relay — no IRC
+frontend required: it derives an authority/actor key and a delegated session
+key, publishes a delegation grant (kind `grant_kind`, default 14142) binding the
+session key to the relay, and publishes an initial operator put-user (kind 9000)
+the relay accepts as the empty group's operator self-grant. It then streams
+authorized put-user control events at `workload.publish_rate_per_second`, each
+adding a fresh synthetic member, so the relay verifies the grant and the actor's
+operator role for every event. Each attempt is one `control_publish` metric —
+`success` on acceptance, `error` with the relay's reason on rejection or
+timeout. On a lost connection it reconnects and re-establishes its authority
+(which a restarted relay's fresh store no longer holds) before resuming.
+`workload.control` may carry `grant_kind`, `group`, `scope`, and `relay_url`;
+each defaults sensibly, and `relay_url` (the grant's relay binding) defaults to
+the first relay endpoint, so it must be the relay's own configured relay-url. It
+targets an authority relay such as the shipped
+[`scenarios/authority-control-load.yml`](../scenarios/authority-control-load.yml)
+points at; against a plain relay its control events are simply accepted without
+exercising any authorization.
 
 The reference subscriber subscribes to the first relay endpoint with
 `workload.subscription_filters`, writes its readiness marker only after the

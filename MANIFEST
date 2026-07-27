@@ -76,6 +76,7 @@ lib/Overnet/Burner/Worker.pm
 lib/Overnet/Burner/WorkerCommand.pm
 lib/Overnet/Burner/Worker/Abuse.pm
 lib/Overnet/Burner/Worker/ConnectionFlood.pm
+lib/Overnet/Burner/Worker/ControlPublisher.pm
 lib/Overnet/Burner/Worker/Flooder.pm
 lib/Overnet/Burner/Worker/MalformedPublisher.pm
 lib/Overnet/Burner/Worker/Observer.pm
@@ -127,6 +128,7 @@ t/compare-unit.t
 t/config.t
 t/config-managed-environment.t
 t/container-engine.t
+t/control-publisher-role-wiring.t
 t/generate.t
 t/github-ci.t
 t/guest-base-unit.t
@@ -170,6 +172,7 @@ t/worker-abuse-unit.t
 t/worker-abuse.t
 t/worker-base-unit.t
 t/worker-command-unit.t
+t/worker-control-publisher.t
 t/worker-object-reader-unit.t
 t/worker-object-reader.t
 t/worker-observer-unit.t

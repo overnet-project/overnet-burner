@@ -174,7 +174,7 @@ sub _managed_worker_guest_count {
 
   my $count = 0;
   for my $role (
-    qw(publishers subscribers query_readers object_readers observers syncers sync_bridges
+    qw(publishers control_publishers subscribers query_readers object_readers observers syncers sync_bridges
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods
     provenance_forgers)
   ) {
@@ -207,7 +207,7 @@ sub _normalize_topology {
 
   $copy->{topology} ||= {};
   for my $role (
-    qw(publishers subscribers query_readers object_readers observers syncers sync_bridges
+    qw(publishers control_publishers subscribers query_readers object_readers observers syncers sync_bridges
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods
     provenance_forgers)
   ) {
@@ -246,7 +246,8 @@ sub _normalize_workload {
   if (!exists $copy->{workload}{sync_bridge}{interval_seconds}) {
     $copy->{workload}{sync_bridge}{interval_seconds} = 1;
   }
-  $copy->{workload}{abuse} ||= {};
+  $copy->{workload}{control} ||= {};
+  $copy->{workload}{abuse}   ||= {};
 
   return 1;
 }
@@ -273,6 +274,7 @@ sub validate {
   for my $path (
     qw(
     topology.publishers.count
+    topology.control_publishers.count
     topology.subscribers.count
     topology.query_readers.count
     topology.object_readers.count

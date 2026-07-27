@@ -1,0 +1,30 @@
+# Generate authorized NIP-29 control load against a deployed authority relay.
+#
+# The control_publisher role establishes its own delegated authority against the
+# relay (a kind-14142 grant plus an operator self-grant, peer-to-relay) and then
+# streams authorized put-user control events the relay must authorize per event.
+# It is the load that exercises an Overnet *authority* relay's delegation
+# machinery -- the part a generic relay does not have. Point `relays` at your
+# deployed authority relay (its ws:// endpoint must match the relay's configured
+# relay-url) before running.
+environment:
+  kind: external-relays
+  relays:
+    - ws://127.0.0.1:7448
+
+run:
+  name: authority-control-load
+  duration: 60
+  seed: 12345
+
+topology:
+  control_publishers:
+    count: 1
+
+workload:
+  publish_rate_per_second: 5
+  control:
+    grant_kind: 14142
+
+thresholds:
+  error_rate_max: 0.01

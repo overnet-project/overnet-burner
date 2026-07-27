@@ -41,6 +41,12 @@ sub build {
     role     => 'publisher',
     prefix   => 'publisher',
   );
+  my @control_publishers = _actors(
+    scenario => $scenario,
+    field    => 'control_publishers',
+    role     => 'control_publisher',
+    prefix   => 'control-publisher',
+  );
   my @subscribers = _actors(
     scenario => $scenario,
     field    => 'subscribers',
@@ -121,12 +127,14 @@ sub build {
   );
 
   my @actors = (
-    @relays,               @publishers, @subscribers,       @query_readers,        @object_readers,
-    @observers,            @syncers,    @sync_bridges,      @malformed_publishers, @replayers,
-    @subscription_abusers, @sybils,     @connection_floods, @flooders,             @provenance_forgers,
+    @relays,        @publishers,           @control_publishers, @subscribers,
+    @query_readers, @object_readers,       @observers,          @syncers,
+    @sync_bridges,  @malformed_publishers, @replayers,          @subscription_abusers,
+    @sybils,        @connection_floods,    @flooders,           @provenance_forgers,
   );
   my @phases = _phases($scenario, \@actors);
   my $total  = 0;
+
   for my $phase (@phases) {
     $total += $phase->{duration_seconds};
   }
@@ -145,6 +153,7 @@ sub build {
     topology_provider    => $topology_provider,
     relays               => \@relays,
     publishers           => \@publishers,
+    control_publishers   => \@control_publishers,
     subscribers          => \@subscribers,
     query_readers        => \@query_readers,
     object_readers       => \@object_readers,
@@ -240,6 +249,7 @@ sub _phases {
       observer                => _clone($scenario->{workload}{observer}    || {}),
       syncer                  => _clone($scenario->{workload}{syncer}      || {}),
       sync_bridge             => _clone($scenario->{workload}{sync_bridge} || {}),
+      control                 => _clone($scenario->{workload}{control}     || {}),
       abuse                   => _clone($scenario->{workload}{abuse}       || {}),
       actor_seeds             => \%actor_seeds,
       };
