@@ -1,0 +1,25 @@
+# A grant/signer binding attack.
+#
+# The attacker publishes a delegation grant delegating itself to a session key
+# (accepted unconditionally -- anyone may publish a grant). It then publishes an
+# operator control that claims authority via that grant but signs it with the
+# WRONG key: the granter's own key instead of the delegated session key. The
+# relay must REJECT it -- a grant authorizes only events signed by the session
+# it delegates to. Run against a deployed relay:
+#
+#   overnet-burner-adversary-replay --relay-url ws://<host>:7448 \
+#     --scenario share/adversary/wire/forged-grant-escalation.yaml
+description: An actor exercises a delegation grant with the wrong signing key.
+actions:
+  - type: publish_grant
+    payload: { actor: attacker, delegate: attacker-session, id: g1 }
+    expect: { accepted: 1 }
+  - type: publish_control
+    payload:
+      signer: attacker
+      actor: attacker
+      authority: g1
+      kind: 9000
+      roles:
+        - { subject: attacker, role: irc.operator }
+    expect: { accepted: 0 }

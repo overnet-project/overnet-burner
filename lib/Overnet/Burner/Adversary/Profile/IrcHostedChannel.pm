@@ -12,6 +12,11 @@ sub name {
 
 sub build_arena {
   my ($class, %params) = @_;
+  my $transport = delete $params{transport};
+  if (defined $transport && $transport eq 'wire') {
+    require Overnet::Burner::Adversary::Arena::Wire;
+    return Overnet::Burner::Adversary::Arena::Wire->new(%params);
+  }
   return Overnet::Burner::Adversary::Arena::Live->new(%params);
 }
 
@@ -180,8 +185,11 @@ Returns C<irc-hosted-channel>.
 
 =head2 build_arena
 
-Builds a live arena bound to the IRC hosted-channel authority. Passes its
-arguments through to L<Overnet::Burner::Adversary::Arena::Live>.
+Builds an arena bound to the IRC hosted-channel authority. By default returns an
+in-process L<Overnet::Burner::Adversary::Arena::Live>; with C<< transport =>
+'wire' >> (and a C<relay_url>) it returns an
+L<Overnet::Burner::Adversary::Arena::Wire> that drives a real relay endpoint
+over a WebSocket. Remaining arguments pass through to the chosen arena.
 
 =head2 vocabulary
 

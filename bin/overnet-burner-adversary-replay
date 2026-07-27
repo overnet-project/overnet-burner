@@ -1,0 +1,215 @@
+#!/usr/bin/env perl
+use strictures 2;
+
+use FindBin;
+use lib "$FindBin::Bin/../lib";
+
+use Getopt::Long qw(GetOptions);
+use YAML::PP;
+
+use Overnet::Burner::Adversary::Profile;
+
+our $VERSION = '0.001';
+
+if (!caller) {
+  exit run(@ARGV);
+}
+
+sub run {
+  my (@argv) = @_;
+
+  my %opt = (
+    relay_url  => undef,
+    scenario   => undef,
+    grant_kind => 14_142,
+    seed       => '1',
+    profile    => 'irc-hosted-channel',
+  );
+  my $help = 0;
+
+  local @ARGV = @argv;
+  my $parsed = GetOptions(
+    'relay-url=s'  => \$opt{relay_url},
+    'scenario=s'   => \$opt{scenario},
+    'grant-kind=i' => \$opt{grant_kind},
+    'seed=s'       => \$opt{seed},
+    'profile=s'    => \$opt{profile},
+    'help'         => \$help,
+  );
+  if (!$parsed) {
+    print {*STDERR} _usage();
+    return 2;
+  }
+  if ($help) {
+    print _usage();
+    return 0;
+  }
+
+  if (!(defined $opt{relay_url} && length $opt{relay_url})) {
+    print {*STDERR} "--relay-url is required\n";
+    return 2;
+  }
+  if (!(defined $opt{scenario} && length $opt{scenario})) {
+    print {*STDERR} "--scenario is required\n";
+    return 2;
+  }
+
+  my $scenario = YAML::PP->new(boolean => 'perl', schema => ['Core'])->load_file($opt{scenario});
+  if (!(ref $scenario eq 'HASH' && ref $scenario->{actions} eq 'ARRAY' && @{$scenario->{actions}})) {
+    print {*STDERR} "scenario must be a mapping with a non-empty 'actions' list\n";
+    return 2;
+  }
+
+  my $profile = Overnet::Burner::Adversary::Profile->resolve($opt{profile});
+  my $arena   = $profile->build_arena(
+    transport  => 'wire',
+    relay_url  => $opt{relay_url},
+    grant_kind => $opt{grant_kind},
+    seed       => $opt{seed},
+  );
+  $arena->reset;
+
+  printf "adversary replay against %s (profile %s)\n", $opt{relay_url}, $opt{profile};
+
+  my $violations = 0;
+  my $index      = 0;
+  for my $action (@{$scenario->{actions}}) {
+    $index++;
+    if (!(ref $action eq 'HASH' && defined $action->{type})) {
+      print {*STDERR} "action $index must be a mapping with a type\n";
+      return 2;
+    }
+
+    my $observations = $arena->apply({type => $action->{type}, payload => $action->{payload} || {}});
+    my ($outcome)    = grep { $_->{type} eq 'relay_outcome' } @{$observations};
+    my $accepted     = $outcome ? ($outcome->{payload}{accepted} ? 1 : 0) : undef;
+    my $reason       = $outcome ? ($outcome->{payload}{reason} // q{})    : q{};
+
+    my $status = _classify($action->{expect}, $accepted);
+    if ($status eq 'VULNERABLE') {
+      $violations++;
+    }
+
+    printf "  [%d] %-16s accepted=%s %-11s%s\n",
+      $index, $action->{type}, (defined $accepted ? $accepted : 'n/a'), $status,
+      (length $reason ? " ($reason)" : q{});
+  }
+
+  if ($violations) {
+    printf "FAIL: relay failed to defend %d action(s)\n", $violations;
+    return 1;
+  }
+  print "PASS: relay defended every attack action as expected\n";
+  return 0;
+}
+
+# Compare the relay's decision to the action's optional expectation. An action
+# that the scenario expected to be rejected but the relay accepted is a
+# VULNERABLE result (the relay failed to defend); the reverse is a benign WARN;
+# an action with no expectation is INFO.
+sub _classify {
+  my ($expect, $accepted) = @_;
+
+  if (!(ref $expect eq 'HASH' && exists $expect->{accepted})) {
+    return 'INFO';
+  }
+  my $want = $expect->{accepted} ? 1 : 0;
+  my $got  = $accepted           ? 1 : 0;
+  if ($want == $got) {
+    return 'DEFENDED';
+  }
+  return $want == 0 ? 'VULNERABLE' : 'WARN';
+}
+
+sub _usage {
+  return <<'USAGE';
+Usage: overnet-burner-adversary-replay --relay-url URL --scenario FILE [options]
+
+  --relay-url URL    the ws:// endpoint of the relay to drive (required)
+  --scenario FILE    the adversary scenario YAML to replay (required)
+  --grant-kind KIND  the delegation grant kind the relay uses (default 14142)
+  --seed SEED        the arena identity seed (default 1)
+  --profile NAME     the adversary application profile (default irc-hosted-channel)
+  --help             print this help
+USAGE
+}
+
+1;
+
+=head1 NAME
+
+overnet-burner-adversary-replay - replay adversary actions against a real relay
+
+=head1 VERSION
+
+Version 0.001.
+
+=head1 SYNOPSIS
+
+  overnet-burner-adversary-replay \
+    --relay-url ws://127.0.0.1:7448 \
+    --scenario  share/adversary/wire/forged-grant-escalation.yaml
+
+=head1 DESCRIPTION
+
+Drives a sequence of adversarial actions against a running Overnet relay
+endpoint over a real WebSocket and checks the relay's own accept/reject decision
+on each. It builds the wire adversary arena
+(L<Overnet::Burner::Adversary::Arena::Wire>) for the chosen application profile,
+applies each action from a scenario file, and compares the relay's decision to
+the scenario's expectation.
+
+An action the scenario expected to be rejected (C<< expect: {accepted: 0} >>)
+but the relay accepted is reported C<VULNERABLE> and makes the command exit
+non-zero -- the deployed relay failed to defend that attack. This is the
+command-line way to point the adversary at a deployed relay container.
+
+=head1 OPTIONS
+
+  --relay-url URL    the ws:// endpoint of the relay to drive (required)
+  --scenario FILE    the adversary scenario YAML to replay (required)
+  --grant-kind KIND  the delegation grant kind the relay uses (default 14142)
+  --seed SEED        the arena identity seed (default 1)
+  --profile NAME     the adversary application profile (default irc-hosted-channel)
+  --help             print this help
+
+=head2 Scenario format
+
+A mapping with an C<actions> list. Each action has a C<type> and C<payload> in
+the arena's action vocabulary, and an optional C<expect> mapping:
+
+  actions:
+    - type: publish_grant
+      payload: { actor: attacker, delegate: attacker-session, id: g1 }
+      expect: { accepted: 1 }
+    - type: publish_control
+      payload:
+        signer: attacker           # signed by the granter, not the delegated session
+        actor: attacker
+        authority: g1
+        kind: 9000
+        roles: [{ subject: attacker, role: irc.operator }]
+      expect: { accepted: 0 }
+
+Only the write-decision actions (C<publish_grant>, C<publish_control>,
+C<publish_snapshot>, C<join>) are supported over the wire; the probe actions are
+not (see L<Overnet::Burner::Adversary::Arena::Wire>).
+
+=head1 EXIT STATUS
+
+0 when the relay defended every action as expected, 1 when it failed to defend
+one or more, 2 on a usage or scenario error.
+
+=head1 DEPENDENCIES
+
+Requires L<YAML::PP>, L<Net::Nostr::Client>, and a reachable relay.
+
+=head1 AUTHOR
+
+Nicholas B. Hubbard C<< <nicholashubbard@posteo.net> >>
+
+=head1 LICENSE AND COPYRIGHT
+
+This software is distributed under the GNU General Public License, version 3.
+
+=cut
