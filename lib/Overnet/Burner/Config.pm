@@ -83,11 +83,51 @@ sub _normalize_environment {
     return 1;
   }
   my $kind = $environment->{kind};
-  if (!(defined $kind && !ref($kind) && $kind eq 'local-containers')) {
+  if (!(defined $kind && !ref($kind))) {
     return 1;
   }
+  if ($kind eq 'local-containers') {
+    return _normalize_local_containers_environment($copy);
+  }
+  if ($kind eq 'external-relays') {
+    return _normalize_external_relays_environment($copy);
+  }
 
-  my $engine = $environment->{engine} || 'auto';
+  return 1;
+}
+
+# An external-relays environment names the client-facing endpoints of a relay
+# stack that is already deployed and running. Burner owns nothing about those
+# relays, so the shorthand only fills in the no-lifecycle generic-relay
+# provider and the endpoint/count topology derived from the endpoint list. An
+# explicit topology.relays.* still wins, so an operator can override any field.
+sub _normalize_external_relays_environment {
+  my ($copy) = @_;
+
+  my $relays = $copy->{environment}{relays};
+  $copy->{topology} ||= {};
+  $copy->{topology}{relays} ||= {};
+
+  if (!exists $copy->{topology}{relays}{provider}) {
+    $copy->{topology}{relays}{provider} = 'generic-relay';
+  }
+  if (ref $relays eq 'ARRAY' && @{$relays}) {
+    if (!exists $copy->{topology}{relays}{endpoints}) {
+      $copy->{topology}{relays}{endpoints} = [@{$relays}];
+    }
+    if (!exists $copy->{topology}{relays}{count}) {
+      $copy->{topology}{relays}{count} = scalar @{$relays};
+    }
+  }
+
+  return 1;
+}
+
+sub _normalize_local_containers_environment {
+  my ($copy) = @_;
+
+  my $environment = $copy->{environment};
+  my $engine      = $environment->{engine} || 'auto';
   $environment->{engine} = $engine;
 
   my $relay_count = $copy->{topology}{relays}{count} || 0;
@@ -217,10 +257,15 @@ sub validate {
   _require_string($config, 'run.name');
   _require_positive_integer($config, 'run.duration');
   _require_integer($config, 'run.seed');
+
+  # The environment is validated before the topology fields it synthesizes so
+  # that an environment-level mistake (an empty external-relays list, say) is
+  # reported against the environment the operator wrote, not the derived
+  # topology.relays.count the generic checks would otherwise reject first.
+  _validate_environment($config);
   _require_positive_integer($config, 'topology.relays.count');
   _require_string($config, 'topology.relays.provider');
   Overnet::Burner::TopologyProvider->from_relay_config($config->{topology}{relays},);
-  _validate_environment($config);
   _validate_relay_endpoints($config);
   _require_nonnegative_number($config, 'workload.publish_rate_per_second');
   _require_nonnegative_number($config, 'workload.query_rate_per_second');
@@ -361,16 +406,59 @@ sub _validate_environment {
   }
   _require_mapping_ref($environment, 'environment');
 
+  my $kind        = $environment->{kind};
+  my %known_kinds = map { $_ => 1 } qw(local-containers external-relays);
+  if (!(defined $kind && !ref($kind) && $known_kinds{$kind})) {
+    croak "environment.kind must be one of local-containers, external-relays\n";
+  }
+  if ($kind eq 'external-relays') {
+    return _validate_external_relays_environment($config, $environment);
+  }
+
+  return _validate_local_containers_environment($config, $environment);
+}
+
+# An external-relays environment must name at least one ws:// or wss:// relay
+# endpoint and must leave relay lifecycle unmanaged: burner is a client of a
+# deployed stack here, so a lifecycle-bearing provider (external-command) would
+# be a contradiction and is rejected.
+sub _validate_external_relays_environment {
+  my ($config, $environment) = @_;
+
+  my %known = map { $_ => 1 } qw(kind relays);
+  for my $key (sort keys %{$environment}) {
+    if (!$known{$key}) {
+      croak "environment.$key is not a known field for external-relays\n";
+    }
+  }
+
+  my $relays = $environment->{relays};
+  if (!(ref $relays eq 'ARRAY' && @{$relays})) {
+    croak "environment.relays must list at least one relay endpoint\n";
+  }
+  for my $index (0 .. $#{$relays}) {
+    my $endpoint = $relays->[$index];
+    if (!(defined $endpoint && !ref($endpoint) && $endpoint =~ m{\Awss?://}imxs)) {
+      croak "environment.relays[$index] must be a ws:// or wss:// endpoint\n";
+    }
+  }
+
+  if (($config->{topology}{relays}{provider} || q{}) ne 'generic-relay') {
+    croak "environment.kind external-relays requires topology.relays.provider generic-relay"
+      . " (burner does not manage external relay lifecycle)\n";
+  }
+
+  return 1;
+}
+
+sub _validate_local_containers_environment {
+  my ($config, $environment) = @_;
+
   my %known = map { $_ => 1 } qw(kind engine image);
   for my $key (sort keys %{$environment}) {
     if (!$known{$key}) {
       croak "environment.$key is not a known field\n";
     }
-  }
-
-  my $kind = $environment->{kind};
-  if (!(defined $kind && !ref($kind) && $kind eq 'local-containers')) {
-    croak "environment.kind must be one of local-containers\n";
   }
 
   my $engine  = $environment->{engine};

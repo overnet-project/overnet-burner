@@ -1,0 +1,33 @@
+# Drive load against an already-deployed relay stack.
+#
+# The `external-relays` environment names the client-facing ws:// endpoints of
+# relays that are already running (for example the podman-deployed authority
+# relay on the host). Burner provisions and manages nothing about those relays;
+# it only points its workers at the given addresses. Replace the endpoints below
+# with your deployment's addresses before running.
+environment:
+  kind: external-relays
+  relays:
+    - ws://127.0.0.1:7447
+
+run:
+  name: external-relays-smoke
+  duration: 60
+  seed: 12345
+
+topology:
+  publishers:
+    count: 1
+  subscribers:
+    count: 1
+
+workload:
+  publish_rate_per_second: 5
+  subscription_filters:
+    - kinds: [37800]
+      "#overnet_ot": ["chat.channel"]
+
+thresholds:
+  publish_p99_ms: 250
+  subscription_fanout_p99_ms: 1000
+  error_rate_max: 0.01

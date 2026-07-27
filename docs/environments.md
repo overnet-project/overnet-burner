@@ -62,19 +62,73 @@ code plus their CPAN dependencies. Because the image is built from the
 checkout, the run tests the code being developed, not a previously published
 artifact.
 
+## external-relays
+
+```yaml
+environment:
+  kind: external-relays
+  relays:
+    - ws://127.0.0.1:7447   # a relay that is already deployed and running
+
+run:
+  name: external-relays-smoke
+  duration: 60
+  seed: 12345
+
+topology:
+  publishers:
+    count: 1
+  subscribers:
+    count: 1
+
+workload:
+  publish_rate_per_second: 5
+```
+
+`external-relays` is the front door for driving load against a relay stack
+that is **already deployed and running** — for example the podman-deployed
+generic or authority relay published on the host. Unlike `local-containers`,
+burner provisions and manages nothing about those relays: it does not build an
+image, start a container, or run any relay lifecycle command. It only points
+its workers at the endpoints you name.
+
+The environment synthesizes:
+
+- `topology.relays.provider: generic-relay` (the no-lifecycle provider, so
+  burner never tries to start, health-check, or stop the deployed relays)
+- `topology.relays.endpoints` from the `relays` list, in order
+- `topology.relays.count` from the number of endpoints
+
+An explicit `topology.relays.*` still wins, so an operator can override any
+synthesized field. Workers are left at their default (`provision.workers.how:
+local`); set `provision.workers` explicitly to run the load from containers or
+remote guests instead. When workers run on a bridge network or in virtual
+guests, loopback relay endpoints are rejected, because a guest cannot reach the
+controller's loopback — name an address the guests can actually reach.
+
+The example scenario ships as
+[`scenarios/external-relays-smoke.yml`](../scenarios/external-relays-smoke.yml).
+The command-line adversary replay
+(`overnet-burner-adversary-replay --relay-url ...`) is the companion path for
+pointing the adversary, rather than steady-state load, at the same deployment.
+
 ## Contract
 
 The `environment` mapping currently supports:
 
 | Field | Type | Description |
 |---|---|---|
-| `kind` | string | Required. Currently `local-containers`. |
-| `engine` | string | Optional container engine: `auto`, `docker`, or `podman`. Defaults to `auto`. |
-| `image` | string | Optional managed reference image tag. Defaults to `overnet-burner-reference:local`. |
+| `kind` | string | Required. One of `local-containers` or `external-relays`. |
+| `engine` | string | `local-containers` only. Container engine: `auto`, `docker`, or `podman`. Defaults to `auto`. |
+| `image` | string | `local-containers` only. Managed reference image tag. Defaults to `overnet-burner-reference:local`. |
+| `relays` | list | `external-relays` only. Required. One or more `ws://` or `wss://` endpoints of the deployed relays. |
 
-Unknown environment kinds and unknown fields are rejected. A
-`local-containers` scenario must use the managed external-command relay
-provider, because burner owns relay startup and shutdown for that run.
+Unknown environment kinds and unknown fields are rejected, and each kind
+accepts only its own fields. A `local-containers` scenario must use the managed
+external-command relay provider, because burner owns relay startup and shutdown
+for that run. An `external-relays` scenario must use the `generic-relay`
+provider, because burner is only a client of the deployed relays and must not
+manage their lifecycle.
 
 ## Running
 
