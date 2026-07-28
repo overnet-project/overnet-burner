@@ -169,6 +169,128 @@ subtest 'a failed reconnect records the loss and stops the step' => sub {
   like $stream->[0]{error}, qr/reconnect\ failed/x, 'it explains the reconnect failed';
 };
 
+subtest 'a refused delegation grant fails the authority bootstrap' => sub {
+  my $worker = _primed_worker(_input(_layout('cl-nogrant'), 'cl-nogrant'));
+
+  my ($client, $pending) = _fake_client_and_pending(
+    connected      => 1,
+    reject_kinds   => {14142 => 1},
+    reject_message => 'unauthorized: grant is bound to a different relay',
+  );
+  my ($ok, $reason) = $worker->_establish_authority($client, $pending);
+
+  is $ok, 0, 'a refused grant is not an established authority';
+  like $reason, qr/delegation\ grant\ rejected/x,    'the failure names the refused grant';
+  like $reason, qr/bound\ to\ a\ different\ relay/x, 'it surfaces the relay reason';
+};
+
+subtest 'a refused operator bootstrap fails the authority bootstrap' => sub {
+  my $worker = _primed_worker(_input(_layout('cl-noop'), 'cl-noop'));
+
+  my ($client, $pending) = _fake_client_and_pending(
+    connected      => 1,
+    reject_kinds   => {9000 => 1},
+    reject_message => 'unauthorized: group already claimed',
+  );
+  my ($ok, $reason) = $worker->_establish_authority($client, $pending);
+
+  is $ok, 0, 'a refused operator self-grant is not an established authority';
+  like $reason, qr/operator\ bootstrap\ rejected/x, 'the failure names the refused bootstrap';
+};
+
+subtest 'an empty channel is spoken for by the session key' => sub {
+  my $worker = _primed_worker(_input(_layout('cl-chat0'), 'cl-chat0'));
+  my $event  = $worker->_event_for_step('chat');
+
+  is $event->to_hash->{pubkey}, $worker->{session_key}->pubkey_hex,
+    'with no admitted member yet, the session key speaks';
+};
+
+subtest 'a step with nothing to do publishes nothing at all' => sub {
+  my $run_dir = _layout('cl-skip');
+  my $worker  = _primed_worker(_input($run_dir, 'cl-skip'));
+  $worker->open_metric_stream;
+
+  # A ban is the one step that can have nothing to do: an empty channel has
+  # nobody to remove. It must not publish, and must not emit a metric.
+  $worker->{queue} = [{step => 'ban'}];
+  my ($client, $pending) = _fake_client_and_pending(connected => 1);
+  $worker->_run_step(client => $client, pending => $pending, phase => 'main');
+  $worker->close_metric_stream;
+
+  is _stream($run_dir, 'cl-skip'), [], 'a skipped step is not a metric event';
+};
+
+subtest 'a reconnect that re-establishes authority resumes the lifecycle' => sub {
+  my $run_dir = _layout('cl-recon');
+  my $worker  = _primed_worker(_input($run_dir, 'cl-recon'));
+  $worker->open_metric_stream;
+
+  # Disconnected, but the relay is reachable again: the worker must re-publish
+  # its grant and operator role (a restarted relay's fresh store no longer
+  # holds them) and then carry on with the step it was about to run.
+  my ($client, $pending) = _fake_client_and_pending(connected => 0, connect_ok => 1);
+  $worker->_run_step(client => $client, pending => $pending, phase => 'main');
+  $worker->close_metric_stream;
+
+  my $stream = _stream($run_dir, 'cl-recon');
+  is scalar @{$stream},    1,         'the step ran after the reconnect';
+  is $stream->[0]{status}, 'success', 'and it succeeded against the reconnected relay';
+};
+
+subtest 'a publish that cannot be sent is a lost-connection error' => sub {
+  my $run_dir = _layout('cl-send');
+  my $worker  = _primed_worker(_input($run_dir, 'cl-send'));
+  $worker->open_metric_stream;
+
+  my ($client, $pending) = _fake_client_and_pending(connected => 1, publish_dies => 1);
+  $worker->_run_step(client => $client, pending => $pending, phase => 'main');
+  $worker->close_metric_stream;
+
+  my $stream = _stream($run_dir, 'cl-send');
+  is $stream->[0]{status}, 'error',                 'a failed send is an error metric';
+  is $stream->[0]{error},  'relay connection lost', 'it names the lost connection';
+};
+
+subtest 'a relay that never acknowledges times the operation out' => sub {
+  my $run_dir = _layout('cl-timeout');
+  my $worker  = _primed_worker(_input($run_dir, 'cl-timeout'));
+  $worker->open_metric_stream;
+
+  # The relay takes the event but never sends OK: the worker must not wait
+  # forever, and the timeout must be reported as the operation's outcome.
+  my ($client, $pending) = _fake_client_and_pending(connected => 1, no_ack => 1);
+  $worker->_run_step(client => $client, pending => $pending, phase => 'main');
+  $worker->close_metric_stream;
+
+  my $stream = _stream($run_dir, 'cl-timeout');
+  is $stream->[0]{status}, 'error',                     'an unacknowledged publish is an error';
+  is $stream->[0]{error},  'lifecycle event timed out', 'the timeout is the reported reason';
+};
+
+subtest 'a stop raised mid-phase ends the phase immediately' => sub {
+  my $run_dir = _layout('cl-stop');
+  my $worker  = _primed_worker(_input($run_dir, 'cl-stop'));
+  $worker->open_metric_stream;
+
+  my $stop = 0;
+  my ($client, $pending) = _fake_client_and_pending(connected => 1);
+  $client->{on_publish} = sub { $stop = 1 };
+
+  $worker->_run_phase(
+    client  => $client,
+    pending => $pending,
+    phase   => {name => 'main', start_seconds => 0, duration_seconds => 30, publish_rate_per_second => 50},
+    started => time,
+    stop    => \$stop,
+  );
+  $worker->close_metric_stream;
+
+  my $stream = _stream($run_dir, 'cl-stop');
+  ok scalar @{$stream} <= 2, 'the phase stopped as soon as the stop was raised'
+    or diag(scalar @{$stream});
+};
+
 # ---------------------------------------------------------------------------
 # Integration against the real authority relay: the lifecycle script has to be
 # accepted by the relay's actual delegation-authorization path, and the derived
@@ -234,6 +356,31 @@ SKIP: {
     like $error, qr/could\ not\ establish\ its\ delegated\ authority/x, 'the bootstrap failure is fatal';
     ok !-e File::Spec->catfile($run_dir, 'workers', 'channel-lifecycle-001', 'ready'),
       'a worker that never established authority is not marked ready';
+
+    kill 'TERM', $relay_pid;
+    waitpid $relay_pid, 0;
+  };
+
+  subtest 'a TERM signal stops the lifecycle worker between phases' => sub {
+    my $port      = _free_port();
+    my $relay_pid = _spawn_authority_relay($port);
+
+    my $run_dir = _layout('channel-lifecycle-001');
+    my $input   = _worker_input($run_dir, $port, duration_seconds => 10, publish_rate_per_second => 10);
+    $input->{phases} = [
+      {name => 'p1', start_seconds => 0, duration_seconds => 5, publish_rate_per_second => 10},
+      {name => 'p2', start_seconds => 5, duration_seconds => 5, publish_rate_per_second => 10},
+    ];
+
+    my $parent = $$;
+    my $killer = fork // die "fork: $!";
+    if (!$killer) { sleep 0.8; kill 'TERM', $parent; exit 0 }
+
+    Overnet::Burner::Worker::ChannelLifecycle->new(input => $input)->run;
+    waitpid $killer, 0;
+
+    my @phase2 = grep { ($_->{phase} // q{}) eq 'p2' } @{_stream($run_dir, 'channel-lifecycle-001')};
+    is \@phase2, [], 'the worker stopped before the second phase';
 
     kill 'TERM', $relay_pid;
     waitpid $relay_pid, 0;
@@ -447,7 +594,10 @@ sub on {
 sub publish {
   my ($self, $event) = @_;
   die "publish failed\n" if $self->{publish_dies};
-  return 1               if $self->{no_ack};
+  if ($self->{on_publish}) {
+    $self->{on_publish}->($event);
+  }
+  return 1 if $self->{no_ack};
 
   my $ok = $self->{handlers}{ok};
   return 1 if !$ok;
