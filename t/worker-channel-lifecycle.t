@@ -5,9 +5,13 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
+use IO::Socket::INET;
 use JSON ();
+use Net::Nostr::Client;
+use Net::Nostr::Filter;
+use POSIX qw(WNOHANG);
 use Test2::V0;
-use Time::HiRes qw(time);
+use Time::HiRes qw(sleep time);
 
 use lib "$FindBin::Bin/../lib";
 use lib "$FindBin::Bin/../../relay-perl/lib";
@@ -38,16 +42,15 @@ subtest 'the lifecycle script is ordered: create, admit, speak, ban, then settin
   my $worker = _primed_worker(_input(_layout('cl-order'), 'cl-order'));
   my $steps  = [map { $_->{step} } @{$worker->_steps_for_cycle}];
 
-  is $steps->[0], 'create_channel', 'the channel is created before anything else';
+  is $steps->[0],         'create_channel',                     'the channel is created before anything else';
   is [@{$steps}[1 .. 3]], ['add_user', 'add_user', 'add_user'], 'members are admitted next';
-  is [@{$steps}[4 .. 6]], ['chat', 'chat', 'chat'], 'admitted members speak before any ban';
-  is $steps->[7],  'ban',           'a ban follows the chat traffic';
-  is $steps->[-1], 'edit_settings', 'settings change last in the cycle';
+  is [@{$steps}[4 .. 6]], ['chat', 'chat', 'chat'],             'admitted members speak before any ban';
+  is $steps->[7],         'ban',                                'a ban follows the chat traffic';
+  is $steps->[-1],        'edit_settings',                      'settings change last in the cycle';
 
   $worker->{cycle} = 1;
   my $later = [map { $_->{step} } @{$worker->_steps_for_cycle}];
-  is scalar(grep { $_ eq 'create_channel' } @{$later}), 0,
-    'the channel is created once, not on every cycle';
+  is scalar(grep { $_ eq 'create_channel' } @{$later}), 0, 'the channel is created once, not on every cycle';
 };
 
 subtest 'each lifecycle step publishes the NIP-29 kind the relay gates for it' => sub {
@@ -67,9 +70,9 @@ subtest 'control events carry the delegation tags the relay authorizes against' 
   my $worker = _primed_worker(_input(_layout('cl-tags'), 'cl-tags'));
   my %tag    = map { $_->[0] => $_->[1] } @{$worker->_event_for_step('add_user')->to_hash->{tags}};
 
-  is $tag{h}, 'burner-lifecycle-test', 'the event is bound to the group';
-  is $tag{overnet_actor}, $worker->{authority_key}->pubkey_hex, 'it names the authority actor';
-  is $tag{overnet_authority}, $worker->{grant_id}, 'it references the delegation grant';
+  is $tag{h},                 'burner-lifecycle-test',              'the event is bound to the group';
+  is $tag{overnet_actor},     $worker->{authority_key}->pubkey_hex, 'it names the authority actor';
+  is $tag{overnet_authority}, $worker->{grant_id},                  'it references the delegation grant';
   ok exists $tag{overnet_sequence}, 'it carries a sequence';
 
   my %create = map { $_->[0] => $_->[1] } @{$worker->_event_for_step('create_channel')->to_hash->{tags}};
@@ -93,7 +96,7 @@ subtest 'admitted members are always distinct identities, even after bans' => su
     $worker->_event_for_step('ban');
   }
 
-  is scalar(keys %seen), 36, 'every admission is a fresh identity';
+  is scalar(keys %seen),                  36, 'every admission is a fresh identity';
   is [grep { $seen{$_} > 1 } keys %seen], [], 'no identity is ever re-admitted';
 };
 
@@ -112,10 +115,10 @@ subtest 'an accepted lifecycle step is a success metric naming the step' => sub 
   $worker->close_metric_stream;
 
   my $stream = _stream($run_dir, 'cl-ok');
-  is $stream->[0]{status},         'success',           'an accepted step is a success';
-  is $stream->[0]{operation},      'channel_lifecycle', 'the operation names the role';
-  is $stream->[0]{lifecycle_step}, 'create_channel',    'the metric records which step ran';
-  is $stream->[0]{control_kind},   39000,               'the metric records the kind published';
+  is $stream->[0]{status},         'success',               'an accepted step is a success';
+  is $stream->[0]{operation},      'channel_lifecycle',     'the operation names the role';
+  is $stream->[0]{lifecycle_step}, 'create_channel',        'the metric records which step ran';
+  is $stream->[0]{control_kind},   39000,                   'the metric records the kind published';
   is $stream->[0]{group},          'burner-lifecycle-test', 'the metric records the group';
   ok $stream->[0]{event_id}, 'the metric records the event id';
 };
@@ -134,8 +137,8 @@ subtest 'a rejected lifecycle step is an error metric carrying the relay reason'
   $worker->close_metric_stream;
 
   my $stream = _stream($run_dir, 'cl-reject');
-  is $stream->[0]{status}, 'error', 'a rejected step is an error';
-  is $stream->[0]{error}, 'unauthorized: not a channel operator', 'the relay reason is preserved';
+  is $stream->[0]{status}, 'error',                                'a rejected step is an error';
+  is $stream->[0]{error},  'unauthorized: not a channel operator', 'the relay reason is preserved';
 };
 
 subtest 'an idle phase paces nothing but completes' => sub {
@@ -166,7 +169,191 @@ subtest 'a failed reconnect records the loss and stops the step' => sub {
   like $stream->[0]{error}, qr/reconnect\ failed/x, 'it explains the reconnect failed';
 };
 
+# ---------------------------------------------------------------------------
+# Integration against the real authority relay: the lifecycle script has to be
+# accepted by the relay's actual delegation-authorization path, and the derived
+# membership has to match what the script did.
+# ---------------------------------------------------------------------------
+
+SKIP: {
+  eval { require Overnet::Authority::HostedChannel::Relay; 1 }
+    or skip 'Overnet::Authority::HostedChannel::Relay not available', 1;
+
+  subtest 'a real authority relay accepts the whole lifecycle script' => sub {
+    my $port      = _free_port();
+    my $relay_pid = _spawn_authority_relay($port);
+
+    my $run_dir = _layout('channel-lifecycle-001');
+    my $input   = _worker_input($run_dir, $port, duration_seconds => 3, publish_rate_per_second => 10);
+
+    Overnet::Burner::Worker::ChannelLifecycle->new(input => $input)->run;
+
+    ok -e File::Spec->catfile($run_dir, 'workers', 'channel-lifecycle-001', 'ready'),
+      'the worker declared readiness only after establishing authority';
+
+    my $events = _stream($run_dir, 'channel-lifecycle-001');
+    ok @{$events} >= 5, 'a plausible number of lifecycle operations ran' or diag(scalar @{$events});
+
+    my @failures = grep { $_->{status} ne 'success' } @{$events};
+    is \@failures, [], 'the authority relay accepted every lifecycle operation'
+      or diag(JSON->new->canonical(1)->encode(\@failures));
+
+    my %kind_for = (
+      create_channel => 39000,
+      add_user       => 9000,
+      chat           => 9,
+      ban            => 9001,
+      edit_settings  => 9002,
+    );
+    my @bad_shape = grep {
+           $_->{operation} ne 'channel_lifecycle'
+        || $_->{role} ne 'channel_lifecycle'
+        || ($kind_for{$_->{lifecycle_step}} // -1) !=
+        ($_->{control_kind} // 0)
+    } @{$events};
+    is \@bad_shape, [], 'every metric names its step and the kind that step publishes';
+
+    my %ran = map { $_->{lifecycle_step} => 1 } @{$events};
+    ok $ran{create_channel}, 'the channel was created against the real relay';
+    ok $ran{add_user},       'members were admitted against the real relay';
+
+    kill 'TERM', $relay_pid;
+    waitpid $relay_pid, 0;
+  };
+
+  subtest 'a grant bound to a different relay fails the worker before readiness' => sub {
+    my $port      = _free_port();
+    my $relay_pid = _spawn_authority_relay($port);
+
+    my $run_dir = _layout('channel-lifecycle-001');
+    my $input   = _worker_input($run_dir, $port, duration_seconds => 2, publish_rate_per_second => 5);
+    $input->{workload}{control} = {relay_url => 'ws://127.0.0.1:1'};
+
+    my $error;
+    eval { Overnet::Burner::Worker::ChannelLifecycle->new(input => $input)->run; 1 } or $error = $@;
+    like $error, qr/could\ not\ establish\ its\ delegated\ authority/x, 'the bootstrap failure is fatal';
+    ok !-e File::Spec->catfile($run_dir, 'workers', 'channel-lifecycle-001', 'ready'),
+      'a worker that never established authority is not marked ready';
+
+    kill 'TERM', $relay_pid;
+    waitpid $relay_pid, 0;
+  };
+
+  subtest 'the relay derives exactly the membership the lifecycle produced' => sub {
+    my $port      = _free_port();
+    my $relay_pid = _spawn_authority_relay($port);
+
+    my $run_dir = _layout('channel-lifecycle-001');
+    my $input   = _worker_input($run_dir, $port, duration_seconds => 4, publish_rate_per_second => 12);
+    $input->{workload}{control}   = {group => 'lifecycle-group'};
+    $input->{workload}{lifecycle} = {
+      channel_name       => '#lifecycle',
+      members_per_cycle  => 2,
+      messages_per_cycle => 1,
+      bans_per_cycle     => 1,
+    };
+
+    Overnet::Burner::Worker::ChannelLifecycle->new(input => $input)->run;
+
+    my $events  = _stream($run_dir, 'channel-lifecycle-001');
+    my %step_ct = ();
+    for my $event (@{$events}) {
+      next if $event->{status} ne 'success';
+      $step_ct{$event->{lifecycle_step}}++;
+    }
+
+    my $session =
+      Overnet::Burner::Worker::ChannelLifecycle->derive_key(12345, 'channel-lifecycle-001/session')->pubkey_hex;
+
+    # The relay stored one put-user per admission plus the operator bootstrap,
+    # and one removal per ban: the control plane the relay authorized matches
+    # the lifecycle the worker reported running.
+    is scalar @{_stored_events($port, authors => [$session], kinds => [9000])},
+      ($step_ct{add_user} // 0) + 1,
+      'the relay stored the operator bootstrap plus one put-user per admission';
+    is scalar @{_stored_events($port, authors => [$session], kinds => [9001])}, ($step_ct{ban} // 0),
+      'the relay stored exactly one removal per ban';
+
+    kill 'TERM', $relay_pid;
+    waitpid $relay_pid, 0;
+  };
+}
+
 done_testing;
+
+sub _worker_input {
+  my ($run_dir, $port, %workload) = @_;
+  return {
+    input_version    => 1,
+    run_id           => 'lifecycle-test-001',
+    run_dir          => $run_dir,
+    worker_id        => 'channel-lifecycle-001',
+    role             => 'channel_lifecycle',
+    seed             => 12345,
+    duration_seconds => delete $workload{duration_seconds},
+    metric_stream    => 'metrics/channel-lifecycle-001.jsonl',
+    ready_file       => 'workers/channel-lifecycle-001/ready',
+    endpoints        => {relays => ["ws://127.0.0.1:$port"]},
+    workload         => {%workload},
+  };
+}
+
+sub _spawn_authority_relay {
+  my ($port) = @_;
+  my $pid = fork // die "fork: $!";
+  if (!$pid) {
+    my $code = <<'PERL';
+my $port = $ARGV[0];
+Overnet::Authority::HostedChannel::Relay::build_authoritative_relay(
+  relay_url => "ws://127.0.0.1:$port", grant_kind => 14142,
+)->run('127.0.0.1', $port);
+PERL
+    exec $^X,
+      "-I$FindBin::Bin/../lib",
+      "-I$FindBin::Bin/../../relay-perl/lib",
+      "-I$FindBin::Bin/../../core-perl/lib", '-MOvernet::Authority::HostedChannel::Relay', '-e', $code, $port
+      or die "exec: $!";
+  }
+
+  my $deadline = time + 10;
+  while (time < $deadline) {
+    my $probe = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port, Timeout => 1);
+    if ($probe) {
+      close $probe or die "close: $!";
+      return $pid;
+    }
+    if (waitpid($pid, WNOHANG) != 0) {
+      die "authority relay child exited before listening\n";
+    }
+    sleep 0.1;
+  }
+  die "authority relay never listened on port $port\n";
+}
+
+sub _stored_events {
+  my ($port, %filter) = @_;
+
+  my $client = Net::Nostr::Client->new;
+  my @stored;
+  my $cv = AnyEvent->condvar;
+  $client->on(event => sub { my (undef, $event) = @_; push @stored, $event });
+  $client->on(eose  => sub { $cv->send });
+  $client->connect("ws://127.0.0.1:$port");
+  $client->subscribe('verify', Net::Nostr::Filter->new(%filter));
+  my $timeout = AnyEvent->timer(after => 10, cb => sub { $cv->send });
+  $cv->recv;
+  $client->disconnect;
+
+  return \@stored;
+}
+
+sub _free_port {
+  my $listener = IO::Socket::INET->new(LocalAddr => '127.0.0.1', LocalPort => 0, Listen => 1)
+    or die "listen: $!";
+  my $port = $listener->sockport;
+  close $listener or die "close: $!";
+  return $port;
+}
 
 sub _primed_worker {
   my ($input) = @_;
@@ -222,7 +409,7 @@ sub _input {
     duration_seconds => 1,
     metric_stream    => "metrics/$worker_id.jsonl",
     ready_file       => "workers/$worker_id/ready",
-    endpoints        => {relays => ['ws://127.0.0.1:1']},
+    endpoints        => {relays                  => ['ws://127.0.0.1:1']},
     workload         => {publish_rate_per_second => 1},
   };
 }
@@ -260,7 +447,7 @@ sub on {
 sub publish {
   my ($self, $event) = @_;
   die "publish failed\n" if $self->{publish_dies};
-  return 1 if $self->{no_ack};
+  return 1               if $self->{no_ack};
 
   my $ok = $self->{handlers}{ok};
   return 1 if !$ok;
