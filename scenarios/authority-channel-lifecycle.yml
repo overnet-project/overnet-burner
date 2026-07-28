@@ -1,0 +1,44 @@
+# Drive the ordered lifecycle of a hosted channel against a deployed authority
+# relay.
+#
+# Where authority-control-load.yml streams one repeated control operation to
+# measure the authorization path under uniform load, this scenario exercises the
+# lifecycle a real channel goes through: the channel_lifecycle role establishes
+# its delegated authority (a kind-14142 grant plus an operator self-grant,
+# peer-to-relay), creates the channel (kind 39000), admits members (kind 9000),
+# carries chat traffic (kind 9), bans members (kind 9001), and changes channel
+# settings (kind 9002) -- then repeats.
+#
+# The ordering is the point: the relay sees state transitions in a realistic
+# sequence rather than a uniform stream of identical writes, so authorization is
+# evaluated against a channel whose membership and settings actually change.
+#
+# Point `relays` at your deployed authority relay (its ws:// endpoint must match
+# the relay's configured relay-url) before running.
+environment:
+  kind: external-relays
+  relays:
+    - ws://127.0.0.1:7448
+
+run:
+  name: authority-channel-lifecycle
+  duration: 60
+  seed: 12345
+
+topology:
+  channel_lifecycles:
+    count: 1
+
+workload:
+  publish_rate_per_second: 8
+  control:
+    grant_kind: 14142
+    group: ops
+  lifecycle:
+    channel_name: '#ops'
+    members_per_cycle: 3
+    messages_per_cycle: 3
+    bans_per_cycle: 1
+
+thresholds:
+  error_rate_max: 0.01

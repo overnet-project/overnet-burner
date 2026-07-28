@@ -47,6 +47,12 @@ sub build {
     role     => 'control_publisher',
     prefix   => 'control-publisher',
   );
+  my @channel_lifecycles = _actors(
+    scenario => $scenario,
+    field    => 'channel_lifecycles',
+    role     => 'channel_lifecycle',
+    prefix   => 'channel-lifecycle',
+  );
   my @subscribers = _actors(
     scenario => $scenario,
     field    => 'subscribers',
@@ -127,10 +133,10 @@ sub build {
   );
 
   my @actors = (
-    @relays,        @publishers,           @control_publishers, @subscribers,
-    @query_readers, @object_readers,       @observers,          @syncers,
-    @sync_bridges,  @malformed_publishers, @replayers,          @subscription_abusers,
-    @sybils,        @connection_floods,    @flooders,           @provenance_forgers,
+    @relays,               @publishers,     @control_publishers,   @channel_lifecycles, @subscribers,
+    @query_readers,        @object_readers, @observers,            @syncers,            @sync_bridges,
+    @malformed_publishers, @replayers,      @subscription_abusers, @sybils,             @connection_floods,
+    @flooders,             @provenance_forgers,
   );
   my @phases = _phases($scenario, \@actors);
   my $total  = 0;
@@ -154,6 +160,7 @@ sub build {
     relays               => \@relays,
     publishers           => \@publishers,
     control_publishers   => \@control_publishers,
+    channel_lifecycles   => \@channel_lifecycles,
     subscribers          => \@subscribers,
     query_readers        => \@query_readers,
     object_readers       => \@object_readers,

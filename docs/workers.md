@@ -285,6 +285,7 @@ trip on a single clock:
 | `observer` | `overnet-burner worker` with `Overnet::Burner::Worker::Observer` |
 | `syncer` | `overnet-burner worker` with `Overnet::Burner::Worker::Syncer` |
 | `sync_bridge` | `overnet-burner worker` with `Overnet::Burner::Worker::SyncBridge` |
+| `channel_lifecycle` | `overnet-burner worker` with `Overnet::Burner::Worker::ChannelLifecycle` |
 
 The reference publisher derives a stable Nostr identity from
 `seed`/`worker_id`, publishes valid native Overnet events (kind 7800 with the
@@ -315,6 +316,26 @@ targets an authority relay such as the shipped
 [`scenarios/authority-control-load.yml`](../scenarios/authority-control-load.yml)
 points at; against a plain relay its control events are simply accepted without
 exercising any authorization.
+
+The reference channel lifecycle worker (`topology.channel_lifecycles.count`)
+drives the **ordered lifecycle of a hosted channel** rather than a uniform
+stream of one operation. It establishes its authority peer-to-relay exactly as
+the control publisher does, then runs a repeating script: `create_channel` (a
+delegated kind-39000 group metadata write, once), `add_user` (kind 9000
+admitting a fresh member), `chat` (an ungated NIP-29 kind-9 group message signed
+by an admitted member), `ban` (kind 9001 pubkey removal, the authoritative
+exclusion mechanism), and `edit_settings` (kind 9002 edit-metadata). Ordering is
+the point: a channel is created before members are admitted, members speak
+before they are banned, and settings change over the channel's life, so the
+relay authorizes against a channel whose membership and settings actually
+change. Each attempt is one `channel_lifecycle` metric carrying
+`lifecycle_step` and the `control_kind` published — `success` on acceptance,
+`error` with the relay's reason otherwise. `workload.lifecycle` may carry
+`channel_name`, `members_per_cycle`, `messages_per_cycle`, and `bans_per_cycle`;
+`workload.control` carries the authority parameters as for the control
+publisher. Member identities advance monotonically, so a banned member is never
+silently re-admitted. See
+[`scenarios/authority-channel-lifecycle.yml`](../scenarios/authority-channel-lifecycle.yml).
 
 The reference subscriber subscribes to the first relay endpoint with
 `workload.subscription_filters`, writes its readiness marker only after the

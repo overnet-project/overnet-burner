@@ -174,7 +174,7 @@ sub _managed_worker_guest_count {
 
   my $count = 0;
   for my $role (
-    qw(publishers control_publishers subscribers query_readers object_readers observers syncers sync_bridges
+    qw(publishers control_publishers channel_lifecycles subscribers query_readers object_readers observers syncers sync_bridges
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods
     provenance_forgers)
   ) {
@@ -207,7 +207,7 @@ sub _normalize_topology {
 
   $copy->{topology} ||= {};
   for my $role (
-    qw(publishers control_publishers subscribers query_readers object_readers observers syncers sync_bridges
+    qw(publishers control_publishers channel_lifecycles subscribers query_readers object_readers observers syncers sync_bridges
     flooders malformed_publishers replayers subscription_abusers sybils connection_floods
     provenance_forgers)
   ) {

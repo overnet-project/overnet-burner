@@ -11,6 +11,7 @@ our $VERSION = '0.001';
 my %ROLE_CLASS = (
   publisher           => 'Overnet::Burner::Worker::Publisher',
   control_publisher   => 'Overnet::Burner::Worker::ControlPublisher',
+  channel_lifecycle   => 'Overnet::Burner::Worker::ChannelLifecycle',
   subscriber          => 'Overnet::Burner::Worker::Subscriber',
   query_reader        => 'Overnet::Burner::Worker::QueryReader',
   object_reader       => 'Overnet::Burner::Worker::ObjectReader',
