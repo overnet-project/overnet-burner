@@ -337,6 +337,18 @@ publisher. Member identities advance monotonically, so a banned member is never
 silently re-admitted. See
 [`scenarios/authority-channel-lifecycle.yml`](../scenarios/authority-channel-lifecycle.yml).
 
+Running both authority roles together for hours is what finds capacity failures
+that no short run can. A sixty-second run reports a healthy relay meeting its
+configured rate at a zero error rate however many times it is repeated, because
+each run starts against a fresh or barely-used store; what degrades is capacity,
+and only as stored history accumulates. Pair the roles deliberately: point
+`channel_lifecycle` at a fresh group each cycle and `control_publisher` at one
+group for the whole run, so the two curves separate a cost that scales with
+total relay history from one that scales with the group being operated on. The
+report captures latency and error rate, so watch relay memory and store size
+from outside the harness as well. See
+[`scenarios/authority-soak.yml`](../scenarios/authority-soak.yml).
+
 The reference subscriber subscribes to the first relay endpoint with
 `workload.subscription_filters`, writes its readiness marker only after the
 stored-event replay boundary (`EOSE`), and emits one `subscription_fanout`

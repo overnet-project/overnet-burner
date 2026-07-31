@@ -1,0 +1,70 @@
+# Hold a deployed authority relay under mixed authorized load for hours, to
+# surface the failures that only appear with accumulated history.
+#
+# Short runs cannot find these. A sixty-second run of authority-control-load or
+# authority-channel-lifecycle reports a healthy relay hitting its configured
+# rate with a zero error rate -- and stays healthy no matter how many times it
+# is repeated, because each run starts against a fresh or barely-used store.
+# What degrades is not correctness but capacity, and only as stored history
+# grows. A two-hour run of this scenario against a real deployment stayed at
+# zero errors across 22,746 operations while:
+#
+#   - per-operation latency rose from 37ms to over 1s, tracking total store
+#     size almost exactly (linear fit R^2 = 0.97)
+#   - achieved throughput fell 85%, from the configured 13/s to 1.95/s
+#   - relay resident memory grew from 49MB to 124MB, linearly, no plateau
+#
+# Both causes are fixed in relay-perl (a per-event scan of the whole store, and
+# unbounded retention), and both are pinned by unit tests there. This scenario
+# is how the system-level behaviour is re-measured end to end.
+#
+# The two roles are deliberately different shapes, and comparing them is what
+# makes a result diagnostic rather than merely alarming:
+#
+#   channel_lifecycle -> a FRESH group each cycle, so its own group stays small.
+#                        If this degrades, the cost is global -- something is
+#                        scaling with total relay history rather than with the
+#                        group being operated on.
+#   control_publisher -> ONE group for the whole run, growing without bound.
+#                        If only this degrades, the cost is per-group.
+#
+# Watch relay RSS and store size alongside the report: the report captures
+# latency and error rate, but unbounded memory growth is visible only from
+# outside the harness.
+#
+# Point `relays` at your deployed authority relay (its ws:// endpoint must match
+# the relay's configured relay-url) before running. Expect to run this for hours;
+# `duration` is set to two so a default run reproduces the measurement above.
+environment:
+  kind: external-relays
+  relays:
+    - ws://127.0.0.1:7448
+
+run:
+  name: authority-soak
+  duration: 7200
+  seed: 12345
+
+topology:
+  channel_lifecycles:
+    count: 1
+  control_publishers:
+    count: 1
+
+workload:
+  publish_rate_per_second: 8
+  control:
+    grant_kind: 14142
+    group: soak-persistent
+  lifecycle:
+    channel_name: '#soak'
+    members_per_cycle: 3
+    messages_per_cycle: 3
+    bans_per_cycle: 1
+
+# A soak asserts steady-state health, not peak speed: the relay must keep
+# accepting authorized work for the whole run. Latency drift is read from the
+# report rather than gated here, because the acceptable curve depends on the
+# deployment's store size and hardware.
+thresholds:
+  error_rate_max: 0.01
