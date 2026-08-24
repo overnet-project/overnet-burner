@@ -60,17 +60,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: overnet-project/overnet-perl
+
+      - uses: actions/checkout@v4
+        with:
           path: overnet-burner
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/core-perl
-          path: core-perl
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/relay-perl
-          path: relay-perl
 
       - uses: shogo82148/actions-setup-perl@v1
         id: setup-perl
@@ -85,7 +79,8 @@ jobs:
       - name: Install dependencies
         run: |
           cpanm --local-lib ~/perl5 --installdeps .
-          cpanm --local-lib ~/perl5 --reinstall https://github.com/overnet-project/overnet-perl-style/archive/refs/heads/main.tar.gz
+          cpanm --local-lib ~/perl5 --notest --reinstall Net::Nostr::Core Net::Nostr::Client Net::Nostr::Relay
+          cpanm --local-lib ~/perl5 --notest ../overnet-perl-style
           echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
 
       - name: Enable localhost sshd for connect-transport tests
@@ -154,17 +149,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: overnet-project/overnet-perl
+
+      - uses: actions/checkout@v4
+        with:
           path: overnet-burner
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/core-perl
-          path: core-perl
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/relay-perl
-          path: relay-perl
 
       - uses: shogo82148/actions-setup-perl@v1
         with:
@@ -178,6 +167,7 @@ jobs:
       - name: Install dependencies
         run: |
           cpanm --local-lib ~/perl5 --installdeps .
+          cpanm --local-lib ~/perl5 --notest --reinstall Net::Nostr::Core Net::Nostr::Client Net::Nostr::Relay
           echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
 
       - name: Replay the adversary catalog against the real relay
@@ -201,17 +191,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: overnet-project/overnet-perl
+
+      - uses: actions/checkout@v4
+        with:
           path: overnet-burner
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/core-perl
-          path: core-perl
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/relay-perl
-          path: relay-perl
 
       - uses: shogo82148/actions-setup-perl@v1
         with:
@@ -225,6 +209,7 @@ jobs:
       - name: Install dependencies
         run: |
           cpanm --local-lib ~/perl5 --installdeps .
+          cpanm --local-lib ~/perl5 --notest --reinstall Net::Nostr::Core Net::Nostr::Client Net::Nostr::Relay
           cpanm --local-lib ~/perl5 --notest Devel::Cover
           echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
 
@@ -249,17 +234,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: overnet-project/overnet-perl
+
+      - uses: actions/checkout@v4
+        with:
           path: overnet-burner
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/core-perl
-          path: core-perl
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/relay-perl
-          path: relay-perl
 
       - uses: shogo82148/actions-setup-perl@v1
         id: setup-perl
@@ -274,6 +253,7 @@ jobs:
       - name: Install dependencies
         run: |
           cpanm --local-lib ~/perl5 --installdeps .
+          cpanm --local-lib ~/perl5 --notest --reinstall Net::Nostr::Core Net::Nostr::Client Net::Nostr::Relay
           echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
 
       - name: Verify Docker is available
@@ -304,17 +284,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: overnet-project/overnet-perl
+
+      - uses: actions/checkout@v4
+        with:
           path: overnet-burner
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/core-perl
-          path: core-perl
-
-      - uses: actions/checkout@v4
-        with:
-          repository: overnet-project/relay-perl
-          path: relay-perl
 
       - uses: shogo82148/actions-setup-perl@v1
         with:
@@ -328,6 +302,7 @@ jobs:
       - name: Install dependencies
         run: |
           cpanm --local-lib ~/perl5 --installdeps .
+          cpanm --local-lib ~/perl5 --notest --reinstall Net::Nostr::Core Net::Nostr::Client Net::Nostr::Relay
           cpanm --local-lib ~/perl5 --notest Devel::Cover
           echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
 

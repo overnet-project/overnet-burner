@@ -625,4 +625,4 @@ make one small run impossible to misinterpret, then grow from there.
 - [Rex](https://www.rexify.org/)
 - [Overnet specification](https://github.com/overnet-project/spec)
 - [Overnet relay specification](https://github.com/overnet-project/spec/blob/main/docs/relay.md)
-- [relay-perl](https://github.com/overnet-project/relay-perl)
+- [relay-perl](https://github.com/overnet-project/overnet-perl/tree/main/relay-perl)
