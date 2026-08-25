@@ -1,4 +1,5 @@
 runs/
+.claude/
 .factory/
 .plx/
 local/
