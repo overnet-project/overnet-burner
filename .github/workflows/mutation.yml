@@ -65,8 +65,8 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sh ./core-perl/maint/install-net-nostr.sh --local-lib ~/perl5 --notest
           cpanm --local-lib ~/perl5 --installdeps ./overnet-burner
-          cpanm --local-lib ~/perl5 --notest --reinstall Net::Nostr::Core Net::Nostr::Client Net::Nostr::Relay
           cpanm --local-lib ~/perl5 --notest ./overnet-perl-style
           cpanm --local-lib ~/perl5 --notest Devel::Mutator
 

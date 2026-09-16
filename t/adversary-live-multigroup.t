@@ -157,6 +157,7 @@ subtest 'observe_availability catches a channel that is tombstoned out from unde
           signer     => 'operator-session',
           actor      => 'operator',
           authority  => 'operator-grant',
+          sequence   => '2',
           kind       => 39_000,
           group      => 'victim',
           tombstoned => 1,

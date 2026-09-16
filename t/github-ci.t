@@ -36,8 +36,7 @@ is scalar(() = $content =~ /repository:\s+overnet-project\/overnet-perl\b/gms), 
 unlike $content, qr/repository:\s+overnet-project\/(?:core-perl|relay-perl|overnet-perl-style)\b/mxs,
   'workflow does not check out archived component repositories';
 is scalar(() = $content =~ m{
-  cpanm\s+--local-lib\s+~/perl5\s+--notest\s+--reinstall\s+
-  Net::Nostr::Core\s+Net::Nostr::Client\s+Net::Nostr::Relay
+  sh\s+[.]{1,2}/core-perl/maint/install-net-nostr[.]sh\s+--local-lib\s+~/perl5\s+--notest
 }gmx), 5, 'every workflow job refreshes the split Net::Nostr distributions together';
 like $content, qr/adversary-regression:/mxs,                'workflow has a dedicated adversary regression job';
 like $content, qr/prove\s+-r\s+-l\s+-v\s+t\/adversary-/mxs, 'the regression job replays the adversary catalog';
@@ -59,8 +58,7 @@ unlike $mutation_content,
 like $mutation_content, qr{cpanm\b[^\n]*\./overnet-perl-style}mxs,
   'mutation workflow installs style policies from the monorepo';
 like $mutation_content, qr{
-  cpanm\s+--local-lib\s+~/perl5\s+--notest\s+--reinstall\s+
-  Net::Nostr::Core\s+Net::Nostr::Client\s+Net::Nostr::Relay
+  sh\s+[.]{1,2}/core-perl/maint/install-net-nostr[.]sh\s+--local-lib\s+~/perl5\s+--notest
 }mx, 'mutation workflow refreshes the split Net::Nostr distributions together';
 
 done_testing;

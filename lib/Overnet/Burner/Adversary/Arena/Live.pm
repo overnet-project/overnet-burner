@@ -124,6 +124,7 @@ sub _do_publish_snapshot {
   }
   if (defined $payload->{authority}) {
     push @tags, ['overnet_authority', $self->_resolve_authority($payload->{authority})];
+    push @tags, ['overnet_sequence',  (defined $payload->{sequence} ? "$payload->{sequence}" : '1')];
   }
   push @tags, $self->_role_tags($payload->{grants});
   push @tags, _ban_tags($payload->{bans});
@@ -378,10 +379,12 @@ sub _build_sut {
   }
 
   my $store = $self->store_factory ? $self->store_factory->() : undef;
+  my $clock = \($self->{_clock} //= $self->_base_time);
 
   return Overnet::Authority::HostedChannel::Relay::build_authoritative_relay(
     relay_url  => $self->relay_url,
     grant_kind => $self->grant_kind,
+    clock      => sub { return ${$clock} },
     (@signer_pubkeys ? (snapshot_pubkeys => \@signer_pubkeys) : ()),
     (defined $store  ? (store            => $store)           : ()),
   );
@@ -445,6 +448,9 @@ and validation helpers. This class adds only what is specific to the IRC
 hosted-channel authority: the relay it builds as its system under test and the
 C<_do_E<lt>actionE<gt>> handlers for that authority's vocabulary.
 
+The in-process relay uses the same deterministic clock as the arena's events,
+so grant expiration is evaluated at the simulated receipt time.
+
 The relay module is loaded lazily (via C<require>) the first time the arena
 builds a relay, so this module remains loadable - for style and coverage gates -
 even where the relay dist is not on C<@INC>. A caller that intends to
@@ -495,10 +501,10 @@ while trying to fold into another.
 
 =item * C<publish_snapshot> - C<signer>, C<kind>, optional C<grants>, C<bans>,
 C<closed>, C<tombstoned>, C<force_store>, C<group>, C<smuggle_group>, C<actor>,
-C<authority>: publish a group snapshot. C<group> selects the group the snapshot
+C<authority>, C<sequence>: publish a group snapshot. C<group> selects the group the snapshot
 addresses (its C<d> tag) and C<smuggle_group> binds its C<h> tag to a second
 group. C<actor>/C<authority> add the delegation tags of a delegated C<39000>
-metadata write, and C<tombstoned> marks the group tombstoned. C<force_store>
+metadata write, with C<sequence> defaulting to 1, and C<tombstoned> marks the group tombstoned. C<force_store>
 stores the event even when the relay refuses it, to mirror a forged snapshot
 present in the store but ignored in derived state.
 
