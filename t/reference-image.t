@@ -22,10 +22,38 @@ my $dockerfile = _slurp(File::Spec->catfile($context, 'Dockerfile'));
 like $dockerfile, qr/\bJSON::Schema::Modern\b/,        'the reference image installs core runtime schema dependency';
 like $dockerfile, qr/\bAnyEvent::WebSocket::Client\b/, 'the reference image installs websocket client dependency';
 like $dockerfile, qr/\bNet::Nostr\b/,                  'the reference image installs the Nostr client dependency';
+like $dockerfile, qr/\bCpanel::JSON::XS\b/, 'the image installs the strict JSON decoder';
+ok -f File::Spec->catfile($context, 'core-perl', 'maint', 'install-net-nostr.sh'),
+  'the image context includes the shared pinned Nostr installer';
 ok -f File::Spec->catfile($context, 'relay-perl', 'bin', 'overnet-relay.pl'),
   'the reference image context includes the relay executable';
 ok -f File::Spec->catfile($context, 'overnet-burner', 'bin', 'overnet-burner'),
   'the reference image context includes the burner executable';
+
+subtest 'reference images support CI and sibling monorepo checkout layouts' => sub {
+  for my $layout (qw(flat nested)) {
+    my $repos = tempdir(CLEANUP => 1);
+    my $perl_root = $layout eq 'flat' ? $repos : File::Spec->catdir($repos, 'overnet-perl');
+    for my $part (['core-perl', 'lib'], ['core-perl', 'maint'], ['relay-perl', 'lib'], ['relay-perl', 'bin']) {
+      my $dir = File::Spec->catdir($perl_root, @{$part});
+      make_path($dir);
+      _spew(File::Spec->catfile($dir, 'source'), "$layout\n");
+    }
+    for my $part (qw(lib bin)) {
+      my $dir = File::Spec->catdir($repos, 'overnet-burner', $part);
+      make_path($dir);
+      _spew(File::Spec->catfile($dir, 'source'), "burner\n");
+    }
+    no warnings 'redefine';
+    local *Overnet::Burner::ReferenceImage::_code_repos_root = sub { return $repos };
+    my $dest = File::Spec->catdir($repos, 'context');
+    Overnet::Burner::ReferenceImage->write_context($dest);
+    is _slurp(File::Spec->catfile($dest, 'core-perl', 'lib', 'source')), "$layout\n",
+      "$layout layout stages the Perl source";
+    is _slurp(File::Spec->catfile($dest, 'overnet-burner', 'lib', 'source')), "burner\n",
+      "$layout layout stages the Burner source";
+  }
+};
 
 subtest 'ensure writes the context and builds the tagged image' => sub {
   my $run_dir = tempdir(CLEANUP => 1);

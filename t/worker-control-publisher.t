@@ -37,6 +37,17 @@ subtest 'authority and session identities derive deterministically and differ' =
   is(Overnet::Burner::Worker::ControlPublisher->expected_role, 'control_publisher', 'declares its role');
 };
 
+subtest 'bootstrap and load events use positive increasing control sequences' => sub {
+  my $worker = _primed_worker(_input(_layout('cp-sequence'), 'cp-sequence'), 1);
+  my @sequences;
+  for my $role ('irc.operator', undef, 'irc.operator') {
+    my $event = $worker->_put_user_event($worker->{authority_key}->pubkey_hex, $role);
+    my ($tag) = grep { $_->[0] eq 'overnet_sequence' } @{$event->tags};
+    push @sequences, $tag->[1];
+  }
+  is \@sequences, ['1', '2', '3'], 'bootstrap, load, and re-bootstrap all advance the wire sequence';
+};
+
 subtest 'an idle phase paces nothing but completes' => sub {
   my $worker = _primed_worker(_input(_layout('cp-idle'), 'cp-idle'), 1);
   my $stop   = 0;

@@ -37,11 +37,13 @@ sub write_context {
   }
   make_path($context);
 
-  my $repos = _code_repos_root();
-  _copy_tree(File::Spec->catdir($repos, 'core-perl',      'lib'), File::Spec->catdir($context, 'core-perl',  'lib'));
-  _copy_tree(File::Spec->catdir($repos, 'relay-perl',     'lib'), File::Spec->catdir($context, 'relay-perl', 'lib'));
-  _copy_tree(File::Spec->catdir($repos, 'relay-perl',     'bin'), File::Spec->catdir($context, 'relay-perl', 'bin'));
-  _copy_tree(File::Spec->catdir($repos, 'overnet-burner', 'lib'),
+  my $repos     = _code_repos_root();
+  my $perl_root = -d File::Spec->catdir($repos, 'core-perl') ? $repos : File::Spec->catdir($repos, 'overnet-perl');
+  _copy_tree(File::Spec->catdir($perl_root, 'core-perl',  'lib'),   File::Spec->catdir($context, 'core-perl', 'lib'));
+  _copy_tree(File::Spec->catdir($perl_root, 'core-perl',  'maint'), File::Spec->catdir($context, 'core-perl', 'maint'));
+  _copy_tree(File::Spec->catdir($perl_root, 'relay-perl', 'lib'),   File::Spec->catdir($context, 'relay-perl', 'lib'));
+  _copy_tree(File::Spec->catdir($perl_root, 'relay-perl', 'bin'),   File::Spec->catdir($context, 'relay-perl', 'bin'));
+  _copy_tree(File::Spec->catdir($repos,     'overnet-burner', 'lib'),
     File::Spec->catdir($context, 'overnet-burner', 'lib'));
   _copy_tree(File::Spec->catdir($repos, 'overnet-burner', 'bin'),
     File::Spec->catdir($context, 'overnet-burner', 'bin'));
@@ -96,7 +98,12 @@ sub _dockerfile {
 FROM docker.io/library/perl:5.42
 
 ENV PERL_MM_USE_DEFAULT=1
-RUN cpanm --notest strictures Moo JSON JSON::Schema::Modern YAML::PP Rex AnyEvent AnyEvent::WebSocket::Client CryptX IO::Socket::SSL Package::Stash URI HTTP::Tiny Net::Nostr
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates curl libgmp-dev \
+  && rm -rf /var/lib/apt/lists/*
+COPY core-perl/maint/install-net-nostr.sh /tmp/install-net-nostr.sh
+RUN sh /tmp/install-net-nostr.sh --notest \
+  && cpanm --notest strictures Moo JSON Cpanel::JSON::XS JSON::Schema::Modern YAML::PP Rex AnyEvent AnyEvent::WebSocket::Client CryptX IO::Socket::SSL Package::Stash URI HTTP::Tiny Net::Nostr
 
 COPY core-perl/lib /opt/overnet/core-perl/lib
 COPY relay-perl/lib /opt/overnet/relay-perl/lib
@@ -120,8 +127,9 @@ Overnet::Burner::ReferenceImage - managed reference stack image builder
 
 Builds the local OCI image used by the managed C<local-containers>
 environment. The image contains the active Overnet core, relay, and burner
-checkouts plus the CPAN dependencies needed by the reference relay and worker
-commands.
+checkouts plus the dependencies needed by the reference relay and worker
+commands. Supports Burner beside the Perl monorepo or inside its CI checkout.
+Uses the monorepo's pinned Nostr installer, shared with the service images.
 
 =head1 VERSION
 

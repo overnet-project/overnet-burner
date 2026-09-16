@@ -296,6 +296,7 @@ sub _grant_event {
 # bootstrap self-grant, or no role for a plain member).
 sub _put_user_event {
   my ($self, $target_pubkey, $role) = @_;
+  my $sequence = ++$self->{control_sequence};
 
   return $self->{session_key}->create_event(
     kind    => $PUT_USER_KIND,
@@ -304,7 +305,7 @@ sub _put_user_event {
       ['h',                 $self->{group}],
       ['overnet_actor',     $self->{authority_key}->pubkey_hex],
       ['overnet_authority', $self->{grant_id}],
-      ['overnet_sequence',  "$self->{sequence}"],
+      ['overnet_sequence',  "$sequence"],
       (defined $role ? ['p', $target_pubkey, $role] : ['p', $target_pubkey]),
     ],
   );
@@ -349,6 +350,9 @@ publishes a delegation grant (kind C<grant_kind>, default 14142) that binds the
 session key to this relay, then publishes an initial operator put-user
 (kind 9000) that the relay accepts as the empty group's operator self-grant.
 From then on the actor is a retained operator.
+
+Every delegated event advances a positive control sequence, including the
+initial bootstrap and any bootstrap after reconnecting.
 
 Its workload is a stream of authorized put-user (kind 9000) control events, each
 adding a fresh synthetic member, paced by C<workload.publish_rate_per_second>.
