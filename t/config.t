@@ -54,7 +54,7 @@ is $standard_yaml->{workload}{query_rate_per_second}, 1,     'workload query rat
 is $scenario->{workload}{query_rate_per_second},      1,     'baseline scenario gets the default query rate';
 is $standard_yaml->{workload}{object_reads}, {rate_per_second => 1, objects => []},
   'workload object reads default to one per second over no objects';
-is $scenario->{workload}{object_reads}{objects}, [{type => 'chat.channel', id => 'irc:local:#overnet'}],
+is $scenario->{workload}{object_reads}{objects}, [{type => 'chat.channel', id => 'irc:local:#overnet', author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa'}],
   'baseline scenario keeps its object read references';
 
 my $invalid_path = "$tmp/invalid.yml";
@@ -228,6 +228,7 @@ workload:
   object_reads:
     objects:
       - type: chat.channel
+        author: "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
 YAML
     qr/workload\.object_reads\.objects\[0\]\.id\ must\ be\ a\ non-empty\ string/mx,
   ],
@@ -1275,6 +1276,7 @@ workload:
   object_reads:
     objects:
       - type: chat.channel
+        author: "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
         id: irc:local:#overnet
 YAML
   my $config = Overnet::Burner::Config->load_file($valid);

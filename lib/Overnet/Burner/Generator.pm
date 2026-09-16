@@ -598,7 +598,13 @@ sub _generate_reader_workload {
   if ($topology->{object_readers}) {
     $workload->{object_reads} = {
       rate_per_second => _draw($seed, 'object_rate', $profile->{workload}{object_read_rate_per_second}),
-      objects         => [{type => 'chat.channel', id => 'irc:local:#overnet'}],
+      objects         => [
+        {
+          type   => 'chat.channel',
+          id     => 'irc:local:#overnet',
+          author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa'
+        }
+      ],
     };
   }
 

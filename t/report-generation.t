@@ -289,6 +289,7 @@ workload:
   object_reads:
     objects:
       - type: chat.channel
+        author: "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
         id: irc:local:#overnet
 thresholds:
   query_p99_ms: 100

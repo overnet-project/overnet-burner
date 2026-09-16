@@ -33,6 +33,8 @@ subtest 'expected role and origin derivation' => sub {
 };
 
 subtest 'url escaping encodes reserved characters' => sub {
+  is Overnet::Burner::Worker::ObjectReader::_url_escape("\x{96ea}"), '%E9%9B%AA',
+    'non-ASCII IDs use UTF-8 bytes';
   is Overnet::Burner::Worker::ObjectReader::_url_escape('a b/c?d'), 'a%20b%2Fc%3Fd',
     'reserved characters become percent escapes';
   is Overnet::Burner::Worker::ObjectReader::_url_escape('safe-._~'), 'safe-._~',
@@ -47,7 +49,7 @@ subtest 'run rejects a workload without object references' => sub {
 subtest 'run fails fast when the endpoint is unreachable' => sub {
   my $run_dir = _layout('or-down');
   my $reader  = Overnet::Burner::Worker::ObjectReader->new(
-    input => _input($run_dir, 'or-down', [{type => 'burner.workload', id => 'x'}], 'ws://127.0.0.1:1'),
+    input => _input($run_dir, 'or-down', [{author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'x'}], 'ws://127.0.0.1:1'),
   );
   like dies { $reader->run }, qr/unreachable/mx, 'an unreachable endpoint is fatal';
   ok !-e File::Spec->catfile($run_dir, 'workers', 'or-down', 'ready'),
@@ -62,9 +64,9 @@ subtest 'a full localhost run measures successes and refusals' => sub {
     input => _input(
       $run_dir, 'or-run',
       [
-        {type => 'burner.workload', id => 'burner-obj-1'},
-        {type => 'burner.workload', id => 'burner-missing'},
-        {type => 'burner.workload', id => 'burner-weird'},
+        {author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'burner-obj-1'},
+        {author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'burner-missing'},
+        {author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'burner-weird'},
       ],
       "ws://127.0.0.1:$port",
       0.6, 20,
@@ -94,7 +96,7 @@ subtest 'a full localhost run measures successes and refusals' => sub {
 subtest 'a single read reports an unreachable relay as a structured error' => sub {
   my $run_dir = _layout('or-single');
   my $reader  = Overnet::Burner::Worker::ObjectReader->new(
-    input => _input($run_dir, 'or-single', [{type => 'burner.workload', id => 'x'}]),
+    input => _input($run_dir, 'or-single', [{author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'x'}]),
   );
   $reader->{host} = 'test-host';
   $reader->open_metric_stream;
@@ -103,7 +105,7 @@ subtest 'a single read reports an unreachable relay as a structured error' => su
   $reader->_read_once(
     http   => $unreachable,
     origin => 'http://127.0.0.1:9',
-    object => {type => 'burner.workload', id => 'x'},
+    object => {author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'x'},
     phase  => 'main',
   );
 
@@ -111,7 +113,7 @@ subtest 'a single read reports an unreachable relay as a structured error' => su
   $reader->_read_once(
     http   => $empty599,
     origin => 'http://127.0.0.1:9',
-    object => {type => 'burner.workload', id => 'x'},
+    object => {author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'x'},
     phase  => 'main',
   );
   $reader->close_metric_stream;
@@ -127,7 +129,7 @@ subtest 'a TERM signal stops the reader between phases' => sub {
   my $port         = _free_port();
   my $endpoint_pid = _spawn_endpoint($port);
   my $run_dir      = _layout('or-term');
-  my $input        = _input($run_dir, 'or-term', [{type => 'burner.workload', id => 'burner-obj-1'}],
+  my $input        = _input($run_dir, 'or-term', [{author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'burner-obj-1'}],
     "ws://127.0.0.1:$port");
   $input->{duration_seconds} = 10;
   $input->{phases}           = [
@@ -162,13 +164,13 @@ subtest 'a TERM signal stops the reader between phases' => sub {
 subtest 'an idle phase paces nothing but still completes' => sub {
   my $run_dir = _layout('or-idle');
   my $reader  = Overnet::Burner::Worker::ObjectReader->new(
-    input => _input($run_dir, 'or-idle', [{type => 'burner.workload', id => 'x'}]),
+    input => _input($run_dir, 'or-idle', [{author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'x'}]),
   );
   my $stop = 0;
   my $done = $reader->_run_phase(
     http    => _fake_http(sub { die "idle phase must not read\n" }),
     origin  => 'http://127.0.0.1:9',
-    objects => [{type => 'burner.workload', id => 'x'}],
+    objects => [{author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'x'}],
     phase   => {name => 'idle', start_seconds => 0, duration_seconds => 0, object_reads => {rate_per_second => 0}},
     started => time,
     stop    => \$stop,

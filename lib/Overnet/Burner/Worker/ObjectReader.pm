@@ -7,6 +7,7 @@ extends 'Overnet::Burner::Worker';
 
 use Carp qw(croak);
 use HTTP::Tiny;
+use Encode      qw(encode FB_CROAK LEAVE_SRC);
 use JSON        ();
 use Time::HiRes qw(sleep time);
 
@@ -113,8 +114,10 @@ sub _read_once {
   my ($self, %args) = @_;
 
   my $object = $args{object};
-  my $url    = sprintf '%s%s?type=%s&id=%s', $args{origin}, $OBJECT_ENDPOINT,
-    _url_escape($object->{type}), _url_escape($object->{id});
+  croak "object read requires an explicit lowercase author pubkey\n"
+    if !defined($object->{author}) || ref($object->{author}) || $object->{author} !~ /\A[0-9a-f]{64}\z/mxs;
+  my $url = sprintf '%s%s?type=%s&id=%s&author=%s', $args{origin}, $OBJECT_ENDPOINT,
+    _url_escape($object->{type}), _url_escape($object->{id}), $object->{author};
 
   my $started_at  = time;
   my $response    = $args{http}->get($url);
@@ -168,6 +171,7 @@ sub _object_read_origin {
 sub _url_escape {
   my ($value) = @_;
 
+  $value = encode('utf8', $value, FB_CROAK | LEAVE_SRC);
   $value =~ s/([^A-Za-z0-9\-._~])/sprintf '%%%02X', ord $1/egmxs;
 
   return $value;

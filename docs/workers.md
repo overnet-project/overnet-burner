@@ -258,7 +258,8 @@ trip on a single clock:
   scheme with `http` (`wss` with `https`), because the relay specification
   places the object read endpoint on the same relay origin.
 - `workload.object_reads.objects` lists the object references to read, each
-  a mapping with non-empty `type` and `id` strings; readers cycle through
+  a mapping with non-empty `type` and `id` strings and a 64-character lowercase
+  hexadecimal `author` public key; readers cycle through
   them in order. `workload.object_reads.rate_per_second` (default `1`)
   paces the reads.
 - A fulfilled read (HTTP `200`) is a metric event with `status: "success"`.

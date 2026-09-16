@@ -793,6 +793,9 @@ sub _validate_object_read_references {
 
   my $objects = _require_array_of_mappings($config, 'workload.object_reads.objects');
   for my $index (0 .. $#{$objects}) {
+    my $author = $objects->[$index]{author};
+    croak "workload.object_reads.objects[$index].author must be a lowercase pubkey\n"
+      if !defined($author) || ref($author) || $author !~ /\A[0-9a-f]{64}\z/mxs;
     for my $field (qw(type id)) {
       my $value = $objects->[$index]{$field};
       if (!(defined $value && !ref($value) && length $value)) {

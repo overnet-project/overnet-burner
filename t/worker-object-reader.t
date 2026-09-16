@@ -38,7 +38,7 @@ subtest 'object reader measures derived object read round trips' => sub {
       object_reads => {
         rate_per_second => 5,
         objects         =>
-          [{type => 'burner.workload', id => 'burner-obj-1'}, {type => 'burner.workload', id => 'burner-missing'},],
+          [{author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'burner-obj-1'}, {author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'burner-missing'},],
       },
     },
   };
@@ -140,7 +140,7 @@ subtest 'object reader fails fast on an unreachable endpoint' => sub {
     workload         => {
       object_reads => {
         rate_per_second => 1,
-        objects         => [{type => 'burner.workload', id => 'burner-obj-1'}],
+        objects         => [{author => '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa', type => 'burner.workload', id => 'burner-obj-1'}],
       },
     },
   };
