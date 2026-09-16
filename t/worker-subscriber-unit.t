@@ -18,6 +18,11 @@ use Overnet::Burner::Metrics;
 use Overnet::Burner::Worker::Publisher;
 use Overnet::Burner::Worker::Subscriber;
 
+my %relay_children;
+END {
+  _stop_relay($_) for grep { $relay_children{$_} == $$ } keys %relay_children;
+}
+
 # In-process coverage for the subscriber: role, the missing-filter fatal
 # path, and a full run driven by a helper child that stores replay events,
 # publishes live stamped/unstamped/future events, and restarts the relay to
@@ -31,43 +36,44 @@ subtest 'role and missing filters' => sub {
 };
 
 subtest 'a full run measures live fanout across a reconnect' => sub {
-  my $port      = _free_port();
-  my $relay_pid = _spawn_relay($port);
-
-  # Replay events stored before the subscriber connects: these arrive during
-  # replay and must not be measured.
-  _publish($port, {seq => 100, stamp => 'now'}, {seq => 101, stamp => 'now'});
-
-  my $run_dir    = _layout('sub-run');
-  my $ready_path = File::Spec->catfile($run_dir, 'workers', 'sub-run', 'ready');
-  my $sub        = Overnet::Burner::Worker::Subscriber->new(
+  my $port        = _free_port();
+  my $run_dir     = _layout('sub-run');
+  my $seeded_path = File::Spec->catfile($run_dir, 'seeded');
+  my $ready_path  = File::Spec->catfile($run_dir, 'workers', 'sub-run', 'ready');
+  my $sub         = Overnet::Burner::Worker::Subscriber->new(
     input => _input($run_dir, 'sub-run', [{kinds => [7800]}], "ws://127.0.0.1:$port", 6),
   );
 
   my $driver = fork;
   die "fork: $!" if !defined $driver;
   if (!$driver) {
-    _await_file($ready_path, 15);
+    # The driver owns both relay processes so it can reap the old listener
+    # before starting its replacement on the same port.
+    my $relay_pid = _spawn_relay($port);
+    _publish($port, {seq => 100, stamp => 'now'}, {seq => 101, stamp => 'now'});
+    open my $seeded, '>', $seeded_path or die "seeded: $!";
+    close $seeded or die "close seeded: $!";
+    _await_file($ready_path, 15) or die "subscriber did not become ready\n";
     # Live events on the first relay: a stamped one (measured), an unstamped
     # one (observed but not measured), and a future-stamped one (clamped).
     _publish($port, {seq => 1, stamp => 'now'});
     _publish($port, {seq => 2, stamp => 'none'});
     _publish($port, {seq => 3, stamp => 'future'});
     sleep 0.4;
-    kill 'TERM', $relay_pid;
-    waitpid $relay_pid, 0;
+    _stop_relay($relay_pid);
     my $restarted = _spawn_relay($port);
     sleep 0.6;    # let the watchdog reconnect and resubscribe
     _publish($port, {seq => 4, stamp => 'now'});
     _publish($port, {seq => 5, stamp => 'now'});
     sleep 0.3;
-    kill 'TERM', $restarted;
-    waitpid $restarted, 0;
+    _stop_relay($restarted);
     exit 0;
   }
 
+  _await_file($seeded_path, 15) or die "relay was not seeded\n";
   $sub->run;
   waitpid $driver, 0;
+  is $?, 0, 'the driver published through the restart and cleaned up both relays';
 
   ok -e $ready_path, 'the subscriber wrote its ready file at the replay boundary';
   my $stream = Overnet::Burner::Metrics->read_stream(
@@ -99,8 +105,7 @@ subtest 'a TERM signal stops the subscriber' => sub {
   waitpid $killer, 0;
   ok time - $started < 25, 'the subscriber stopped on the signal rather than running its full duration';
 
-  kill 'TERM', $relay_pid;
-  waitpid $relay_pid, 0;
+  _stop_relay($relay_pid);
 };
 
 done_testing;
@@ -195,6 +200,7 @@ sub _spawn_relay {
       'Net::Nostr::Relay->new->run($ARGV[0], $ARGV[1])', '127.0.0.1', $port
       or die "exec: $!";
   }
+  $relay_children{$pid} = $$;
   my $deadline = time + 10;
   while (time < $deadline) {
     my $probe = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port, Timeout => 1);
@@ -203,4 +209,14 @@ sub _spawn_relay {
     sleep 0.1;
   }
   die "relay never listened on port $port\n";
+}
+
+sub _stop_relay {
+  my ($pid) = @_;
+  if (waitpid($pid, WNOHANG) == 0) {
+    kill 'TERM', $pid;
+    waitpid $pid, 0;
+  }
+  delete $relay_children{$pid};
+  return;
 }

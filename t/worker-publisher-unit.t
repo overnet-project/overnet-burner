@@ -140,6 +140,36 @@ subtest 'an unacknowledged publish times out' => sub {
   is $stream->[0]{error},  'publish timed out',  'the timeout timer supplies the reason';
 };
 
+subtest 'relay rejections preserve the reason or supply a default' => sub {
+  for my $message (undef, q{}, 'blocked: test policy') {
+    my $run_dir = _layout('pb-rejected');
+    my $pub     = Overnet::Burner::Worker::Publisher->new(input => _input($run_dir, 'pb-rejected'));
+    $pub->{host} = 'test-host';
+    $pub->open_metric_stream;
+
+    my %pending;
+    my $client = _fake_client(
+      connected  => 1,
+      on_publish => sub {
+        my ($event) = @_;
+        my $waiter = delete $pending{$event->id};
+        $waiter->send([0, $message]);
+      },
+    );
+    $pub->_publish_once(
+      client => $client, key => _key(), pending => \%pending, sequence => 1, phase => 'main',
+    );
+    $pub->close_metric_stream;
+
+    my $stream = Overnet::Burner::Metrics->read_stream(
+      File::Spec->catfile($run_dir, 'metrics', 'pb-rejected.jsonl'));
+    is scalar @{$stream}, 1, 'a rejected acknowledgement emits exactly one metric';
+    is $stream->[0]{status}, 'error', 'a relay rejection is an error';
+    is $stream->[0]{error}, $message || 'publish rejected', 'the metric has the relay reason or a default';
+    is \%pending, {}, 'the rejected acknowledgement resolves the pending publish';
+  }
+};
+
 subtest 'an idle phase paces nothing but completes' => sub {
   my $run_dir = _layout('pb-idle');
   my $pub     = Overnet::Burner::Worker::Publisher->new(input => _input($run_dir, 'pb-idle'));
@@ -249,6 +279,11 @@ sub _spawn_relay {
 package _FakePubClient;
 sub is_connected { my ($self) = @_; return $self->{connected} }
 sub connect { my ($self) = @_; die "connect refused\n" if !$self->{connect_ok}; $self->{connected} = 1; return 1 }
-sub publish { my ($self) = @_; die "publish failed\n" if $self->{publish_dies}; return 1 }
+sub publish {
+  my ($self, $event) = @_;
+  die "publish failed\n" if $self->{publish_dies};
+  $self->{on_publish}->($event) if $self->{on_publish};
+  return 1;
+}
 sub disconnect { return 1 }
 sub on         { return 1 }
